@@ -28,6 +28,7 @@
 //   SL_COST_FLAIR  spend-tier prefix on the cost segment
 //   SL_BURN      append $/hr burn rate after cost
 //   SL_GIT_EXTRA ahead/behind, commit age, untracked, stash, branch mood
+//   SL_RAINBOW_STATS  rainbow the cost + session-age like the account name
 
 'use strict';
 const fs = require('fs');
@@ -253,6 +254,8 @@ function drawBar(width, filled, marker, phaseMs = 0) {
 const RAINBOW_MIX = process.env.SL_RAINBOW_MIX
   ? parseInt(process.env.SL_RAINBOW_MIX, 10)
   : (TH.mix != null ? TH.mix : 50);
+// SL_RAINBOW_STATS — rainbow the cost + session-age segments like the name
+const RAINBOW_STATS = bool('SL_RAINBOW_STATS');
 function hueRgb(h, mix) {
   h = mod(h, 360);
   const region = idiv(h, 60), f = h % 60;
@@ -499,7 +502,11 @@ const COST_FLAIR = bool('SL_COST_FLAIR')
   : '';
 let COST_SEG, BAR_PREFIX;
 if (COST_FMT === '0.000') { COST_SEG = `${DIM}$0${R}`; BAR_PREFIX = `${DIM}∅ ${R}`; }
-else { COST_SEG = `${COST_COLOUR}${COST_FLAIR}$${COST_FMT}${R}`; BAR_PREFIX = ''; }
+else {
+  const price = `${COST_FLAIR}$${COST_FMT}`;
+  COST_SEG = RAINBOW_STATS ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
+  BAR_PREFIX = '';
+}
 // burn rate (SL_BURN): $/hr, only once the session is at least a minute old
 if (bool('SL_BURN') && DURATION_MS >= 60000 && costNum > 0) {
   const rate = (COST / (DURATION_MS / 3600000)).toFixed(2);
@@ -513,7 +520,7 @@ if (DUR_S >= 7200) { AGE_C = RED; AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_
 else if (DUR_S >= 3600) { AGE_C = AMBER; AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`; }
 else if (DUR_S >= 60) { AGE_C = GREEN; AGE_LABEL = `${idiv(DUR_S, 60)}m`; }
 else { AGE_C = DIM; AGE_LABEL = `${DUR_S}s`; }
-const AGE_SEG = `${AGE_C}${AGE_LABEL}${R}`;
+const AGE_SEG = RAINBOW_STATS ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
 
 // ── clock (with seconds) ─────────────────────────────────────────────────────
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -547,8 +554,8 @@ if (ONEM) BRACKET += ` ${ONEM}`;
 if (EFFORT_WORD) BRACKET += ` ${EFFORT_WORD}`;
 if (THINKING_WORD) BRACKET += ` ${THINKING_WORD}`;
 
-// Line 1 left: spinner, pet, permission glyph, [crest model …]
-const L1_LEFT = `${SPINNER}${PET}${PERM_GLYPH} ${DIM}[${R}${BRACKET}${DIM}]${R}`;
+// Line 1 left: spinner, permission glyph, pet, [crest model …]
+const L1_LEFT = `${SPINNER}${PERM_GLYPH} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
 const L1_RIGHT = `${MOON}${CLOCK_SEG}`;
 
 let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;

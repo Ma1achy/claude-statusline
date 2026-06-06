@@ -98,6 +98,7 @@ All default **off**. Enable in the `env` block with `on` / `1` / `true`. Everyth
 | `SL_COST_FLAIR` | Spend-tier prefix on cost: `·` `$` `$$` `!$` |
 | `SL_BURN` | Append `$/hr` burn rate after cost (once session ≥ 60s) |
 | `SL_GIT_EXTRA` | Ahead/behind `↑2↓1`, last-commit age `·3m`, untracked `?N`, stash `s:N`, branch-mood tag `[wip]/[fix]/[feat]/[test]` |
+| `SL_RAINBOW_STATS` | Rainbow the cost and session-age segments, like the account name |
 
 ## Tuning
 
