@@ -33,7 +33,7 @@ truecolor gradient, and a moving hue crest animates it. Everything beyond the co
 
 ### Themes — `SL_THEME`
 
-The chosen theme recolors the **whole** statusline, not just the bar.
+The chosen theme recolors the **whole** statusline — bars, usage limits, git, cost, name, everything.
 
 <p align="center"><img src="assets/demo-themes.gif" width="100%" /></p>
 
@@ -44,6 +44,25 @@ The chosen theme recolors the **whole** statusline, not just the bar.
 | `matrix` | All-green, dark→bright ramp |
 | `mono` | Greyscale brightness ramp |
 | `pastel` | Soft, desaturated |
+| `dracula` | Green · cyan · purple · pink |
+| `nord` | Cool arctic blues |
+| `gruvbox` | Warm retro earth tones |
+| `tokyonight` | Blue · cyan · purple · pink |
+| `rosepine` | Muted pine · foam · iris · rose |
+
+### Colormap themes
+
+Perceptually-uniform [matplotlib](https://matplotlib.org/stable/users/explain/colors/colormaps.html) colormaps, sampled as multi-stop gradients.
+
+<p align="center"><img src="assets/demo-colormaps.gif" width="100%" /></p>
+
+| Value | Look |
+|-------|------|
+| `viridis` | Purple → teal → green → yellow |
+| `inferno` | Black → purple → red → orange → yellow |
+| `magma` | Black → purple → pink → cream |
+| `plasma` | Blue → magenta → orange → yellow |
+| `cividis` | Deep blue → muted gold |
 
 ### Bar styles — `SL_BAR_STYLE`
 

@@ -50,23 +50,65 @@ const R = '\x1b[0m', DIM = '\x1b[2m', BOLD = '\x1b[1m';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const bool = (k) => /^(on|1|true|yes)$/i.test(env(k, ''));  // opt-in toggle
 const tc = (r, g, b) => `${ESC}[38;2;${r};${g};${b}m`;
-
-// Per-theme accent palette. `heat` keeps the original ANSI colours (so the
-// default look is unchanged); other themes recolour the whole statusline.
-const PALETTES = {
-  heat:      { RED: '\x1b[31m', GREEN: '\x1b[32m', AMBER: '\x1b[33m', BLUE: '\x1b[34m', CYAN: '\x1b[36m', WHITE: '\x1b[37m', GOLD: '\x1b[38;5;220m' },
-  synthwave: { RED: tc(255, 55, 135), GREEN: tc(0, 255, 170), AMBER: tc(255, 170, 70), BLUE: tc(150, 90, 255), CYAN: tc(0, 229, 255), WHITE: tc(235, 225, 255), GOLD: tc(255, 95, 205) },
-  matrix:    { RED: tc(0, 150, 45), GREEN: tc(0, 255, 65), AMBER: tc(120, 235, 40), BLUE: tc(0, 200, 95), CYAN: tc(0, 225, 120), WHITE: tc(170, 255, 170), GOLD: tc(120, 255, 90) },
-  mono:      { RED: tc(120, 120, 120), GREEN: tc(190, 190, 190), AMBER: tc(155, 155, 155), BLUE: tc(165, 165, 165), CYAN: tc(205, 205, 205), WHITE: tc(228, 228, 228), GOLD: tc(238, 238, 238) },
-  pastel:    { RED: tc(255, 150, 150), GREEN: tc(150, 230, 160), AMBER: tc(240, 210, 140), BLUE: tc(165, 185, 240), CYAN: tc(150, 215, 230), WHITE: tc(238, 238, 238), GOLD: tc(240, 220, 160) },
-};
-const THEME_NAME = env('SL_THEME', 'heat');
-const PAL = PALETTES[THEME_NAME] || PALETTES.heat;
-const RED = PAL.RED, GREEN = PAL.GREEN, AMBER = PAL.AMBER, BLUE = PAL.BLUE, CYAN = PAL.CYAN, WHITE = PAL.WHITE, GOLD = PAL.GOLD;
 const idiv = (a, b) => Math.trunc(a / b);                 // C-like integer division
 const mod = (a, b) => ((a % b) + b) % b;
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
 const printLen = (s) => Array.from(stripAnsi(s)).length;  // count glyphs, not bytes
+
+// ── themes ───────────────────────────────────────────────────────────────────
+// Two kinds: a hue-ramp (hueHi→hueLo + sat + value ramp) or a `cmap` (a list of
+// RGB stops, e.g. matplotlib colormaps). Each theme also carries an accent `pal`;
+// cmap themes without one get a palette auto-derived from the colormap. The
+// chosen theme recolours the WHOLE statusline. `heat` reproduces the original.
+function cmapSample(stops, posp) {
+  const t = Math.max(0, Math.min(100, posp)) / 100 * (stops.length - 1);
+  const i = Math.floor(t), f = t - i, a = stops[i], b = stops[Math.min(i + 1, stops.length - 1)];
+  return [Math.round(a[0] + (b[0] - a[0]) * f), Math.round(a[1] + (b[1] - a[1]) * f), Math.round(a[2] + (b[2] - a[2]) * f)];
+}
+function shiftHue([r, g, b], deg) {            // rotate an RGB colour's hue (for the crest)
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0; const s = mx === 0 ? 0 : d / mx, v = mx;
+  if (d !== 0) { h = mx === r ? (g - b) / d % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h = (h * 60 + deg) % 360; if (h < 0) h += 360; }
+  const c = v * s, x = c * (1 - Math.abs(h / 60 % 2 - 1)), m = v - c, hp = h / 60;
+  let rr, gg, bb;
+  if (hp < 1) [rr, gg, bb] = [c, x, 0]; else if (hp < 2) [rr, gg, bb] = [x, c, 0];
+  else if (hp < 3) [rr, gg, bb] = [0, c, x]; else if (hp < 4) [rr, gg, bb] = [0, x, c];
+  else if (hp < 5) [rr, gg, bb] = [x, 0, c]; else [rr, gg, bb] = [c, 0, x];
+  return [Math.round((rr + m) * 255), Math.round((gg + m) * 255), Math.round((bb + m) * 255)];
+}
+function deriveCmapPal(cmap) {                  // cohesive accents sampled from a colormap
+  const f = (p, floor = 125) => {
+    let c = cmapSample(cmap, p); const mx = Math.max(c[0], c[1], c[2]);
+    if (mx < floor) { const k = floor / (mx || 1); c = c.map((v) => Math.min(255, Math.round(v * k))); }
+    return tc(c[0], c[1], c[2]);
+  };
+  return { RED: f(93), AMBER: f(72), GREEN: f(48), BLUE: f(22), CYAN: f(40), GOLD: f(85), WHITE: tc(228, 228, 228) };
+}
+const THEMES = {
+  // hue-ramp themes
+  heat:      { hueHi: 120, hueLo: 0, sat: 88, valLo: 84, valHi: 84, mix: null, pal: { RED: '\x1b[31m', GREEN: '\x1b[32m', AMBER: '\x1b[33m', BLUE: '\x1b[34m', CYAN: '\x1b[36m', WHITE: '\x1b[37m', GOLD: '\x1b[38;5;220m' } },
+  synthwave: { hueHi: 300, hueLo: 180, sat: 92, valLo: 75, valHi: 92, mix: 30, pal: { RED: tc(255, 55, 135), GREEN: tc(0, 255, 170), AMBER: tc(255, 170, 70), BLUE: tc(150, 90, 255), CYAN: tc(0, 229, 255), WHITE: tc(235, 225, 255), GOLD: tc(255, 95, 205) } },
+  matrix:    { hueHi: 128, hueLo: 100, sat: 95, valLo: 45, valHi: 92, mix: null, pal: { RED: tc(0, 150, 45), GREEN: tc(0, 255, 65), AMBER: tc(120, 235, 40), BLUE: tc(0, 200, 95), CYAN: tc(0, 225, 120), WHITE: tc(170, 255, 170), GOLD: tc(120, 255, 90) } },
+  mono:      { hueHi: 0, hueLo: 0, sat: 0, valLo: 38, valHi: 95, mix: null, pal: { RED: tc(120, 120, 120), GREEN: tc(190, 190, 190), AMBER: tc(155, 155, 155), BLUE: tc(165, 165, 165), CYAN: tc(205, 205, 205), WHITE: tc(228, 228, 228), GOLD: tc(238, 238, 238) } },
+  pastel:    { hueHi: 120, hueLo: 0, sat: 52, valLo: 88, valHi: 88, mix: 70, pal: { RED: tc(255, 150, 150), GREEN: tc(150, 230, 160), AMBER: tc(240, 210, 140), BLUE: tc(165, 185, 240), CYAN: tc(150, 215, 230), WHITE: tc(238, 238, 238), GOLD: tc(240, 220, 160) } },
+  // matplotlib colormaps (palette auto-derived)
+  viridis: { cmap: [[68, 1, 84], [70, 50, 126], [54, 92, 141], [39, 127, 142], [31, 161, 135], [74, 193, 109], [160, 218, 57], [253, 231, 37]], mix: 25 },
+  inferno: { cmap: [[0, 0, 4], [40, 11, 83], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 194, 40], [252, 255, 164]], mix: 20 },
+  magma:   { cmap: [[0, 0, 4], [34, 17, 80], [95, 24, 127], [152, 45, 128], [211, 67, 110], [248, 118, 92], [254, 187, 129], [252, 253, 191]], mix: 22 },
+  plasma:  { cmap: [[13, 8, 135], [83, 2, 163], [139, 10, 165], [184, 50, 137], [219, 92, 104], [244, 136, 73], [254, 189, 42], [240, 249, 33]], mix: 22 },
+  cividis: { cmap: [[0, 34, 78], [33, 59, 110], [76, 85, 108], [108, 110, 114], [142, 137, 120], [177, 165, 112], [217, 197, 92], [254, 232, 56]], mix: 25 },
+  // designer palettes
+  dracula:    { cmap: [[80, 250, 123], [139, 233, 253], [189, 147, 249], [255, 121, 198]], mix: 35, pal: { RED: tc(255, 85, 85), AMBER: tc(255, 184, 108), GREEN: tc(80, 250, 123), BLUE: tc(189, 147, 249), CYAN: tc(139, 233, 253), GOLD: tc(241, 250, 140), WHITE: tc(248, 248, 242) } },
+  nord:       { cmap: [[94, 129, 172], [129, 161, 193], [136, 192, 208], [143, 188, 187]], mix: 40, pal: { RED: tc(191, 97, 106), AMBER: tc(235, 203, 139), GREEN: tc(163, 190, 140), BLUE: tc(129, 161, 193), CYAN: tc(136, 192, 208), GOLD: tc(235, 203, 139), WHITE: tc(236, 239, 244) } },
+  gruvbox:    { cmap: [[131, 165, 152], [184, 187, 38], [250, 189, 47], [254, 128, 25]], mix: 25, pal: { RED: tc(251, 73, 52), AMBER: tc(250, 189, 47), GREEN: tc(184, 187, 38), BLUE: tc(131, 165, 152), CYAN: tc(142, 192, 124), GOLD: tc(250, 189, 47), WHITE: tc(235, 219, 178) } },
+  tokyonight: { cmap: [[122, 162, 247], [125, 207, 255], [187, 154, 247], [247, 118, 142]], mix: 30, pal: { RED: tc(247, 118, 142), AMBER: tc(224, 175, 104), GREEN: tc(158, 206, 106), BLUE: tc(122, 162, 247), CYAN: tc(125, 207, 255), GOLD: tc(224, 175, 104), WHITE: tc(192, 202, 245) } },
+  rosepine:   { cmap: [[49, 116, 143], [156, 207, 216], [196, 167, 231], [235, 188, 186]], mix: 45, pal: { RED: tc(235, 111, 146), AMBER: tc(246, 193, 119), GREEN: tc(156, 207, 216), BLUE: tc(49, 116, 143), CYAN: tc(156, 207, 216), GOLD: tc(246, 193, 119), WHITE: tc(224, 222, 244) } },
+};
+const THEME_NAME = env('SL_THEME', 'heat');
+const TH = THEMES[THEME_NAME] || THEMES.heat;
+const PAL = TH.pal || deriveCmapPal(TH.cmap);
+const RED = PAL.RED, GREEN = PAL.GREEN, AMBER = PAL.AMBER, BLUE = PAL.BLUE, CYAN = PAL.CYAN, WHITE = PAL.WHITE, GOLD = PAL.GOLD;
 
 function termCols() {
   // Match the bash version's priority: `tput cols` first (it can read the
@@ -132,17 +174,7 @@ const SPEED = parseInt(env('SL_SPEED', '3'), 10);
 const GLOW = parseInt(env('SL_GLOW', '240'), 10);
 const WAVE_HUE = parseInt(env('SL_WAVE_HUE', '32'), 10);
 
-// Palette presets. heat == the original look (no-op default). hueHi=fill start,
-// hueLo=fill end; valLo/valHi ramp brightness by position; sat=saturation;
-// mix=rainbow-name white-blend (null → use SL_RAINBOW_MIX / 50).
-const THEMES = {
-  heat:      { hueHi: 120, hueLo: 0,   sat: 88, valLo: 84, valHi: 84, mix: null },
-  matrix:    { hueHi: 128, hueLo: 100, sat: 95, valLo: 45, valHi: 92, mix: null },
-  mono:      { hueHi: 0,   hueLo: 0,   sat: 0,  valLo: 38, valHi: 95, mix: null },
-  synthwave: { hueHi: 300, hueLo: 180, sat: 92, valLo: 75, valHi: 92, mix: 30 },
-  pastel:    { hueHi: 120, hueLo: 0,   sat: 52, valLo: 88, valHi: 88, mix: 70 },
-};
-const TH = THEMES[THEME_NAME] || THEMES.heat;
+// (THEMES / TH / PAL are defined near the top, before the accent constants.)
 const BAR_STYLE = env('SL_BAR_STYLE', 'blocks');
 const MATRIX_CHARS = '01<>{}[]/\\|=+*'.split('');
 const hashI = (n) => { n = Math.imul(n >>> 0, 2654435761) >>> 0; return n; };
@@ -187,7 +219,6 @@ function drawBar(width, filled, marker, phaseMs = 0) {
   const px = (sx) => {
     if (SHIMMER === 'disco') return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
     let posp = idiv(sx, width); if (posp > 100) posp = 100; if (posp < 0) posp = 0;
-    const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
     let hoff = 0, dc, lead;
     switch (SHIMMER) {
       case 'sweep':
@@ -212,6 +243,13 @@ function drawBar(width, filled, marker, phaseMs = 0) {
         hoff = hglob;
         break;
     }
+    // cmap themes: sample the colormap by position, then hue-shift for the crest
+    if (TH.cmap) {
+      const c = cmapSample(TH.cmap, posp);
+      return hoff ? shiftHue(c, hoff) : c;
+    }
+    // hue-ramp themes (incl. heat — byte-identical to the original)
+    const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
     const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
     return hsv(bh + hoff, TH.sat, vv);
   };
