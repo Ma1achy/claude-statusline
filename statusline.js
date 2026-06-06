@@ -20,7 +20,6 @@
 //   SL_THEME     heat|synthwave|matrix|mono|pastel  (default heat)
 //   SL_BAR_STYLE blocks|pacman|snake|matrix         (default blocks)
 // Opt-in whimsy (all default OFF; set to on/1/true):
-//   SL_SPINNER   braille spinner on line 1
 //   SL_PET       ASCII pet face reacting to context/cost
 //   SL_CREST     per-model accent glyph (★ Opus / ◆ Sonnet / ▲ Haiku)
 //   SL_MOON      moon-phase glyph before the clock
@@ -348,11 +347,6 @@ if (PERM.startsWith('accept')) PERM_GLYPH = `${ESC}[38;2;255;176;48m⚡${R}`;   
 else if (PERM.startsWith('bypass')) PERM_GLYPH = `${ESC}[38;2;255;82;129m!!${R}`;  // skip
 else PERM_GLYPH = `${ESC}[38;2;160;150;255m?${R}`;                                  // ask
 
-// ── spinner (SL_SPINNER) — braille tick, advances once/sec ───────────────────
-const SPINNER = bool('SL_SPINNER')
-  ? `${CYAN}${'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[mod(BASE_FRAME, 10)]}${R} `
-  : '';
-
 // ── pet (SL_PET) — ASCII face reacting to context %; cost ≥ $0.50 overrides ───
 let PET = '';
 if (bool('SL_PET')) {
@@ -554,8 +548,8 @@ if (ONEM) BRACKET += ` ${ONEM}`;
 if (EFFORT_WORD) BRACKET += ` ${EFFORT_WORD}`;
 if (THINKING_WORD) BRACKET += ` ${THINKING_WORD}`;
 
-// Line 1 left: spinner, permission glyph, pet, [crest model …]
-const L1_LEFT = `${SPINNER}${PERM_GLYPH} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
+// Line 1 left: permission glyph, pet, [crest model …]
+const L1_LEFT = `${PERM_GLYPH} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
 const L1_RIGHT = `${MOON}${CLOCK_SEG}`;
 
 let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
