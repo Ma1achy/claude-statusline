@@ -74,8 +74,8 @@ function build(): string {
   // ── fast/slow + vim mode ────────────────────────────────────────────────────
   // Claude Code does NOT expose the permission/auto-accept mode to statuslines
   // (no such field), so this slot shows what IS available: the /fast toggle
-  // (gold ⚡ = fast, dim ⚡ = slow) and the vim input mode when enabled.
-  const FAST = data.fast_mode ? `${GOLD}⚡${R}` : `${DIM}⚡${R}`;
+  // (gold ⚡ = fast, dim ▫ = slow) and the vim input mode when enabled.
+  const FAST = data.fast_mode ? `${GOLD}⚡${R}` : `${DIM}▫${R}`;   // ⚡ fast · ▫ slow
   let VIM = '';
   const vmode = (data.vim && data.vim.mode) || '';
   if (vmode) {

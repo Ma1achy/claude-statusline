@@ -52,8 +52,8 @@ test('lead: fast bolt always shown; vim letter only with vim.mode', () => {
     env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
   }));
   assert.ok(raw({ fast_mode: true }).startsWith('⚡'), 'fast bolt missing');
-  assert.ok(raw({ fast_mode: false }).startsWith('⚡'), 'slow bolt missing');
-  assert.match(raw({ fast_mode: false, vim: { mode: 'INSERT' } }), /^⚡ I/, 'vim insert letter missing');
+  assert.ok(raw({ fast_mode: false }).startsWith('▫'), 'slow glyph missing');
+  assert.match(raw({ fast_mode: false, vim: { mode: 'INSERT' } }), /^▫ I/, 'vim insert letter missing');
   assert.ok(!/^⚡ [A-Z]/.test(raw({ fast_mode: true })), 'vim letter should be absent without vim.mode');
 });
 

@@ -179,7 +179,7 @@ toggled by shift+tab) in the statusline payload, so this slot shows:
 | Glyph | Meaning |
 |-------|---------|
 | `⚡` (gold) | `/fast` mode is **on** |
-| `⚡` (dim) | normal / slow mode |
+| `▫` (dim) | normal / slow mode |
 | ` N` / ` I` / ` V` | vim input mode (Normal / Insert / Visual) — only shown when vim mode is enabled |
 
 # **Development**

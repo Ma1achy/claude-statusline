@@ -485,7 +485,7 @@ function build() {
       break;
   }
   const THINKING_WORD = THINKING ? `${DIM}${EFFORT_C}thinking${R}` : "";
-  const FAST = data.fast_mode ? `${GOLD}\u26A1${R}` : `${DIM}\u26A1${R}`;
+  const FAST = data.fast_mode ? `${GOLD}\u26A1${R}` : `${DIM}\u25AB${R}`;
   let VIM = "";
   const vmode = data.vim && data.vim.mode || "";
   if (vmode) {
