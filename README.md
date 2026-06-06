@@ -178,6 +178,34 @@ no emoji), so right-alignment stays exact on every terminal.
 | `⚡` | Yellow-orange | Auto (`acceptEdits`) |
 | `!!` | Reddish pink | Skip (`bypassPermissions`) |
 
+# **Development**
+---
+
+The shipped `statusline.js` is a **bundled build** — you never need to build it to *use* it
+(just copy that one file). To work on it:
+
+```bash
+npm install        # esbuild + typescript (dev only; runtime stays zero-dependency)
+npm run build      # src/*.ts → statusline.js  (esbuild bundle, ~30 ms)
+npm test           # builds, then golden-snapshot + smoke + alignment tests
+npm run render     # regenerate the demo GIFs in assets/ (needs Python + PIL)
+```
+
+Source lives in `src/` (TypeScript, one module per concern: `themes`, `bar`, `color`,
+`rainbow`, `git`, `segments`/`index`, …). The build bundles to a single zero-dependency CommonJS
+file, so the runtime is still just `node statusline.js`. Tests run against the **built** artifact
+and compare to committed golden snapshots in `test/golden/`; after an intentional change, refresh
+them with `node scripts/gen-goldens.js`.
+
+<details>
+  <summary>Why a build step?</summary>
+  <ul style="margin-left: 20px;">
+    <li>TypeScript gives types for the Claude Code input schema and the ~20 config options.</li>
+    <li>Bundling to one file keeps the "copy a single file, no install" experience for users.</li>
+    <li>The bundle imports only Node built-ins (<code>fs</code>, <code>os</code>, <code>child_process</code>) — no <code>node_modules</code> at runtime.</li>
+  </ul>
+</details>
+
 # **How it works**
 ---
 
