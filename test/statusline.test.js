@@ -57,7 +57,36 @@ test('lead: fast bolt always shown; vim letter only with vim.mode', () => {
   assert.ok(!/^⚡ [A-Z]/.test(raw({ fast_mode: true })), 'vim letter should be absent without vim.mode');
 });
 
-// 5. Privacy guard — the fixture's dummy email appears; nothing else leaks.
+// 5. Gradient % — the percentage colour lerps with the value (no fixed thresholds).
+test('gradient: % colour changes smoothly with the value', () => {
+  const base = { model: { id: 'claude-opus-4-8' }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } };
+  const pctColour = (p) => {
+    const out = execFileSync('node', [STATUSLINE], {
+      input: JSON.stringify({ ...base, context_window: { context_window_size: 200000, used_percentage: p } }),
+      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
+    });
+    return (out.split('\n')[1].match(new RegExp(`38;2;[0-9]+;[0-9]+;[0-9]+m${p}%`)) || [''])[0];
+  };
+  const cols = [15, 45, 75, 95].map(pctColour);
+  assert.strictEqual(new Set(cols).size, 4, 'each % should get a distinct lerped colour');
+});
+
+// 6. Autocompact marker only when enabled.
+test('autocompact: marker hidden when autoCompactEnabled is false', () => {
+  const off = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-off-'));
+  fs.mkdirSync(path.join(off, '.claude'));
+  fs.writeFileSync(path.join(off, '.claude.json'), '{}');
+  fs.writeFileSync(path.join(off, '.claude', 'settings.json'), JSON.stringify({ autoCompactEnabled: false }));
+  const line2 = (home) => stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 50 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
+  }).split('\n')[1]);
+  assert.ok(!line2(off).includes('┃') && !line2(off).includes('|'), 'marker/label should be hidden when disabled');
+  assert.ok(line2(fix.home).includes('┃'), 'marker should show when enabled');
+  fs.rmSync(off, { recursive: true, force: true });
+});
+
+// 7. Privacy guard — the fixture's dummy email appears; nothing else leaks.
 test('privacy: dummy email rendered, no real address', () => {
   const out = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));
   assert.ok(out.includes('malachy@email.com'), 'expected dummy email');

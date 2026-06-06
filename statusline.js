@@ -47,6 +47,7 @@ if (shimmer === "pulse")
 if (shimmer === "march")
   shimmer = "scan";
 var nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
+var clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
 var cfg = {
   shimmer,
   speed: intEnv("SL_SPEED", 3),
@@ -65,6 +66,7 @@ var cfg = {
   gitExtra: bool("SL_GIT_EXTRA"),
   rainbowStats: bool("SL_RAINBOW_STATS"),
   nowMs,
+  clockMs,
   baseFrame: idiv(nowMs, 1e3)
 };
 
@@ -238,6 +240,23 @@ var TH = THEMES[cfg.themeName] || THEMES.heat;
 var PAL = TH.pal || deriveCmapPal(TH.cmap);
 var { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
 var RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
+function gradientColor(posp) {
+  posp = Math.max(0, Math.min(100, posp));
+  let c;
+  if (TH.cmap) {
+    c = cmapSample(TH.cmap, posp);
+  } else {
+    const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
+    const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
+    c = hsv(bh, TH.sat, vv);
+  }
+  const mx = Math.max(c[0], c[1], c[2]);
+  if (mx < 150) {
+    const k = 150 / (mx || 1);
+    c = [Math.min(255, Math.round(c[0] * k)), Math.min(255, Math.round(c[1] * k)), Math.min(255, Math.round(c[2] * k))];
+  }
+  return tc(c[0], c[1], c[2]);
+}
 
 // src/bar.ts
 var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
@@ -249,9 +268,9 @@ function drawBar(width, filled, marker, phaseMs = 0) {
   if (span < 1)
     span = 1;
   let posc = 0, hglob = 0;
+  const wrap = span * 100;
   if (shimmer2 === "sweep" || shimmer2 === "comet" || shimmer2 === "wave") {
-    const cyclec = (span + 4) * 100;
-    posc = mod(idiv(t * speed, 10), cyclec);
+    posc = mod(idiv(t * speed, 10), wrap);
   } else if (shimmer2 === "scan") {
     let cyclec = span * 200;
     if (cyclec < 1)
@@ -274,31 +293,38 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       posp = 100;
     if (posp < 0)
       posp = 0;
-    let hoff = 0, dc, lead;
+    let hoff = 0;
+    const torus = () => {
+      const d = Math.abs(sx - posc);
+      return Math.min(d, wrap - d);
+    };
     switch (shimmer2) {
-      case "sweep":
-        dc = Math.abs(sx - posc);
+      case "sweep": {
+        const dc = torus();
         if (dc < glow)
           hoff = idiv(waveHue * (glow - dc) * (glow - dc), glow * glow);
         break;
-      case "wave":
-        dc = Math.abs(sx - posc);
+      }
+      case "wave": {
+        const dc = torus();
         if (dc < 450)
           hoff = idiv(waveHue * (450 - dc), 450);
         break;
-      case "comet":
-        lead = posc - sx;
-        if (lead >= 0 && lead < 420)
+      }
+      case "comet": {
+        const lead = mod(posc - sx, wrap);
+        if (lead < 420)
           hoff = idiv(waveHue * (420 - lead), 420);
-        dc = Math.abs(sx - posc);
-        if (dc < 70)
+        if (torus() < 70)
           hoff = waveHue;
         break;
-      case "scan":
-        dc = Math.abs(sx - posc);
+      }
+      case "scan": {
+        const dc = Math.abs(sx - posc);
         if (dc < 140)
           hoff = idiv(waveHue * (140 - dc), 140);
         break;
+      }
       case "breathe":
         hoff = hglob;
         break;
@@ -525,7 +551,7 @@ function build() {
   const clockColour = () => {
     if (!cfg.daynight)
       return DIM;
-    const h = new Date(cfg.nowMs).getHours();
+    const h = new Date(cfg.clockMs).getHours();
     if (h < 5 || h >= 22)
       return `${ESC}[38;2;90;110;170m`;
     if (h < 8)
@@ -608,14 +634,14 @@ function build() {
     const st = JSON.parse(fs.readFileSync(`${os.homedir()}/.claude/settings.json`, "utf8"));
     if (st.env && st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
       COMPACT_PCT = String(st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
-    if (st.autoCompact === false)
+    if (st.autoCompactEnabled === false || st.autoCompact === false)
       COMPACT_OFF = true;
   } catch {
   }
   let COMPACT_LABEL, COMPACT_PCT_VAL;
   if (COMPACT_OFF) {
-    COMPACT_LABEL = `${DIM} no-cmp${R}`;
-    COMPACT_PCT_VAL = 100;
+    COMPACT_LABEL = "";
+    COMPACT_PCT_VAL = -1;
   } else if (COMPACT_PCT) {
     COMPACT_LABEL = `${DIM} |${COMPACT_PCT}%${R}`;
     COMPACT_PCT_VAL = parseInt(COMPACT_PCT, 10);
@@ -627,8 +653,7 @@ function build() {
   const FILLED = idiv(PCT * BAR_WIDTH, 100);
   const MARKER_POS = COMPACT_OFF ? -1 : idiv(COMPACT_PCT_VAL * BAR_WIDTH, 100);
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
-  const PCT_COLOUR = PCT >= 70 ? RED : PCT >= 40 ? AMBER : GREEN;
-  const PCT_SEG = `${PCT_COLOUR}${PCT}%${R}`;
+  const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;
   let TURN_SEG = "";
   if (cu != null) {
     const total = CU_INPUT + CU_WRITE + CU_READ;
@@ -679,7 +704,7 @@ function build() {
   const AGE_SEG = cfg.rainbowStats ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const dt = new Date(cfg.nowMs);
+  const dt = new Date(cfg.clockMs);
   const p2 = (n) => String(n).padStart(2, "0");
   const CLOCK_SEG = `${clockColour()}${DAYS[dt.getDay()]} ${p2(dt.getDate())} ${MONTHS[dt.getMonth()]}  ${p2(dt.getHours())}:${p2(dt.getMinutes())}:${p2(dt.getSeconds())}${R}`;
   let USAGE_SEG = "";
@@ -691,7 +716,7 @@ function build() {
         pct = 100;
       const filled = idiv(pct * 10, 100);
       const bar = drawBar(10, filled, -1, phase);
-      const pc = pct >= 80 ? RED : pct >= 50 ? AMBER : GREEN;
+      const pc = gradientColor(pct);
       let secsLeft = 0;
       const ra = typeof resetsAt === "number" ? resetsAt : parseInt(String(resetsAt), 10);
       if (Number.isFinite(ra) && ra > 0)

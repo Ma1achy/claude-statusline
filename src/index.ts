@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import { ESC, R, DIM, BOLD, justified } from './ansi';
-import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } from './themes';
+import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
 import { drawBar } from './bar';
 import { rainbow } from './rainbow';
 import { fmtK, fmtCountdown } from './format';
@@ -109,7 +109,7 @@ function build(): string {
   // ── day/night clock colour (SL_DAYNIGHT) ────────────────────────────────────
   const clockColour = (): string => {
     if (!cfg.daynight) return DIM;
-    const h = new Date(cfg.nowMs).getHours();
+    const h = new Date(cfg.clockMs).getHours();
     if (h < 5 || h >= 22) return `${ESC}[38;2;90;110;170m`;
     if (h < 8) return `${ESC}[38;2;150;170;210m`;
     if (h < 17) return `${ESC}[38;2;230;225;180m`;
@@ -181,14 +181,16 @@ function build(): string {
   const FILE_SEG = LAST_FILE ? ` ${DIM}› ${LAST_FILE}${R}` : '';
 
   // ── autocompact threshold (from settings.json) ──────────────────────────────
+  // The marker + label only appear when autocompact is ENABLED. autoCompactEnabled
+  // is the current key (older builds used autoCompact); default is on if absent.
   let COMPACT_PCT = '', COMPACT_OFF = false;
   try {
     const st = JSON.parse(fs.readFileSync(`${os.homedir()}/.claude/settings.json`, 'utf8'));
     if (st.env && st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE) COMPACT_PCT = String(st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
-    if (st.autoCompact === false) COMPACT_OFF = true;
+    if (st.autoCompactEnabled === false || st.autoCompact === false) COMPACT_OFF = true;
   } catch { /* ignore */ }
   let COMPACT_LABEL: string, COMPACT_PCT_VAL: number;
-  if (COMPACT_OFF) { COMPACT_LABEL = `${DIM} no-cmp${R}`; COMPACT_PCT_VAL = 100; }
+  if (COMPACT_OFF) { COMPACT_LABEL = ''; COMPACT_PCT_VAL = -1; }            // disabled → no marker, no label
   else if (COMPACT_PCT) { COMPACT_LABEL = `${DIM} |${COMPACT_PCT}%${R}`; COMPACT_PCT_VAL = parseInt(COMPACT_PCT, 10); }
   else { COMPACT_LABEL = `${DIM} |95%${R}`; COMPACT_PCT_VAL = 95; }
 
@@ -197,8 +199,7 @@ function build(): string {
   const FILLED = idiv(PCT * BAR_WIDTH, 100);
   const MARKER_POS = COMPACT_OFF ? -1 : idiv(COMPACT_PCT_VAL * BAR_WIDTH, 100);
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
-  const PCT_COLOUR = PCT >= 70 ? RED : PCT >= 40 ? AMBER : GREEN;
-  const PCT_SEG = `${PCT_COLOUR}${PCT}%${R}`;
+  const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;   // lerps along the theme gradient
 
   // ── per-turn token breakdown ────────────────────────────────────────────────
   let TURN_SEG = '';
@@ -248,7 +249,7 @@ function build(): string {
   // ── clock ─────────────────────────────────────────────────────────────────
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const dt = new Date(cfg.nowMs);
+  const dt = new Date(cfg.clockMs);
   const p2 = (n: number): string => String(n).padStart(2, '0');
   const CLOCK_SEG = `${clockColour()}${DAYS[dt.getDay()]} ${p2(dt.getDate())} ${MONTHS[dt.getMonth()]}  ${p2(dt.getHours())}:${p2(dt.getMinutes())}:${p2(dt.getSeconds())}${R}`;
 
@@ -260,7 +261,7 @@ function build(): string {
       let pct = Math.floor(pctIn || 0); if (pct > 100) pct = 100;
       const filled = idiv(pct * 10, 100);
       const bar = drawBar(10, filled, -1, phase);
-      const pc = pct >= 80 ? RED : pct >= 50 ? AMBER : GREEN;
+      const pc = gradientColor(pct);   // lerps along the theme gradient
       let secsLeft = 0;
       const ra = typeof resetsAt === 'number' ? resetsAt : parseInt(String(resetsAt), 10);
       if (Number.isFinite(ra) && ra > 0) secsLeft = ra - NOW;

@@ -120,7 +120,9 @@ def make_gif(home, repo, name, frames, duration):
         env_extra = dict(env_extra)
         pct, cost, dur = env_extra.pop("_pct", 42), env_extra.pop("_cost", 0.23), env_extra.pop("_dur", 1860000)
         env_extra.pop("_cap", None)
-        env = {"HOME": home, "PATH": os.environ["PATH"], "COLUMNS": COLS, "TZ": "Europe/London", "SL_FRAME_MS": str(fms)}
+        # SL_CLOCK_MS freezes the clock so GIFs loop without the seconds ticking.
+        env = {"HOME": home, "PATH": os.environ["PATH"], "COLUMNS": COLS, "TZ": "Europe/London",
+               "SL_FRAME_MS": str(fms), "SL_CLOCK_MS": str(BASE_MS)}
         env.update({k: str(v) for k, v in env_extra.items()})
         sample = {"workspace": {"current_dir": repo},
                   "model": {"id": "claude-opus-4-8", "display_name": "Opus"},
@@ -142,15 +144,16 @@ def make_gif(home, repo, name, frames, duration):
 def main():
     base, home, repo = setup_fixture()
     try:
+        # Seamless loops: clock frozen, span = one rainbow period (6480 ms) so the
+        # name + crest return to their start; pct/cost held constant.
         make_gif(home, repo, "demo-default.gif",
-                 [({"_pct": 20 + k * 4}, BASE_MS + k * 1000, None) for k in range(10)], 420)
+                 [({"_pct": 48, "SL_SPEED": 2}, BASE_MS + k * 540, None) for k in range(12)], 280)
 
         loaded = {"SL_PET": "on", "SL_CREST": "on", "SL_MOON": "on", "SL_DAYNIGHT": "on",
-                  "SL_COST_FLAIR": "on", "SL_BURN": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on", "SL_SHIMMER": "wave"}
-        pcts = [22, 30, 45, 58, 68, 74, 82, 90, 90, 90]
-        costs = [0.08, 0.12, 0.18, 0.27, 0.36, 0.48, 0.55, 0.72, 0.95, 1.20]
+                  "SL_COST_FLAIR": "on", "SL_BURN": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on",
+                  "SL_SHIMMER": "wave", "SL_SPEED": 2}
         make_gif(home, repo, "demo-loaded.gif",
-                 [({**loaded, "_pct": pcts[k], "_cost": costs[k]}, BASE_MS + k * 1000, None) for k in range(10)], 480)
+                 [({**loaded, "_pct": 48, "_cost": 0.55}, BASE_MS + k * 540, None) for k in range(12)], 280)
 
         tb = {"SL_CREST": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on", "SL_SHIMMER": "wave", "_pct": 58}
         make_gif(home, repo, "demo-themes.gif",
@@ -166,9 +169,10 @@ def main():
         make_gif(home, repo, "demo-shimmer.gif",
                  [({"SL_SHIMMER": s, "_pct": 66}, BASE_MS + k * 1000, f"SL_SHIMMER={s}")
                   for s in ["sweep", "wave", "comet", "breathe", "scan"] for k in range(4)], 360)
+        # disco loops perfectly over 10800 ms (bar hue 1 cycle, name 5 cycles).
         disco = {"SL_SHIMMER": "disco", "SL_RAINBOW_STATS": "on", "SL_PET": "on", "SL_CREST": "on", "_pct": 64}
         make_gif(home, repo, "demo-disco.gif",
-                 [({**disco}, BASE_MS + k * 250, None) for k in range(12)], 220)
+                 [({**disco}, BASE_MS + k * 900, None) for k in range(12)], 240)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print("done")

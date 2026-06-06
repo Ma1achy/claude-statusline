@@ -23,10 +23,12 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
   const t = nowMs + phaseMs;
   let span = filled; if (span < 1) span = 1;
   let posc = 0, hglob = 0;
+  // Toroidal period for the flowing crests: the crest wraps from the right edge
+  // straight back to the left (no gap, no restart), so the loop is seamless.
+  const wrap = span * 100;
 
   if (shimmer === 'sweep' || shimmer === 'comet' || shimmer === 'wave') {
-    const cyclec = (span + 4) * 100;
-    posc = mod(idiv(t * speed, 10), cyclec);
+    posc = mod(idiv(t * speed, 10), wrap);
   } else if (shimmer === 'scan') {
     let cyclec = span * 200; if (cyclec < 1) cyclec = 1;
     posc = mod(idiv(t * speed, 10), cyclec);
@@ -40,26 +42,31 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
   const px = (sx: number): RGB => {
     if (shimmer === 'disco') return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
     let posp = idiv(sx, width); if (posp > 100) posp = 100; if (posp < 0) posp = 0;
-    let hoff = 0, dc: number, lead: number;
+    let hoff = 0;
+    // toroidal distance to the crest (wraps around the ends) → seamless loop
+    const torus = (): number => { const d = Math.abs(sx - posc); return Math.min(d, wrap - d); };
     switch (shimmer) {
-      case 'sweep':
-        dc = Math.abs(sx - posc);
+      case 'sweep': {
+        const dc = torus();
         if (dc < glow) hoff = idiv(waveHue * (glow - dc) * (glow - dc), glow * glow);
         break;
-      case 'wave':
-        dc = Math.abs(sx - posc);
+      }
+      case 'wave': {
+        const dc = torus();
         if (dc < 450) hoff = idiv(waveHue * (450 - dc), 450);
         break;
-      case 'comet':
-        lead = posc - sx;
-        if (lead >= 0 && lead < 420) hoff = idiv(waveHue * (420 - lead), 420);
-        dc = Math.abs(sx - posc);
-        if (dc < 70) hoff = waveHue;
+      }
+      case 'comet': {
+        const lead = mod(posc - sx, wrap);   // distance behind the head, wrapping
+        if (lead < 420) hoff = idiv(waveHue * (420 - lead), 420);
+        if (torus() < 70) hoff = waveHue;     // the head itself
         break;
-      case 'scan':
-        dc = Math.abs(sx - posc);
+      }
+      case 'scan': {
+        const dc = Math.abs(sx - posc);       // scan bounces, so no wrap needed
         if (dc < 140) hoff = idiv(waveHue * (140 - dc), 140);
         break;
+      }
       case 'breathe':
         hoff = hglob;
         break;

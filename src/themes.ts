@@ -3,9 +3,10 @@
 // `pal`; cmap themes without one get a palette auto-derived from the colormap.
 // The active theme recolours the WHOLE statusline. `heat` reproduces the original.
 import { tc } from './ansi';
-import { cmapSample } from './color';
+import { hsv, cmapSample } from './color';
 import { cfg } from './config';
-import type { Theme, Palette } from './types';
+import { idiv } from './util';
+import type { Theme, Palette, RGB } from './types';
 
 export const THEMES: Record<string, Theme> = {
   // hue-ramp themes
@@ -45,3 +46,21 @@ export const { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
 
 // Explicit SL_RAINBOW_MIX wins; else the theme's mix; else 50.
 export const RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : (TH.mix != null ? TH.mix : 50);
+
+// Colour at fill position 0..100 along the active theme's gradient — same colour
+// the bar shows there. Used to tint percentage text so it lerps smoothly with the
+// value instead of jumping at thresholds. Floored to stay readable on dark bg.
+export function gradientColor(posp: number): string {
+  posp = Math.max(0, Math.min(100, posp));
+  let c: RGB;
+  if (TH.cmap) {
+    c = cmapSample(TH.cmap, posp);
+  } else {
+    const bh = (TH.hueHi as number) - idiv(posp * ((TH.hueHi as number) - (TH.hueLo as number)), 100);
+    const vv = (TH.valLo as number) + idiv(((TH.valHi as number) - (TH.valLo as number)) * posp, 100);
+    c = hsv(bh, TH.sat as number, vv);
+  }
+  const mx = Math.max(c[0], c[1], c[2]);
+  if (mx < 150) { const k = 150 / (mx || 1); c = [Math.min(255, Math.round(c[0] * k)), Math.min(255, Math.round(c[1] * k)), Math.min(255, Math.round(c[2] * k))]; }
+  return tc(c[0], c[1], c[2]);
+}

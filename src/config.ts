@@ -10,6 +10,9 @@ if (shimmer === 'march') shimmer = 'scan';
 // so ms timing can't make motion sub-second-smooth — it just keeps the animation
 // phase honest and drives the rainbow. SL_FRAME_MS overrides for tests/renders.
 const nowMs = parseInt(env('SL_FRAME_MS', ''), 10) || Date.now();
+// SL_CLOCK_MS freezes the clock/day-night display independently of the animation
+// frame — used by the demo renderer to make GIFs loop without the clock ticking.
+const clockMs = parseInt(env('SL_CLOCK_MS', ''), 10) || nowMs;
 
 export const cfg: Config = {
   shimmer,
@@ -29,5 +32,6 @@ export const cfg: Config = {
   gitExtra: bool('SL_GIT_EXTRA'),
   rainbowStats: bool('SL_RAINBOW_STATS'),
   nowMs,
+  clockMs,
   baseFrame: idiv(nowMs, 1000),
 };

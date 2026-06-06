@@ -168,7 +168,7 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_SPEED` | `3` | Crest travel speed (cells/sec) |
 | `SL_RAINBOW_MIX` | `50` | Rainbow pastel level (0 = vivid, 100 = white) |
 | `SL_MARGIN` | `6` | Right-edge margin in columns (raise if content clips) |
-| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Draws a white `┃` autocompact marker on the context bar |
+| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Sets the white `┃` autocompact marker position on the context bar |
 
 ### Leading indicator (fast / vim)
 
@@ -215,6 +215,9 @@ them with `node scripts/gen-goldens.js`.
 
 - One pass of stdin JSON; no per-field shelling out. Typical run ≈ 70 ms.
 - The bar uses half-blocks with **two RGB samples per character** for 2× gradient resolution.
+- Percentage text (context %, usage bars) is tinted with the theme colour **at that fill position**, so it lerps smoothly with the value instead of jumping at thresholds.
+- The crests wrap toroidally, so every animation loops seamlessly (no reset/pop).
+- The autocompact `┃` marker only appears when autocompact is enabled (`autoCompactEnabled`).
 - Millisecond timing keeps the animation phase honest even with uneven repaint gaps.
 - The account name is read from `~/.claude.json` (`.oauthAccount.displayName`).
 - Git runs with `--no-optional-locks` so it never blocks.

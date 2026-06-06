@@ -30,6 +30,7 @@ export interface Config {
   pet: boolean; crest: boolean; moon: boolean; daynight: boolean;
   costFlair: boolean; burn: boolean; gitExtra: boolean; rainbowStats: boolean;
   nowMs: number;
+  clockMs: number;
   baseFrame: number;
 }
 
