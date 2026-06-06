@@ -371,6 +371,11 @@ function drawBar(width, filled, marker, phaseMs = 0) {
         out += `${ESC}[2;38;2;0;120;0m${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
       continue;
     }
+    if (isFill && shimmer2 === "disco") {
+      const [r, g, b] = px(i * 100 + 50);
+      out += `${ESC}[38;2;${r};${g};${b}m\u2588${R}`;
+      continue;
+    }
     if (isFill) {
       const [lr, lg, lb] = px(i * 100 + 25);
       const [rr, rg, rb] = px(i * 100 + 75);
@@ -606,9 +611,9 @@ function build() {
   let LAST_FILE = "";
   try {
     if (TRANSCRIPT && fs.existsSync(TRANSCRIPT)) {
-      const lines = fs.readFileSync(TRANSCRIPT, "utf8").split("\n").filter(Boolean).slice(-80);
+      const lines2 = fs.readFileSync(TRANSCRIPT, "utf8").split("\n").filter(Boolean).slice(-80);
       const re = /write|edit|read|str_replace|create/;
-      for (const line of lines) {
+      for (const line of lines2) {
         let ev;
         try {
           ev = JSON.parse(line);
@@ -759,10 +764,25 @@ function build() {
   if (CLAUDE_USER)
     L3_RIGHT = `${rainbow(CLAUDE_USER)}  `;
   L3_RIGHT += `${COST_SEG}  ${AGE_SEG}`;
-  return `${justified(L1_LEFT, L1_RIGHT)}
-${justified(L2_LEFT, L2_RIGHT)}
-${justified(L3_LEFT, L3_RIGHT)}
-`;
+  let lines = [justified(L1_LEFT, L1_RIGHT), justified(L2_LEFT, L2_RIGHT), justified(L3_LEFT, L3_RIGHT)];
+  if (cfg.shimmer === "disco") {
+    const disco = (line) => {
+      let out = "", col = 0;
+      for (const ch of Array.from(stripAnsi(line))) {
+        if (ch === " ") {
+          out += " ";
+          col++;
+          continue;
+        }
+        const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
+        out += `${ESC}[38;2;${r};${g};${b}m${ch}${R}`;
+        col++;
+      }
+      return out;
+    };
+    lines = lines.map(disco);
+  }
+  return lines.join("\n") + "\n";
 }
 try {
   process.stdout.write(build());

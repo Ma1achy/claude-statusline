@@ -2,7 +2,8 @@
 // Everything is wrapped so a bug prints a minimal line instead of a blank bar.
 import * as fs from 'fs';
 import * as os from 'os';
-import { ESC, R, DIM, BOLD, justified } from './ansi';
+import { ESC, R, DIM, BOLD, justified, stripAnsi } from './ansi';
+import { hueRgb } from './color';
 import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
 import { drawBar } from './bar';
 import { rainbow } from './rainbow';
@@ -299,7 +300,25 @@ function build(): string {
   if (CLAUDE_USER) L3_RIGHT = `${rainbow(CLAUDE_USER)}  `;
   L3_RIGHT += `${COST_SEG}  ${AGE_SEG}`;
 
-  return `${justified(L1_LEFT, L1_RIGHT)}\n${justified(L2_LEFT, L2_RIGHT)}\n${justified(L3_LEFT, L3_RIGHT)}\n`;
+  let lines = [justified(L1_LEFT, L1_RIGHT), justified(L2_LEFT, L2_RIGHT), justified(L3_LEFT, L3_RIGHT)];
+
+  // disco: repaint EVERY glyph as one flowing rainbow (by column + time), so all
+  // coloured elements animate together. Period = 360*6 = 2160 ms.
+  if (cfg.shimmer === 'disco') {
+    const disco = (line: string): string => {
+      let out = '', col = 0;
+      for (const ch of Array.from(stripAnsi(line))) {
+        if (ch === ' ') { out += ' '; col++; continue; }
+        const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
+        out += `${ESC}[38;2;${r};${g};${b}m${ch}${R}`;
+        col++;
+      }
+      return out;
+    };
+    lines = lines.map(disco);
+  }
+
+  return lines.join('\n') + '\n';
 }
 
 try {

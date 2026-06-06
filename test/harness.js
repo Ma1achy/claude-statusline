@@ -13,7 +13,11 @@ const FRAME_MS = '1700000000123';   // fixed wall-clock → deterministic clock 
 function git(repo, args) { execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' }); }
 
 function setupFixture() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-'));
+  // Fixed path (not mkdtemp) so the displayed cwd is deterministic AND portable
+  // across machines — disco mode colours each glyph separately, which would break
+  // any path-substring normalization. /tmp exists on macOS and Linux.
+  const base = '/tmp/cs-statusline-fixture';
+  fs.rmSync(base, { recursive: true, force: true });
   const home = path.join(base, 'home');
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude.json'),
@@ -58,7 +62,7 @@ function run(fix, envOverrides) {
     encoding: 'utf8',
     env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: FRAME_MS, ...envOverrides },
   });
-  return out.split(fix.repo).join('<REPO>').split(fix.home).join('<HOME>');
+  return out;   // fixed fixture path → output is already deterministic & portable
 }
 
 // The matrix of scenarios that get golden snapshots.

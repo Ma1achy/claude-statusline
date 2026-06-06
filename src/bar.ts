@@ -102,6 +102,12 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
       else out += `${ESC}[2;38;2;0;120;0m${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
       continue;
     }
+    // disco: solid blocks (the whole line is re-rainbowed in a post-process pass)
+    if (isFill && shimmer === 'disco') {
+      const [r, g, b] = px(i * 100 + 50);
+      out += `${ESC}[38;2;${r};${g};${b}m█${R}`;
+      continue;
+    }
     // default: half-block, two colour samples per cell
     if (isFill) {
       const [lr, lg, lb] = px(i * 100 + 25);

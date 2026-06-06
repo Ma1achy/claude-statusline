@@ -11,9 +11,8 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SL = os.path.join(ROOT, "statusline.js")
 OUT = os.path.join(ROOT, "assets")
-DISPLAY_PATH = "~/dev/principia"          # what the path segment shows (real repo is a tempdir)
 FONT_PATH = "/System/Library/Fonts/Menlo.ttc"
-FB_PATH = "/System/Library/Fonts/Monaco.ttf"   # has ⎇, which Menlo lacks
+FB_PATH = "/System/Library/Fonts/Apple Symbols.ttf"   # draws ⎇ properly (Menlo/Monaco show a box)
 SIZE, COLS, PAD = 26, "124", 22
 BASE_MS = 1749135780000
 BASE_SEC = BASE_MS // 1000
@@ -33,7 +32,10 @@ BASIC = {30: (60, 60, 70), 31: (224, 108, 117), 32: (60, 200, 120), 33: (229, 19
 
 
 def setup_fixture():
-    base = tempfile.mkdtemp(prefix="cs-demo-")
+    # Fixed clean path so the displayed cwd is tidy (and survives disco's per-glyph
+    # colouring, which would break any string replacement).
+    base = "/tmp/demo"
+    shutil.rmtree(base, ignore_errors=True)
     home = os.path.join(base, "home")
     os.makedirs(os.path.join(home, ".claude"))
     json.dump({"oauthAccount": {"displayName": "Malachy", "emailAddress": "malachy@email.com"}},
@@ -132,7 +134,6 @@ def make_gif(home, repo, name, frames, duration):
                   "cost": {"total_cost_usd": cost, "total_duration_ms": dur, "total_lines_added": 124, "total_lines_removed": 18},
                   "fast_mode": True, "rate_limits": RL}
         out = subprocess.run(["node", SL], input=json.dumps(sample), env=env, capture_output=True, text=True).stdout
-        out = out.replace(repo, DISPLAY_PATH)
         rendered.append((out.rstrip("\n").split("\n")[:3], cap))
     W = max(width_of(ls) for ls, _ in rendered)
     imgs = [render(ls, cap, W).convert("P", palette=Image.ADAPTIVE, colors=256) for ls, cap in rendered]
