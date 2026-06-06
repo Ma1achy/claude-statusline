@@ -40,16 +40,29 @@ try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
 let data = {};
 try { data = JSON.parse(input) || {}; } catch { data = {}; }
 
-// ── colours (real ESC bytes) ───────────────────────────────────────────────
+// ── colours ─────────────────────────────────────────────────────────────────
+// ESC/R/DIM/BOLD are attributes. The accent colours (RED/GREEN/…) are THEMED —
+// the chosen SL_THEME recolours every segment, not just the bar (see PALETTES).
 const ESC = '\x1b';
 const R = '\x1b[0m', DIM = '\x1b[2m', BOLD = '\x1b[1m';
-const RED = '\x1b[31m', GREEN = '\x1b[32m', AMBER = '\x1b[33m';
-const BLUE = '\x1b[34m', CYAN = '\x1b[36m', WHITE = '\x1b[37m';
-const GOLD = '\x1b[38;5;220m';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const bool = (k) => /^(on|1|true|yes)$/i.test(env(k, ''));  // opt-in toggle
+const tc = (r, g, b) => `${ESC}[38;2;${r};${g};${b}m`;
+
+// Per-theme accent palette. `heat` keeps the original ANSI colours (so the
+// default look is unchanged); other themes recolour the whole statusline.
+const PALETTES = {
+  heat:      { RED: '\x1b[31m', GREEN: '\x1b[32m', AMBER: '\x1b[33m', BLUE: '\x1b[34m', CYAN: '\x1b[36m', WHITE: '\x1b[37m', GOLD: '\x1b[38;5;220m' },
+  synthwave: { RED: tc(255, 55, 135), GREEN: tc(0, 255, 170), AMBER: tc(255, 170, 70), BLUE: tc(150, 90, 255), CYAN: tc(0, 229, 255), WHITE: tc(235, 225, 255), GOLD: tc(255, 95, 205) },
+  matrix:    { RED: tc(0, 150, 45), GREEN: tc(0, 255, 65), AMBER: tc(120, 235, 40), BLUE: tc(0, 200, 95), CYAN: tc(0, 225, 120), WHITE: tc(170, 255, 170), GOLD: tc(120, 255, 90) },
+  mono:      { RED: tc(120, 120, 120), GREEN: tc(190, 190, 190), AMBER: tc(155, 155, 155), BLUE: tc(165, 165, 165), CYAN: tc(205, 205, 205), WHITE: tc(228, 228, 228), GOLD: tc(238, 238, 238) },
+  pastel:    { RED: tc(255, 150, 150), GREEN: tc(150, 230, 160), AMBER: tc(240, 210, 140), BLUE: tc(165, 185, 240), CYAN: tc(150, 215, 230), WHITE: tc(238, 238, 238), GOLD: tc(240, 220, 160) },
+};
+const THEME_NAME = env('SL_THEME', 'heat');
+const PAL = PALETTES[THEME_NAME] || PALETTES.heat;
+const RED = PAL.RED, GREEN = PAL.GREEN, AMBER = PAL.AMBER, BLUE = PAL.BLUE, CYAN = PAL.CYAN, WHITE = PAL.WHITE, GOLD = PAL.GOLD;
 const idiv = (a, b) => Math.trunc(a / b);                 // C-like integer division
 const mod = (a, b) => ((a % b) + b) % b;
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
@@ -129,7 +142,7 @@ const THEMES = {
   synthwave: { hueHi: 300, hueLo: 180, sat: 92, valLo: 75, valHi: 92, mix: 30 },
   pastel:    { hueHi: 120, hueLo: 0,   sat: 52, valLo: 88, valHi: 88, mix: 70 },
 };
-const TH = THEMES[env('SL_THEME', 'heat')] || THEMES.heat;
+const TH = THEMES[THEME_NAME] || THEMES.heat;
 const BAR_STYLE = env('SL_BAR_STYLE', 'blocks');
 const MATRIX_CHARS = '01<>{}[]/\\|=+*'.split('');
 const hashI = (n) => { n = Math.imul(n >>> 0, 2654435761) >>> 0; return n; };
