@@ -128,7 +128,7 @@ def make_gif(home, repo, name, frames, duration):
                                      "current_usage": {"cache_read_input_tokens": 61000, "cache_creation_input_tokens": 1400,
                                                        "input_tokens": 380, "output_tokens": 210}},
                   "cost": {"total_cost_usd": cost, "total_duration_ms": dur, "total_lines_added": 124, "total_lines_removed": 18},
-                  "permission_mode": "acceptEdits", "rate_limits": RL}
+                  "fast_mode": True, "rate_limits": RL}
         out = subprocess.run(["node", SL], input=json.dumps(sample), env=env, capture_output=True, text=True).stdout
         out = out.replace(repo, DISPLAY_PATH)
         rendered.append((out.rstrip("\n").split("\n")[:3], cap))

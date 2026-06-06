@@ -56,9 +56,11 @@ export interface StatuslineInput {
     total_lines_added?: number;
     total_lines_removed?: number;
   };
-  permission_mode?: string;
   transcript_path?: string;
   effort?: { level?: string };
   thinking?: { enabled?: boolean };
+  fast_mode?: boolean;
+  vim?: { mode?: string };
+  output_style?: { name?: string };
   rate_limits?: { five_hour?: RateLimit; seven_day?: RateLimit } | null;
 }

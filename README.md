@@ -170,13 +170,17 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_MARGIN` | `6` | Right-edge margin in columns (raise if content clips) |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Draws a white `┃` autocompact marker on the context bar |
 
-### Permission glyphs
+### Leading indicator (fast / vim)
 
-| Glyph | Color | Mode |
-|-------|-------|------|
-| `?` | Purple | Ask (default) |
-| `⚡` | Yellow-orange | Auto (`acceptEdits`) |
-| `!!` | Reddish pink | Skip (`bypassPermissions`) |
+The glyph at the very start of line 1 reflects what Claude Code actually exposes to
+statuslines. Claude Code does **not** report the permission / auto-accept mode (the one
+toggled by shift+tab) in the statusline payload, so this slot shows:
+
+| Glyph | Meaning |
+|-------|---------|
+| `⚡` (gold) | `/fast` mode is **on** |
+| `⚡` (dim) | normal / slow mode |
+| ` N` / ` I` / ` V` | vim input mode (Normal / Insert / Visual) — only shown when vim mode is enabled |
 
 # **Development**
 ---

@@ -32,7 +32,6 @@ function build(): string {
   const REMOVED = cost.total_lines_removed || 0;
   const COST = cost.total_cost_usd || 0;
   const DURATION_MS = Math.floor(cost.total_duration_ms || 0);
-  const PERM = data.permission_mode || '';
   const TRANSCRIPT = data.transcript_path || '';
   const EFFORT = (data.effort && data.effort.level) || '';
   const THINKING = !!(data.thinking && data.thinking.enabled);
@@ -72,11 +71,19 @@ function build(): string {
   }
   const THINKING_WORD = THINKING ? `${DIM}${EFFORT_C}thinking${R}` : '';
 
-  // ── permission glyph (fixed colours — status indicator) ─────────────────────
-  let PERM_GLYPH: string;
-  if (PERM.startsWith('accept')) PERM_GLYPH = `${ESC}[38;2;255;176;48m⚡${R}`;
-  else if (PERM.startsWith('bypass')) PERM_GLYPH = `${ESC}[38;2;255;82;129m!!${R}`;
-  else PERM_GLYPH = `${ESC}[38;2;160;150;255m?${R}`;
+  // ── fast/slow + vim mode ────────────────────────────────────────────────────
+  // Claude Code does NOT expose the permission/auto-accept mode to statuslines
+  // (no such field), so this slot shows what IS available: the /fast toggle
+  // (gold ⚡ = fast, dim ⚡ = slow) and the vim input mode when enabled.
+  const FAST = data.fast_mode ? `${GOLD}⚡${R}` : `${DIM}⚡${R}`;
+  let VIM = '';
+  const vmode = (data.vim && data.vim.mode) || '';
+  if (vmode) {
+    const u = vmode.toUpperCase();
+    const col = u.startsWith('INS') ? GREEN : u.startsWith('VIS') ? AMBER : CYAN;
+    VIM = ` ${col}${u[0] || '?'}${R}`;
+  }
+  const LEAD = `${FAST}${VIM}`;
 
   // ── pet (SL_PET) ────────────────────────────────────────────────────────────
   let PET = '';
@@ -271,7 +278,7 @@ function build(): string {
   if (EFFORT_WORD) BRACKET += ` ${EFFORT_WORD}`;
   if (THINKING_WORD) BRACKET += ` ${THINKING_WORD}`;
 
-  const L1_LEFT = `${PERM_GLYPH} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
+  const L1_LEFT = `${LEAD} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
   const L1_RIGHT = `${MOON}${CLOCK_SEG}`;
 
   let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;

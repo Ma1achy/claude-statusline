@@ -5,7 +5,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { setupFixture, cleanup, run, CASES } = require('./harness');
+const { execFileSync } = require('child_process');
+const { setupFixture, cleanup, run, CASES, STATUSLINE } = require('./harness');
 
 const GOLD = path.join(__dirname, 'golden');
 const fix = setupFixture();
@@ -43,7 +44,20 @@ test('toggles: pet / crest / git-extras / cost-flair appear when enabled', () =>
   assert.ok(stripAnsi(run(fix, { SL_COST_FLAIR: 'on' })).includes('$ $0.234'), 'cost flair missing');
 });
 
-// 4. Privacy guard — the fixture's dummy email appears; nothing else leaks.
+// 4. Fast/slow + vim — the leading slot (permission_mode isn't available).
+test('lead: fast bolt always shown; vim letter only with vim.mode', () => {
+  const base = { model: { id: 'claude-opus-4-8' }, context_window: { used_percentage: 30, context_window_size: 200000 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } };
+  const raw = (extra) => stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ ...base, ...extra }), encoding: 'utf8',
+    env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
+  }));
+  assert.ok(raw({ fast_mode: true }).startsWith('⚡'), 'fast bolt missing');
+  assert.ok(raw({ fast_mode: false }).startsWith('⚡'), 'slow bolt missing');
+  assert.match(raw({ fast_mode: false, vim: { mode: 'INSERT' } }), /^⚡ I/, 'vim insert letter missing');
+  assert.ok(!/^⚡ [A-Z]/.test(raw({ fast_mode: true })), 'vim letter should be absent without vim.mode');
+});
+
+// 5. Privacy guard — the fixture's dummy email appears; nothing else leaks.
 test('privacy: dummy email rendered, no real address', () => {
   const out = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));
   assert.ok(out.includes('malachy@email.com'), 'expected dummy email');

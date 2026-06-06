@@ -46,7 +46,7 @@ const SAMPLE = {
     current_usage: { cache_read_input_tokens: 61000, cache_creation_input_tokens: 1400, input_tokens: 380, output_tokens: 210 },
   },
   cost: { total_cost_usd: 0.234, total_duration_ms: 1860000, total_lines_added: 124, total_lines_removed: 18 },
-  permission_mode: 'acceptEdits',
+  fast_mode: true,
   // resets relative to the fixed frame (1700000000s) → "2h 15m" / "3d 6h"
   rate_limits: { five_hour: { used_percentage: 63, resets_at: 1700008100 }, seven_day: { used_percentage: 38, resets_at: 1700280800 } },
 };
