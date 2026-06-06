@@ -76,8 +76,10 @@ var R = "\x1B[0m";
 var DIM = "\x1B[2m";
 var BOLD = "\x1B[1m";
 var tc = (r, g, b) => `${ESC}[38;2;${r};${g};${b}m`;
+var VS = "\uFE0E";
+var txt = (glyph) => glyph + VS;
 var stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
-var printLen = (s) => Array.from(stripAnsi(s)).length;
+var printLen = (s) => Array.from(stripAnsi(s).replace(/[︀-️]/g, "")).length;
 function termCols() {
   let c = 0;
   try {
@@ -516,7 +518,7 @@ function build() {
       break;
   }
   const THINKING_WORD = THINKING ? `${DIM}${EFFORT_C}thinking${R}` : "";
-  const FAST = data.fast_mode ? `${GOLD}\u26A1${R}` : `${DIM}\u25AB${R}`;
+  const FAST = data.fast_mode ? `${GOLD}${txt("\u26A1")}${R}` : `${DIM}${txt("\u25AB")}${R}`;
   let VIM = "";
   const vmode = data.vim && data.vim.mode || "";
   if (vmode) {
@@ -580,9 +582,9 @@ function build() {
       const behind = +m[1], ahead = +m[2];
       let s = "";
       if (ahead)
-        s += `${GREEN}\u2191${ahead}${R}`;
+        s += `${GREEN}${txt("\u2191")}${ahead}${R}`;
       if (behind)
-        s += `${RED}\u2193${behind}${R}`;
+        s += `${RED}${txt("\u2193")}${behind}${R}`;
       if (s)
         GIT_AB = `  ${s}`;
     }
@@ -670,8 +672,8 @@ function build() {
     }
     const readSeg = CU_READ > 0 ? ` ${GREEN}\u2726${fmtK(CU_READ)}${R}` : "";
     const writeSeg = CU_WRITE > 0 ? ` ${AMBER}+${fmtK(CU_WRITE)}w${R}` : "";
-    const inSeg = CU_INPUT > 0 ? ` ${DIM}\u2193${fmtK(CU_INPUT)}${R}` : "";
-    const outSeg = CU_OUT > 0 ? ` ${DIM}\u2191${fmtK(CU_OUT)}${R}` : "";
+    const inSeg = CU_INPUT > 0 ? ` ${DIM}${txt("\u2193")}${fmtK(CU_INPUT)}${R}` : "";
+    const outSeg = CU_OUT > 0 ? ` ${DIM}${txt("\u2191")}${fmtK(CU_OUT)}${R}` : "";
     TURN_SEG = HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
   }
   const COST_FMT = Number(COST).toFixed(3);
@@ -767,15 +769,23 @@ function build() {
   let lines = [justified(L1_LEFT, L1_RIGHT), justified(L2_LEFT, L2_RIGHT), justified(L3_LEFT, L3_RIGHT)];
   if (cfg.shimmer === "disco") {
     const disco = (line) => {
-      let out = "", col = 0;
+      const glyphs = [];
       for (const ch of Array.from(stripAnsi(line))) {
-        if (ch === " ") {
+        const code = ch.codePointAt(0) || 0;
+        if (code >= 65024 && code <= 65039 && glyphs.length)
+          glyphs[glyphs.length - 1] += ch;
+        else
+          glyphs.push(ch);
+      }
+      let out = "", col = 0;
+      for (const g of glyphs) {
+        if (g === " ") {
           out += " ";
           col++;
           continue;
         }
-        const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
-        out += `${ESC}[38;2;${r};${g};${b}m${ch}${R}`;
+        const [r, gg, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
+        out += `${ESC}[38;2;${r};${gg};${b}m${g}${R}`;
         col++;
       }
       return out;

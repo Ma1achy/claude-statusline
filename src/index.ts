@@ -2,7 +2,7 @@
 // Everything is wrapped so a bug prints a minimal line instead of a blank bar.
 import * as fs from 'fs';
 import * as os from 'os';
-import { ESC, R, DIM, BOLD, justified, stripAnsi } from './ansi';
+import { ESC, R, DIM, BOLD, justified, stripAnsi, txt } from './ansi';
 import { hueRgb } from './color';
 import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
 import { drawBar } from './bar';
@@ -76,7 +76,7 @@ function build(): string {
   // Claude Code does NOT expose the permission/auto-accept mode to statuslines
   // (no such field), so this slot shows what IS available: the /fast toggle
   // (gold ⚡ = fast, dim ▫ = slow) and the vim input mode when enabled.
-  const FAST = data.fast_mode ? `${GOLD}⚡${R}` : `${DIM}▫${R}`;   // ⚡ fast · ▫ slow
+  const FAST = data.fast_mode ? `${GOLD}${txt('⚡')}${R}` : `${DIM}${txt('▫')}${R}`;   // ⚡ fast · ▫ slow
   let VIM = '';
   const vmode = (data.vim && data.vim.mode) || '';
   if (vmode) {
@@ -133,8 +133,8 @@ function build(): string {
     if (m) {
       const behind = +m[1], ahead = +m[2];
       let s = '';
-      if (ahead) s += `${GREEN}↑${ahead}${R}`;
-      if (behind) s += `${RED}↓${behind}${R}`;
+      if (ahead) s += `${GREEN}${txt('↑')}${ahead}${R}`;
+      if (behind) s += `${RED}${txt('↓')}${behind}${R}`;
       if (s) GIT_AB = `  ${s}`;
     }
     const ct = parseInt(gitOut(CWD, ['log', '-1', '--format=%ct']), 10);
@@ -214,8 +214,8 @@ function build(): string {
     }
     const readSeg = CU_READ > 0 ? ` ${GREEN}✦${fmtK(CU_READ)}${R}` : '';
     const writeSeg = CU_WRITE > 0 ? ` ${AMBER}+${fmtK(CU_WRITE)}w${R}` : '';
-    const inSeg = CU_INPUT > 0 ? ` ${DIM}↓${fmtK(CU_INPUT)}${R}` : '';
-    const outSeg = CU_OUT > 0 ? ` ${DIM}↑${fmtK(CU_OUT)}${R}` : '';
+    const inSeg = CU_INPUT > 0 ? ` ${DIM}${txt('↓')}${fmtK(CU_INPUT)}${R}` : '';
+    const outSeg = CU_OUT > 0 ? ` ${DIM}${txt('↑')}${fmtK(CU_OUT)}${R}` : '';
     TURN_SEG = HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
   }
 
@@ -306,11 +306,18 @@ function build(): string {
   // coloured elements animate together. Period = 360*6 = 2160 ms.
   if (cfg.shimmer === 'disco') {
     const disco = (line: string): string => {
-      let out = '', col = 0;
+      // group each base glyph with any trailing variation selector so it stays one unit
+      const glyphs: string[] = [];
       for (const ch of Array.from(stripAnsi(line))) {
-        if (ch === ' ') { out += ' '; col++; continue; }
-        const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
-        out += `${ESC}[38;2;${r};${g};${b}m${ch}${R}`;
+        const code = ch.codePointAt(0) || 0;
+        if (code >= 0xfe00 && code <= 0xfe0f && glyphs.length) glyphs[glyphs.length - 1] += ch;
+        else glyphs.push(ch);
+      }
+      let out = '', col = 0;
+      for (const g of glyphs) {
+        if (g === ' ') { out += ' '; col++; continue; }
+        const [r, gg, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
+        out += `${ESC}[38;2;${r};${gg};${b}m${g}${R}`;
         col++;
       }
       return out;

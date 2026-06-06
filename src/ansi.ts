@@ -12,10 +12,17 @@ export const BOLD = '\x1b[1m';
 /** Truecolor foreground escape. */
 export const tc = (r: number, g: number, b: number): string => `${ESC}[38;2;${r};${g};${b}m`;
 
+// Text-presentation selector (U+FE0E): forces emoji-capable glyphs (⚡, arrows,
+// squares…) to render as plain text so they obey our ANSI colour instead of
+// showing as a fixed-colour emoji. Append it to any such glyph via txt().
+export const VS = '︎';
+export const txt = (glyph: string): string => glyph + VS;
+
 export const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
-/** Visible width in glyphs (not bytes). */
-export const printLen = (s: string): number => Array.from(stripAnsi(s)).length;
+/** Visible width in glyphs — strips ANSI and zero-width variation selectors. */
+export const printLen = (s: string): number =>
+  Array.from(stripAnsi(s).replace(/[︀-️]/g, '')).length;
 
 export function termCols(): number {
   // `tput cols` first (reads the controlling terminal even when stdout is piped,

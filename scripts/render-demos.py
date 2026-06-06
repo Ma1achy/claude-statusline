@@ -92,6 +92,8 @@ def parse(line):
                         else: bg = col
                     j += 1
                 i += m.end(); continue
+        if 0xFE00 <= ord(line[i]) <= 0xFE0F:   # variation selector — zero width, skip
+            i += 1; continue
         f = fg if fg is not None else FG_DEFAULT
         if dim: f = tuple(int(v * 0.5) for v in f)
         elif bold: f = tuple(min(255, int(v * 1.12)) for v in f)

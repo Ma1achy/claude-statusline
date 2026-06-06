@@ -50,7 +50,7 @@ test('lead: fast bolt always shown; vim letter only with vim.mode', () => {
   const raw = (extra) => stripAnsi(execFileSync('node', [STATUSLINE], {
     input: JSON.stringify({ ...base, ...extra }), encoding: 'utf8',
     env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
-  }));
+  }).replace(/[︀-️]/g, ''));   // drop variation selectors for glyph checks
   assert.ok(raw({ fast_mode: true }).startsWith('⚡'), 'fast bolt missing');
   assert.ok(raw({ fast_mode: false }).startsWith('▫'), 'slow glyph missing');
   assert.match(raw({ fast_mode: false, vim: { mode: 'INSERT' } }), /^▫ I/, 'vim insert letter missing');
