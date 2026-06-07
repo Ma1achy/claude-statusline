@@ -50,6 +50,18 @@ const nowMs = parseInt(env('SL_FRAME_MS', ''), 10) || Date.now();
 // frame — used by the demo renderer to make GIFs loop without the clock ticking.
 const clockMs = parseInt(env('SL_CLOCK_MS', ''), 10) || nowMs;
 
+// Clock-driven auto-theme (SL_AUTO_THEME). daynight/seasonal resolve from the
+// frame clock here; branch-based theming would need stdin and isn't done yet.
+let themeName = penv('SL_THEME', 'heat');
+const autoTheme = penv('SL_AUTO_THEME', '');
+if (autoTheme === 'daynight') {
+  const h = new Date(clockMs).getHours();
+  themeName = h >= 7 && h < 19 ? penv('SL_DAY_THEME', 'heat') : penv('SL_NIGHT_THEME', 'tokyonight');
+} else if (autoTheme === 'seasonal') {
+  const m = new Date(clockMs).getMonth();
+  themeName = m <= 1 || m === 11 ? 'void' : m <= 4 ? 'everforest' : m <= 7 ? 'oceanic' : 'verdigris';
+}
+
 const rainbowMix = penv('SL_RAINBOW_MIX', '');
 
 export const cfg: Config = {
@@ -57,7 +69,7 @@ export const cfg: Config = {
   speed: pint('SL_SPEED', 3),
   glow: pint('SL_GLOW', 240),
   waveHue: pint('SL_WAVE_HUE', 32),
-  themeName: penv('SL_THEME', 'heat'),
+  themeName,
   barStyle: penv('SL_BAR_STYLE', 'blocks'),
   rainbowMixRaw: rainbowMix !== '' ? parseInt(rainbowMix, 10) : null,
   margin: pint('SL_MARGIN', 6),
@@ -88,6 +100,7 @@ export const cfg: Config = {
   accessible: pbool('SL_ACCESSIBLE'),
   responsive: pbool('SL_RESPONSIVE'),
   gitRisk: pbool('SL_GIT_RISK'),
+  danger: pbool('SL_DANGER'),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1000),

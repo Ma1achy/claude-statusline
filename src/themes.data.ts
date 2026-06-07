@@ -69,4 +69,7 @@ export const THEMES_DATA: Record<string, ThemeData> = {
   bi: { cmap: [[214, 2, 112], [155, 79, 150], [0, 56, 168]], mix: 0 },
   ace: { cmap: [[70, 70, 70], [130, 130, 130], [200, 200, 200], [128, 0, 128]], mix: 10 },
   nonbinary: { cmap: [[252, 244, 52], [240, 240, 240], [156, 89, 209], [80, 80, 88]], mix: 5 },
+  // crisp silver normally; pairs with the danger wash (deep safelight red when
+  // context/limits are critical — the darkroom convention). See SL_DANGER.
+  'silver-halide': { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 },
 };

@@ -455,27 +455,37 @@ function build(): string {
       lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L2_RIGHT), J(L3_LEFT, L3_RIGHT)];
   }
 
-  // disco: repaint EVERY glyph as one flowing rainbow (by column + time), so all
-  // coloured elements animate together. Period = 360*6 = 2160 ms.
+  // Whole-line recolour: group each glyph with any trailing variation selector,
+  // then recolour every visible unit via colour(col). Used by disco and the
+  // danger safelight wash so all coloured elements move together.
+  const recolor = (line: string, colour: (col: number) => string): string => {
+    const glyphs: string[] = [];
+    for (const ch of Array.from(stripAnsi(line))) {
+      const code = ch.codePointAt(0) || 0;
+      if (code >= 0xfe00 && code <= 0xfe0f && glyphs.length) glyphs[glyphs.length - 1] += ch;
+      else glyphs.push(ch);
+    }
+    let out = '', col = 0;
+    for (const g of glyphs) {
+      if (g === ' ') { out += ' '; col++; continue; }
+      out += `${colour(col)}${g}${R}`;
+      col++;
+    }
+    return out;
+  };
+  // Danger state (SL_DANGER, or the silver-halide theme): a deep safelight-red
+  // wash once context or a usage limit is critical — "you can still work, carefully".
+  let dangerActive = false;
+  if (cfg.danger || cfg.themeName === 'silver-halide') {
+    const fh = (rl && rl.five_hour && rl.five_hour.used_percentage) || 0;
+    const sd = (rl && rl.seven_day && rl.seven_day.used_percentage) || 0;
+    dangerActive = PCT >= 90 || fh >= cfg.limitCrit || sd >= cfg.limitCrit;
+  }
   if (cfg.shimmer === 'disco') {
-    const disco = (line: string): string => {
-      // group each base glyph with any trailing variation selector so it stays one unit
-      const glyphs: string[] = [];
-      for (const ch of Array.from(stripAnsi(line))) {
-        const code = ch.codePointAt(0) || 0;
-        if (code >= 0xfe00 && code <= 0xfe0f && glyphs.length) glyphs[glyphs.length - 1] += ch;
-        else glyphs.push(ch);
-      }
-      let out = '', col = 0;
-      for (const g of glyphs) {
-        if (g === ' ') { out += ' '; col++; continue; }
-        const [r, gg, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
-        out += `${tc(r, gg, b)}${g}${R}`;
-        col++;
-      }
-      return out;
-    };
-    lines = lines.map(disco);
+    lines = lines.map((l) => recolor(l, (col) => { const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0); return tc(r, g, b); }));
+  } else if (dangerActive) {
+    const pulse = Math.abs((idiv(cfg.nowMs, 200) % 60) - 30);   // 0..30, slow throb
+    lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + (col % 3) * 12, 18, 18)));
   }
 
   return lines.join('\n') + '\n';

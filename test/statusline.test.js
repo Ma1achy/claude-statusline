@@ -86,6 +86,21 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6f. Reactive themes — daynight picks by clock; danger wash on critical context.
+test('reactive: daynight + silver-halide danger wash', () => {
+  const at = (env) => execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: env._pct || 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_CLOCK_MS: env._clock || '1700000000123', SL_COLOR_MODE: 'truecolor', ...env },
+  });
+  // daynight resolves to different themes for a day vs night hour → different output.
+  const day = at({ SL_AUTO_THEME: 'daynight', SL_DAY_THEME: 'heat', SL_NIGHT_THEME: 'tokyonight', _clock: String(1700000000000 - 9 * 3600000) });
+  const night = at({ SL_AUTO_THEME: 'daynight', SL_DAY_THEME: 'heat', SL_NIGHT_THEME: 'tokyonight', _clock: String(1700000000000) });
+  assert.notStrictEqual(day, night, 'daynight should pick different themes by hour');
+  // silver-halide: no wash at low context, deep-red wash at critical context.
+  assert.ok(!at({ SL_THEME: 'silver-halide', _pct: 40 }).includes(';18;18m'), 'no red wash when calm');
+  assert.ok(at({ SL_THEME: 'silver-halide', _pct: 95 }).includes(';18;18m'), 'red wash when critical');
+});
+
 // 6e. Git — detached HEAD shows a sha; a merge in progress flags merge!.
 test('git: detached HEAD + merge state', () => {
   const os = require('os');

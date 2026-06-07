@@ -56,7 +56,7 @@ export interface Config {
   layout: string; separator: string; hide: string;
   privacy: boolean; privacyHide: string; projectAliases: string;
   path: string; sysinfo: boolean; accessible: boolean; responsive: boolean;
-  gitRisk: boolean;
+  gitRisk: boolean; danger: boolean;
   nowMs: number;
   clockMs: number;
   baseFrame: number;

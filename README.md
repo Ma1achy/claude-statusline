@@ -59,6 +59,11 @@ More palettes (all recolor the whole statusline):
 | Retro / loud | `cyberpunk` · `phosphor` · `phosphor-green` · `phosphor-white` |
 | Muted | `verdigris` · `sumi-e` · `stealth` · `zen` · `void` · `gothic` · `oceanic` |
 | Identity | `pride` · `trans` · `bi` · `ace` · `nonbinary` |
+| Reactive | `silver-halide` (crisp silver → deep-red **danger wash** when context/limits go critical) |
+
+**Reactive theming** — `SL_AUTO_THEME=daynight` switches between `SL_DAY_THEME` and `SL_NIGHT_THEME`
+by the hour; `SL_AUTO_THEME=seasonal` tracks the month. `SL_DANGER=on` (implied by `silver-halide`)
+washes the whole line a throbbing safelight red once context ≥ 90% or a usage limit is critical.
 
 ### Colormap themes
 

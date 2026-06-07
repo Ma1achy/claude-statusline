@@ -90,13 +90,22 @@ if (pbool("SL_ACCESSIBLE"))
   shimmer = "off";
 var nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
 var clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
+var themeName = penv("SL_THEME", "heat");
+var autoTheme = penv("SL_AUTO_THEME", "");
+if (autoTheme === "daynight") {
+  const h = new Date(clockMs).getHours();
+  themeName = h >= 7 && h < 19 ? penv("SL_DAY_THEME", "heat") : penv("SL_NIGHT_THEME", "tokyonight");
+} else if (autoTheme === "seasonal") {
+  const m = new Date(clockMs).getMonth();
+  themeName = m <= 1 || m === 11 ? "void" : m <= 4 ? "everforest" : m <= 7 ? "oceanic" : "verdigris";
+}
 var rainbowMix = penv("SL_RAINBOW_MIX", "");
 var cfg = {
   shimmer,
   speed: pint("SL_SPEED", 3),
   glow: pint("SL_GLOW", 240),
   waveHue: pint("SL_WAVE_HUE", 32),
-  themeName: penv("SL_THEME", "heat"),
+  themeName,
   barStyle: penv("SL_BAR_STYLE", "blocks"),
   rainbowMixRaw: rainbowMix !== "" ? parseInt(rainbowMix, 10) : null,
   margin: pint("SL_MARGIN", 6),
@@ -127,6 +136,7 @@ var cfg = {
   accessible: pbool("SL_ACCESSIBLE"),
   responsive: pbool("SL_RESPONSIVE"),
   gitRisk: pbool("SL_GIT_RISK"),
+  danger: pbool("SL_DANGER"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -390,7 +400,10 @@ var THEMES_DATA = {
   trans: { cmap: [[91, 206, 250], [245, 169, 184], [240, 240, 240], [245, 169, 184], [91, 206, 250]], mix: 0 },
   bi: { cmap: [[214, 2, 112], [155, 79, 150], [0, 56, 168]], mix: 0 },
   ace: { cmap: [[70, 70, 70], [130, 130, 130], [200, 200, 200], [128, 0, 128]], mix: 10 },
-  nonbinary: { cmap: [[252, 244, 52], [240, 240, 240], [156, 89, 209], [80, 80, 88]], mix: 5 }
+  nonbinary: { cmap: [[252, 244, 52], [240, 240, 240], [156, 89, 209], [80, 80, 88]], mix: 5 },
+  // crisp silver normally; pairs with the danger wash (deep safelight red when
+  // context/limits are critical — the darkroom convention). See SL_DANGER.
+  "silver-halide": { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 }
 };
 
 // src/themes.ts
@@ -1371,30 +1384,41 @@ function build() {
     default:
       lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L2_RIGHT), J(L3_LEFT, L3_RIGHT)];
   }
-  if (cfg.shimmer === "disco") {
-    const disco = (line) => {
-      const glyphs = [];
-      for (const ch of Array.from(stripAnsi(line))) {
-        const code = ch.codePointAt(0) || 0;
-        if (code >= 65024 && code <= 65039 && glyphs.length)
-          glyphs[glyphs.length - 1] += ch;
-        else
-          glyphs.push(ch);
-      }
-      let out = "", col = 0;
-      for (const g of glyphs) {
-        if (g === " ") {
-          out += " ";
-          col++;
-          continue;
-        }
-        const [r, gg, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
-        out += `${tc(r, gg, b)}${g}${R}`;
+  const recolor = (line, colour) => {
+    const glyphs = [];
+    for (const ch of Array.from(stripAnsi(line))) {
+      const code = ch.codePointAt(0) || 0;
+      if (code >= 65024 && code <= 65039 && glyphs.length)
+        glyphs[glyphs.length - 1] += ch;
+      else
+        glyphs.push(ch);
+    }
+    let out = "", col = 0;
+    for (const g of glyphs) {
+      if (g === " ") {
+        out += " ";
         col++;
+        continue;
       }
-      return out;
-    };
-    lines = lines.map(disco);
+      out += `${colour(col)}${g}${R}`;
+      col++;
+    }
+    return out;
+  };
+  let dangerActive = false;
+  if (cfg.danger || cfg.themeName === "silver-halide") {
+    const fh = rl && rl.five_hour && rl.five_hour.used_percentage || 0;
+    const sd = rl && rl.seven_day && rl.seven_day.used_percentage || 0;
+    dangerActive = PCT >= 90 || fh >= cfg.limitCrit || sd >= cfg.limitCrit;
+  }
+  if (cfg.shimmer === "disco") {
+    lines = lines.map((l) => recolor(l, (col) => {
+      const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
+      return tc(r, g, b);
+    }));
+  } else if (dangerActive) {
+    const pulse = Math.abs(idiv(cfg.nowMs, 200) % 60 - 30);
+    lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + col % 3 * 12, 18, 18)));
   }
   return lines.join("\n") + "\n";
 }
