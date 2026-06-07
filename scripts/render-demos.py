@@ -156,7 +156,8 @@ def make_gif(home, repo, name, frames, duration):
 
 def main():
     # Optional target: all (default) | default | loaded | themes | colormaps | bars |
-    #   shimmer | fx | disco | presets | layouts | colors | trend | pets | reactive | scale
+    #   shimmer | fx | disco | presets | layouts | colors | trend | pets | reactive |
+    #   scale | accessible
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     want = lambda *names: target == "all" or target in names
     base, home, repo = setup_fixture()
@@ -229,6 +230,16 @@ def main():
             make_gif(home, repo, "demo-bar-scale.gif",
                      [({"SL_BAR_SCALE": s, "SL_THEME": "heat", "_pct": 88}, BASE_MS + k * 800, f"SL_BAR_SCALE={s}  (88%)")
                       for s in ["linear", "log"] for k in range(3)], 520)
+        if want("accessible"):
+            # SL_ACCESSIBLE forces the high-contrast theme (max-luminance primaries,
+            # bright white text) and motion off. Since nothing animates, sweep the
+            # context level instead — ping-pong so it loops — to show the stark
+            # green→yellow→red gauge the high-contrast cmap produces.
+            pcts = [10, 25, 40, 55, 70, 82, 90, 95, 90, 82, 70, 55, 40, 25]
+            make_gif(home, repo, "demo-accessible.gif",
+                     [({"SL_ACCESSIBLE": "on", "SL_GIT_EXTRA": "on", "SL_CREST": "on",
+                        "_pct": p, "_sid": "a11y"}, BASE_MS, "SL_ACCESSIBLE=on  (high-contrast, motion off)")
+                      for p in pcts], 360)
         # disco loops perfectly over 10800 ms (bar hue 1 cycle, name 5 cycles).
         disco = {"SL_SHIMMER": "disco", "SL_RAINBOW_STATS": "on", "SL_PET": "on", "SL_CREST": "on", "_pct": 64}
         if want("disco"):
