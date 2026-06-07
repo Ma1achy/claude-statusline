@@ -78,6 +78,16 @@ test('activityLine shows the most recent tool + target from the transcript', () 
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+// 2e. Adaptive layout — the layout tier (and auto-warning) follow context fill.
+test('adaptive picks the layout by context and auto-warns when critical', () => {
+  const low = run(fix, { SL_ADAPTIVE: 'on' }, { context_window: { used_percentage: 30, context_window_size: 200000 } });
+  assert.strictEqual(low.split('\n').filter(Boolean).length, 1, 'low context → compact 1-line');
+  const crit = run(fix, { SL_ADAPTIVE: 'on' }, { context_window: { used_percentage: 95, context_window_size: 200000 } });
+  const lines = crit.split('\n').filter(Boolean);
+  assert.ok(lines.length >= 4, 'critical context → split dashboard + warning');
+  assert.ok(stripAnsi(lines[lines.length - 1]).includes('⚠'), 'critical context auto-adds the warning line');
+});
+
 // 3. Smoke — each opt-in toggle adds its expected marker without errors.
 test('toggles: pet / crest / git-extras / cost-flair appear when enabled', () => {
   const plain = stripAnsi(run(fix, {}));

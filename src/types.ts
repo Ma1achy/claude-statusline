@@ -96,7 +96,7 @@ export interface Config {
   limitWarn: number; limitCrit: number;
   layout: string; separator: string; hide: string; frame: string;
   privacy: boolean; privacyHide: string; projectAliases: string;
-  path: string; sysinfo: boolean; accessible: boolean; accessibleGauge: string; responsive: boolean;
+  path: string; sysinfo: boolean; accessible: boolean; accessibleGauge: string; responsive: boolean; adaptive: boolean;
   gitRisk: boolean; danger: boolean; warningLine: boolean;
   activityLine: boolean; conversationLine: boolean;
   petStyle: string; petReactsTo: string; bell: boolean;

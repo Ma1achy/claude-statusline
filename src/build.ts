@@ -131,11 +131,15 @@ export function build(): string {
   const wideW = Math.max(28, termCols() - 2 * cfg.margin - 12);
   const WIDE_BAR = drawBar(wideW, scaleCells(PCT, wideW), -1, 0);
 
-  // Layout: which lines to emit (assembleLayout handles SL_LAYOUT / SL_RESPONSIVE).
+  // adaptive: the layout itself communicates urgency — compact when there's room,
+  // standard mid-session, the dashboard when context fills up.
+  const adaptiveLayout = cfg.adaptive ? (PCT < 50 ? '1line' : PCT < 75 ? '3line' : 'split') : undefined;
+
+  // Layout: which lines to emit (override > SL_RESPONSIVE > SL_LAYOUT).
   let lines = assembleLayout(
     { LEAD, BAR, PCT_SEG, PCT_FULL, BRACKET, COST_SEG, L1_LEFT, L1_RIGHT, L2_LEFT, L2_RIGHT, L3_LEFT, L3_RIGHT,
       WIDE_BAR, USAGE_SEG },
-    sh,
+    sh, adaptiveLayout,
   );
 
   // Whole-line washes (disco rainbow / danger safelight) override per-element fills.
@@ -143,7 +147,8 @@ export function build(): string {
 
   // warningLine: append a conditional alert line (after the washes, so it keeps its
   // own red styling) only when a threshold is crossed.
-  if (cfg.warningLine) {
+  // warningLine on demand, or automatically once adaptive sees critical context.
+  if (cfg.warningLine || (cfg.adaptive && PCT >= 90)) {
     const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
     if (warn) lines.push(warn);
   }

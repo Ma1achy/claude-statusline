@@ -117,6 +117,7 @@ function loadConfig(): Config {
     accessible: jbool('accessible'),
     accessibleGauge: jstr('accessibleGauge', 'cvd'),
     responsive: jbool('responsive'),
+    adaptive: jbool('adaptive'),
     gitRisk: jbool('gitRisk'),
     danger: jbool('danger'),
     warningLine: jbool('warningLine'),

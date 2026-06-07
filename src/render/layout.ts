@@ -11,10 +11,11 @@ export interface LayoutParts {
   WIDE_BAR: string; USAGE_SEG: string;   // a terminal-width bar + the raw usage gauges, for the dashboard layouts
 }
 
-export function assembleLayout(p: LayoutParts, sh: (name: string, val: string) => string): string[] {
+export function assembleLayout(p: LayoutParts, sh: (name: string, val: string) => string, override?: string): string[] {
   const J = justified;
-  let layout = cfg.layout;
-  if (cfg.responsive) { const c = termCols(); layout = c < 70 ? 'tiny' : c < 100 ? '1line' : c < 140 ? '2line' : '3line'; }
+  // `override` (adaptive, by context) wins over SL_RESPONSIVE (by width) wins over SL_LAYOUT.
+  let layout = override || cfg.layout;
+  if (!override && cfg.responsive) { const c = termCols(); layout = c < 70 ? 'tiny' : c < 100 ? '1line' : c < 140 ? '2line' : '3line'; }
   switch (layout) {
     case 'tiny':
       return [J(`${p.BAR} ${p.PCT_SEG}`, sh('cost', p.COST_SEG))];
