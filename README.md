@@ -325,6 +325,12 @@ The [`NO_COLOR`](https://no-color.org/) convention is honoured: setting `NO_COLO
 
 <p align="center"><img src="assets/demo-color-modes.gif" width="100%" /></p>
 
+`SL_ACCESSIBLE=on` forces a high-contrast theme (max-luminance primaries, bright white text, a stark
+green→yellow→red gauge) and turns motion off — independent of the colour mode, and it wins over any
+`SL_THEME`. Pair it with `NO_COLOR` or `SL_COLOR_MODE=mono` for a calm, no-colour line.
+
+<p align="center"><img src="assets/demo-accessible.gif" width="100%" /></p>
+
 ### Leading indicator (fast / vim)
 
 The glyph at the very start of line 1 reflects what Claude Code actually exposes to
