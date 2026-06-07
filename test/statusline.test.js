@@ -266,6 +266,29 @@ test('git: detached HEAD + merge state', () => {
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+// 6f. Git ahead/behind — a branch ahead of its upstream shows ↑N (the fixture has
+// no upstream, so this branch of readGit is otherwise untested).
+test('git: ahead of upstream shows ↑N', () => {
+  const os = require('os');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-ab-'));
+  const home = path.join(base, 'home'); fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+  const up = path.join(base, 'up.git'), repo = path.join(base, 'repo'), tmp = path.join(base, 'tmp');
+  fs.mkdirSync(repo); fs.mkdirSync(tmp);
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'ignore' });
+  execFileSync('git', ['init', '--bare', '-q', up], { stdio: 'ignore' });
+  g('init', '-q'); g('config', 'user.email', 'x@y.z'); g('config', 'user.name', 'x'); g('config', 'commit.gpgsign', 'false');
+  g('remote', 'add', 'origin', up);
+  fs.writeFileSync(path.join(repo, 'f'), '1\n'); g('add', 'f'); g('commit', '-q', '-m', 'c1'); g('push', '-q', '-u', 'origin', 'HEAD');
+  fs.writeFileSync(path.join(repo, 'f'), '2\n'); g('commit', '-q', '-am', 'c2');   // now ahead by 1
+  const input = JSON.stringify({ session_id: 'ab', workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } });
+  const env = { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_GIT_EXTRA: 'on', TMPDIR: tmp };
+  execFileSync('node', [STATUSLINE, '--git-refresh'], { input, encoding: 'utf8', env });
+  const out = stripAnsi(execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env })).split('\n')[2];
+  assert.match(out, /↑︎?1/, 'a branch one commit ahead should show ↑1');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 // 6d. Privacy — SL_PRIVACY hides email / account / cost; aliasing + truncation.
 test('privacy: SL_PRIVACY hides sensitive segments', () => {
   const plain = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));

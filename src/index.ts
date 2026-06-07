@@ -17,7 +17,7 @@ import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistor
   HISTORY_BUCKET_MS, BURN_BASELINE_MIN_MS, BURN_MIN_SESSION_MS } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
 import { runPreview, runDoctor, runReport } from './cli';
-import type { StatuslineInput } from './types';
+import type { StatuslineInput, RateLimit } from './types';
 
 // Pet faces by style, ordered calm → stressed (5 levels). All ASCII, width-safe.
 const PET_FACES: Record<string, string[]> = {
@@ -75,15 +75,133 @@ function readTail(file: string, maxBytes: number): string {
   finally { if (fd >= 0) try { fs.closeSync(fd); } catch { /* ignore */ } }
 }
 
-function build(): string {
-  let data: StatuslineInput = {};
-  if (preInput) {
-    data = preInput;   // branch-theming already read & parsed stdin in config
-  } else {
-    let input = '';
-    try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
-    try { data = (JSON.parse(input) as StatuslineInput) || {}; } catch { data = {}; }
+// Parse the Claude Code JSON from stdin (shared by the renderer and the git
+// refresher). Branch auto-theming may have already consumed stdin into preInput.
+function readInput(): StatuslineInput {
+  if (preInput) return preInput;
+  let input = '';
+  try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
+  try { return (JSON.parse(input) as StatuslineInput) || {}; } catch { return {}; }
+}
+
+// Raw git facts for a working dir, gathered through `gc` (the only thing that
+// touches git). `gc` is a memoised reader: in the foreground it returns cached
+// values and never execs; in the refresher it execs and fills the cache. Both
+// call this, so the set of git commands (cache keys) can never drift between them.
+interface GitInfo {
+  branch: string; branchLabel: string; dirty: number; staged: number; gitId: string;
+  state: string; today: number; ahead: number; behind: number; ageSecs: number;
+  untracked: number; stash: number; mood: string; riskLevel: string;
+}
+function readGit(CWD: string, gc: (args: string[]) => string): GitInfo {
+  const branch = gc(['rev-parse', '--abbrev-ref', 'HEAD']);
+  const g: GitInfo = {
+    branch, branchLabel: branch, dirty: countLines(gc(['status', '--porcelain'])),
+    staged: countLines(gc(['diff', '--cached', '--name-only'])), gitId: gc(['config', 'user.email']),
+    state: '', today: 0, ahead: 0, behind: 0, ageSecs: -1, untracked: 0, stash: 0, mood: '', riskLevel: '',
+  };
+  if (cfg.gitExtra && branch) {
+    // detached HEAD → show a short sha instead of "HEAD".
+    if (branch === 'HEAD') { const sha = gc(['rev-parse', '--short', 'HEAD']); if (sha) g.branchLabel = `:${sha}`; }
+    // mid-operation state from the git dir (merge / rebase / cherry-pick).
+    try {
+      let gd = gc(['rev-parse', '--git-dir']);
+      if (gd) {
+        if (!path.isAbsolute(gd)) gd = path.join(CWD, gd);
+        if (fs.existsSync(path.join(gd, 'MERGE_HEAD'))) g.state = 'merge';
+        else if (fs.existsSync(path.join(gd, 'rebase-merge')) || fs.existsSync(path.join(gd, 'rebase-apply'))) g.state = 'rebase';
+        else if (fs.existsSync(path.join(gd, 'CHERRY_PICK_HEAD'))) g.state = 'cherry';
+      }
+    } catch { /* ignore */ }
+    // commits made since local midnight of the current frame (today's momentum).
+    const mid = new Date(cfg.clockMs); mid.setHours(0, 0, 0, 0);
+    const ct2 = parseInt(gc(['rev-list', '--count', `--since=${idiv(mid.getTime(), 1000)}`, 'HEAD']), 10);
+    if (Number.isFinite(ct2) && ct2 > 0) g.today = ct2;
+    const m = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']).match(/^(\d+)\s+(\d+)$/);
+    if (m) { g.behind = +m[1]; g.ahead = +m[2]; }
+    const ct = parseInt(gc(['log', '-1', '--format=%ct']), 10);
+    if (Number.isFinite(ct) && ct > 0) g.ageSecs = Math.max(0, cfg.baseFrame - ct);
+    g.untracked = countLines(gc(['ls-files', '--others', '--exclude-standard']));
+    g.stash = countLines(gc(['stash', 'list']));
+    g.mood = /^wip\//i.test(branch) ? 'wip' : /^(hotfix|fix)\//i.test(branch) ? 'fix'
+      : /^(feat|feature)\//i.test(branch) ? 'feat' : /^test\//i.test(branch) ? 'test' : '';
   }
+  // git risk (SL_GIT_RISK) — a deliberately rough composite; opt-in.
+  if (cfg.gitRisk && branch) {
+    let s = 0;
+    if (g.dirty > 0) s += g.dirty >= 10 ? 2 : 1;
+    if (countLines(gc(['stash', 'list'])) > 0) s += 1;
+    const rm = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']).match(/^(\d+)\s+(\d+)$/);
+    if (rm) { if (+rm[1] > 0) s += 1; if (+rm[2] >= 5) s += 1; }
+    if (g.state) s += 2;
+    g.riskLevel = s >= 4 ? 'high' : s >= 2 ? 'med' : 'low';
+  }
+  return g;
+}
+
+// The detached `--git-refresh` child: exec git off the hot path and write the
+// cache for the next foreground tick. No output, no segment work — just git.
+function refreshGitCache(data: StatuslineInput): void {
+  const CWD = (data.workspace && data.workspace.current_dir) || '';
+  const gitMemo: Record<string, string> = {};
+  const gc = (args: string[]): string => {
+    const key = args.join(' ');
+    if (key in gitMemo) return gitMemo[key];
+    const v = gitOut(CWD, args); gitMemo[key] = v; return v;
+  };
+  try {
+    const sk = sessionKey(data);
+    readGit(CWD, gc);                         // populates gitMemo via exec (incl. '' for non-repos)
+    const st = readState(sk);                 // merge into the foreground's latest spark/eta
+    st.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
+    writeState(sk, st);
+  } catch { /* refresh is best-effort */ }
+}
+
+// Pet face (SL_PET): a width-safe ASCII mood that escalates 0→4 with the chosen
+// signal. An unset SL_PET_REACTS_TO reproduces the original context+cost behaviour.
+function buildPet(COST: number, DIRTY: number, PCT: number): string {
+  if (!cfg.pet) return '';
+  let lvl: number;
+  switch (cfg.petReactsTo) {
+    case 'cost': lvl = COST >= 2 ? 4 : COST >= 1 ? 3 : COST >= 0.5 ? 2 : COST >= 0.1 ? 1 : 0; break;
+    case 'git': lvl = DIRTY > 10 ? 4 : DIRTY >= 6 ? 3 : DIRTY >= 3 ? 2 : DIRTY >= 1 ? 1 : 0; break;
+    case 'time': { const h = new Date(cfg.clockMs).getHours(); lvl = h < 6 ? 0 : h < 12 ? 1 : h < 18 ? 2 : h < 22 ? 3 : 0; break; }
+    case 'random': lvl = (Math.imul(idiv(cfg.nowMs, 3000), 2654435761) >>> 0) % 5; break;
+    case 'context': lvl = PCT >= 95 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0; break;
+    default: lvl = COST >= 0.50 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;   // original behaviour
+  }
+  const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
+  const col = ['', '', '', '', ''];
+  col[0] = GREEN; col[2] = AMBER; col[3] = RED; col[4] = GOLD;
+  return `${col[lvl]}${faces[lvl]}${R} `;
+}
+
+// Usage-limit gauges (the 5h / 7d bars on line 2). SL_LIMITS tints amber past the
+// warn threshold and bold-red + "LOW" past crit; each bar shows a reset countdown.
+function buildUsage(rl: { five_hour?: RateLimit; seven_day?: RateLimit }): string {
+  const NOW = cfg.baseFrame;
+  const rlSeg = (label: string, pctIn: number | undefined, resetsAt: number | string | undefined, phase: number): string => {
+    let pct = Math.floor(pctIn || 0); if (pct > 100) pct = 100;
+    const bar = drawBar(10, scaleCells(pct, 10), -1, phase);
+    let pc = gradientColor(pct);   // lerps along the theme gradient
+    let warn = '';
+    if (cfg.limits) {
+      if (pct >= cfg.limitCrit) { pc = `${BOLD}${RED}`; warn = ` ${BOLD}${RED}LOW${R}`; }
+      else if (pct >= cfg.limitWarn) { pc = AMBER; }
+    }
+    let secsLeft = 0;
+    const ra = typeof resetsAt === 'number' ? resetsAt : parseInt(String(resetsAt), 10);
+    if (Number.isFinite(ra) && ra > 0) secsLeft = ra - NOW;
+    const cd = secsLeft <= 0 ? `${DIM}now${R}` : `${DIM}${fmtCountdown(secsLeft)}${R}`;
+    return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R}${warn} ${cd}`;
+  };
+  const fh = rl.five_hour || {}, sd = rl.seven_day || {};
+  return `${rlSeg('5h', fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg('7d', sd.used_percentage, sd.resets_at, 3000)}`;
+}
+
+function build(): string {
+  const data = readInput();
 
   // ── extract fields ──────────────────────────────────────────────────────────
   const ws = data.workspace || {};
@@ -114,75 +232,59 @@ function build(): string {
   // git-output cache: the foreground paints from this; a detached background
   // refresher (cfg.gitRefresh) rewrites it. TTL bounds how stale git can get.
   const GIT_TTL = 2500;
-  let gitMemo: Record<string, string> = {}, gitMemoDirty = false;
-  let sessionK = '', sessionSt: ReturnType<typeof readState> | null = null;
-  // gitFresh: cached git data exists and is within TTL → no refresh needed.
-  // kickRefresh: this (foreground) render should spawn a background refresher.
-  let gitFresh = false, kickRefresh = false;
-  // gc(): the FOREGROUND never execs git — it returns whatever the cache holds
+  let gitMemo: Record<string, string> = {};
+  // kickRefresh: this render should spawn a background refresher to update git.
+  let kickRefresh = false;
+  // gc(): the foreground never execs git — it returns whatever the cache holds
   // (possibly stale, possibly empty on a cold start) so the render can't be slowed
-  // below refreshInterval by a big/slow repo. Only the detached refresher execs.
-  const gc = (args: string[]): string => {
-    const key = args.join(' ');
-    if (key in gitMemo) return gitMemo[key];
-    if (!cfg.gitRefresh) return '';   // foreground: never block on git
-    const v = gitOut(CWD, args);
-    gitMemo[key] = v; gitMemoDirty = true;
-    return v;
-  };
+  // below refreshInterval by a big/slow repo. Only refreshGitCache() execs git.
+  const gc = (args: string[]): string => gitMemo[args.join(' ')] ?? '';
 
   let SPARK: number[] = [], COMPACTIONS = 0, ETA_SAMPLES: [number, number][] = [], BELL = '';
   try {
     const sk = sessionKey(data);
-    sessionK = sk;
     const st = readState(sk);
-    sessionSt = st;
     // Reuse cached git for this render whenever it's for the same cwd — even when
-    // stale, so git never blanks between refreshes; gitFresh decides if we refresh.
-    if (!cfg.gitRefresh && st.git && st.git.cwd === CWD) {
+    // stale, so git never blanks between refreshes; freshness decides if we refresh.
+    let gitFresh = false;
+    if (st.git && st.git.cwd === CWD) {
       gitMemo = { ...st.git.data };
       gitFresh = cfg.nowMs - st.git.ts < GIT_TTL;
     }
-    if (cfg.gitRefresh) {
-      // Background refresher: don't touch per-tick state (spark/eta/history/bell);
-      // it only re-execs git and rewrites the git cache (below). Leaving the rest
-      // alone avoids clobbering the foreground's concurrent state writes.
-    } else {
-      // Kick a background git refresh when the cache is stale/missing, rate-limited
-      // to one per TTL so cold-start can't stampede overlapping refreshers.
-      if (CWD && !gitFresh && cfg.nowMs - (st.lastGitRefresh || 0) > GIT_TTL) {
-        kickRefresh = true;
-        st.lastGitRefresh = cfg.nowMs;
-      }
-      // SL_BELL: ring once each time context crosses into a higher band (de-dup via state).
-      if (cfg.bell) {
-        const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
-        if (lvl > (st.bellLevel ?? 0)) BELL = '\x07';
-        st.bellLevel = lvl;
-      }
-      const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
-      if (prev >= 0 && PCT !== prev) cfg.event = true;               // drives flash/ripple shimmers
-      if (prev >= 0 && PCT <= prev - 25) st.compactions += 1;        // sharp drop = an autocompact
-      pushSpark(st, PCT);
-      st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
-      // one cross-session record per 5-minute duration bucket (keeps the log small).
-      const bucket = idiv(DURATION_MS, HISTORY_BUCKET_MS);
-      if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
-        st.histBucket = bucket;
-        appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
-      }
-      writeState(sk, st);
-      SPARK = st.spark.slice();
-      COMPACTIONS = st.compactions;
-      ETA_SAMPLES = st.etaSamples;
+    // Kick a background git refresh when the cache is stale/missing, rate-limited
+    // to one per TTL so cold-start can't stampede overlapping refreshers.
+    if (CWD && !gitFresh && cfg.nowMs - (st.lastGitRefresh || 0) > GIT_TTL) {
+      kickRefresh = true;
+      st.lastGitRefresh = cfg.nowMs;
     }
+    // SL_BELL: ring once each time context crosses into a higher band (de-dup via state).
+    if (cfg.bell) {
+      const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
+      if (lvl > (st.bellLevel ?? 0)) BELL = '\x07';
+      st.bellLevel = lvl;
+    }
+    const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+    if (prev >= 0 && PCT !== prev) cfg.event = true;               // drives flash/ripple shimmers
+    if (prev >= 0 && PCT <= prev - 25) st.compactions += 1;        // sharp drop = an autocompact
+    pushSpark(st, PCT);
+    st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
+    // one cross-session record per 5-minute duration bucket (keeps the log small).
+    const bucket = idiv(DURATION_MS, HISTORY_BUCKET_MS);
+    if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
+      st.histBucket = bucket;
+      appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+    }
+    writeState(sk, st);
+    SPARK = st.spark.slice();
+    COMPACTIONS = st.compactions;
+    ETA_SAMPLES = st.etaSamples;
   } catch { /* state is best-effort */ }
 
   // ── custom segment (SL_CUSTOM_SEGMENT) — run a user script as a child with the
   //    Claude Code JSON on stdin; take its first stdout line. Timeout + error
   //    isolated so a broken/slow plugin can never hang or blank the statusline. ─
   let CUSTOM_SEG = '';
-  if (cfg.customSegment && !cfg.gitRefresh) {
+  if (cfg.customSegment) {
     try {
       const out = execFileSync(process.execPath, [cfg.customSegment], {
         input: JSON.stringify(data), encoding: 'utf8', timeout: 250,
@@ -258,108 +360,29 @@ function build(): string {
 
   const DIR_SEG = `${DIM}${cfg.nerdfont ? ' ' : ''}${displayPath(CWD)}${R}`;
 
-  // ── git ─────────────────────────────────────────────────────────────────────
-  const BRANCH = gc(['rev-parse', '--abbrev-ref', 'HEAD']);
-  const DIRTY = countLines(gc(['status', '--porcelain']));
-  const STAGED = countLines(gc(['diff', '--cached', '--name-only']));
-  const GIT_ID = gc(['config', 'user.email']);
-
-  let GIT_AB = '', GIT_AGE = '', GIT_UNTRACKED = '', GIT_STASH = '', BRANCH_MOOD = '';
-  let BRANCH_LABEL = BRANCH, GIT_STATE = '', GIT_TODAY = '', GIT_RISK = '';
-  if (cfg.gitExtra && BRANCH) {
-    // detached HEAD → show a short sha instead of "HEAD".
-    if (BRANCH === 'HEAD') { const sha = gc(['rev-parse', '--short', 'HEAD']); if (sha) BRANCH_LABEL = `:${sha}`; }
-    // mid-operation state from the git dir (merge / rebase / cherry-pick).
-    try {
-      let gd = gc(['rev-parse', '--git-dir']);
-      if (gd) {
-        if (!path.isAbsolute(gd)) gd = path.join(CWD, gd);
-        if (fs.existsSync(path.join(gd, 'MERGE_HEAD'))) GIT_STATE = 'merge';
-        else if (fs.existsSync(path.join(gd, 'rebase-merge')) || fs.existsSync(path.join(gd, 'rebase-apply'))) GIT_STATE = 'rebase';
-        else if (fs.existsSync(path.join(gd, 'CHERRY_PICK_HEAD'))) GIT_STATE = 'cherry';
-      }
-    } catch { /* ignore */ }
-    // commits made since local midnight of the current frame (today's momentum).
-    const mid = new Date(cfg.clockMs); mid.setHours(0, 0, 0, 0);
-    const ct2 = parseInt(gc(['rev-list', '--count', `--since=${idiv(mid.getTime(), 1000)}`, 'HEAD']), 10);
-    if (Number.isFinite(ct2) && ct2 > 0) GIT_TODAY = ` ${GREEN}${txt('✓')}${ct2}${R}`;
-    const ab = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']);
-    const m = ab.match(/^(\d+)\s+(\d+)$/);
-    if (m) {
-      const behind = +m[1], ahead = +m[2];
-      let s = '';
-      if (ahead) s += `${GREEN}${txt('↑')}${ahead}${R}`;
-      if (behind) s += `${RED}${txt('↓')}${behind}${R}`;
-      if (s) GIT_AB = `  ${s}`;
-    }
-    const ct = parseInt(gc(['log', '-1', '--format=%ct']), 10);
-    if (Number.isFinite(ct) && ct > 0) {
-      const secs = Math.max(0, cfg.baseFrame - ct);
-      const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m`
-        : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
-      GIT_AGE = `  ${DIM}·${a}${R}`;
-    }
-    const ut = countLines(gc(['ls-files', '--others', '--exclude-standard']));
-    if (ut > 0) GIT_UNTRACKED = `  ${AMBER}?${ut}${R}`;
-    const st = countLines(gc(['stash', 'list']));
-    if (st > 0) GIT_STASH = ` ${DIM}s:${st}${R}`;
-    const tag = /^wip\//i.test(BRANCH) ? 'wip' : /^(hotfix|fix)\//i.test(BRANCH) ? 'fix'
-      : /^(feat|feature)\//i.test(BRANCH) ? 'feat' : /^test\//i.test(BRANCH) ? 'test' : '';
-    if (tag) BRANCH_MOOD = `${DIM}[${tag}]${R} `;
+  // ── git ─── facts gathered by readGit() (cache-backed); display built here ────
+  const G = readGit(CWD, gc);
+  const BRANCH = G.branch, BRANCH_LABEL = G.branchLabel, DIRTY = G.dirty, STAGED = G.staged;
+  const GIT_ID = G.gitId, GIT_STATE = G.state;
+  const GIT_TODAY = G.today > 0 ? ` ${GREEN}${txt('✓')}${G.today}${R}` : '';
+  let GIT_AB = '';
+  { let s = ''; if (G.ahead) s += `${GREEN}${txt('↑')}${G.ahead}${R}`; if (G.behind) s += `${RED}${txt('↓')}${G.behind}${R}`; if (s) GIT_AB = `  ${s}`; }
+  let GIT_AGE = '';
+  if (G.ageSecs >= 0) {
+    const secs = G.ageSecs;
+    const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m`
+      : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
+    GIT_AGE = `  ${DIM}·${a}${R}`;
   }
-
-  // ── git risk score (SL_GIT_RISK) — a deliberately rough composite; opt-in ────
-  if (cfg.gitRisk && BRANCH) {
-    let s = 0;
-    if (DIRTY > 0) s += DIRTY >= 10 ? 2 : 1;
-    if (countLines(gc(['stash', 'list'])) > 0) s += 1;
-    const rm = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']).match(/^(\d+)\s+(\d+)$/);
-    if (rm) { if (+rm[1] > 0) s += 1; if (+rm[2] >= 5) s += 1; }
-    if (GIT_STATE) s += 2;
-    const level = s >= 4 ? 'high' : s >= 2 ? 'med' : 'low';
-    const rc = level === 'high' ? RED : level === 'med' ? AMBER : GREEN;
-    GIT_RISK = `  ${rc}risk:${level}${R}`;
-  }
-
-  // persist the git cache for the next tick (best-effort). In the refresher this
-  // is the whole point of the run; re-read state first so we merge fresh git into
-  // the foreground's latest spark/eta rather than clobbering it.
-  if (gitMemoDirty && sessionSt) {
-    if (cfg.gitRefresh) { try { sessionSt = readState(sessionK); } catch { /* keep prior */ } }
-    sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
-    try { writeState(sessionK, sessionSt); } catch { /* best-effort */ }
-  }
-
-  // The background refresher exists only to warm the git cache above — it has no
-  // output and skips the rest of the render (segments, transcript, layout, etc.).
-  if (cfg.gitRefresh) {
-    // Stamp an empty cache for non-git cwds too, so the foreground sees a fresh
-    // (empty) entry and stops kicking refreshers in directories with no repo.
-    if (!gitMemoDirty && sessionSt) {
-      try { sessionSt = readState(sessionK); sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: {} }; writeState(sessionK, sessionSt); } catch { /* best-effort */ }
-    }
-    return '';
-  }
+  const GIT_UNTRACKED = G.untracked > 0 ? `  ${AMBER}?${G.untracked}${R}` : '';
+  const GIT_STASH = G.stash > 0 ? ` ${DIM}s:${G.stash}${R}` : '';
+  const BRANCH_MOOD = G.mood ? `${DIM}[${G.mood}]${R} ` : '';
+  const GIT_RISK = G.riskLevel
+    ? `  ${G.riskLevel === 'high' ? RED : G.riskLevel === 'med' ? AMBER : GREEN}risk:${G.riskLevel}${R}`
+    : '';
 
   // ── pet (SL_PET) ────────────────────────────────────────────────────────────
-  // Mood level 0..4 from the chosen source; unset reactsTo reproduces the original
-  // context-bands-plus-cost-override behaviour exactly (so the default is unchanged).
-  let PET = '';
-  if (cfg.pet) {
-    let lvl: number;
-    switch (cfg.petReactsTo) {
-      case 'cost': lvl = COST >= 2 ? 4 : COST >= 1 ? 3 : COST >= 0.5 ? 2 : COST >= 0.1 ? 1 : 0; break;
-      case 'git': lvl = DIRTY > 10 ? 4 : DIRTY >= 6 ? 3 : DIRTY >= 3 ? 2 : DIRTY >= 1 ? 1 : 0; break;
-      case 'time': { const h = new Date(cfg.clockMs).getHours(); lvl = h < 6 ? 0 : h < 12 ? 1 : h < 18 ? 2 : h < 22 ? 3 : 0; break; }
-      case 'random': lvl = (Math.imul(idiv(cfg.nowMs, 3000), 2654435761) >>> 0) % 5; break;
-      case 'context': lvl = PCT >= 95 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0; break;
-      default: lvl = COST >= 0.50 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;   // original behaviour
-    }
-    const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
-    const col = ['', '', '', '', ''];
-    col[0] = GREEN; col[2] = AMBER; col[3] = RED; col[4] = GOLD;
-    PET = `${col[lvl]}${faces[lvl]}${R} `;
-  }
+  const PET = buildPet(COST, DIRTY, PCT);
 
   // ── Claude account name ─────────────────────────────────────────────────────
   let CLAUDE_USER = '';
@@ -492,29 +515,7 @@ function build(): string {
   const CLOCK_SEG = `${clockColour()}${DAYS[dt.getDay()]} ${p2(dt.getDate())} ${MONTHS[dt.getMonth()]}  ${p2(dt.getHours())}:${p2(dt.getMinutes())}:${p2(dt.getSeconds())}${R}`;
 
   // ── usage limits ────────────────────────────────────────────────────────────
-  let USAGE_SEG = '';
-  if (rl != null) {
-    const NOW = cfg.baseFrame;
-    const rlSeg = (label: string, pctIn: number | undefined, resetsAt: number | string | undefined, phase: number): string => {
-      let pct = Math.floor(pctIn || 0); if (pct > 100) pct = 100;
-      const filled = scaleCells(pct, 10);
-      const bar = drawBar(10, filled, -1, phase);
-      let pc = gradientColor(pct);   // lerps along the theme gradient
-      let warn = '';
-      // limit warnings (SL_LIMITS): force amber past warn, bold red + LOW past crit.
-      if (cfg.limits) {
-        if (pct >= cfg.limitCrit) { pc = `${BOLD}${RED}`; warn = ` ${BOLD}${RED}LOW${R}`; }
-        else if (pct >= cfg.limitWarn) { pc = AMBER; }
-      }
-      let secsLeft = 0;
-      const ra = typeof resetsAt === 'number' ? resetsAt : parseInt(String(resetsAt), 10);
-      if (Number.isFinite(ra) && ra > 0) secsLeft = ra - NOW;
-      const cd = secsLeft <= 0 ? `${DIM}now${R}` : `${DIM}${fmtCountdown(secsLeft)}${R}`;
-      return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R}${warn} ${cd}`;
-    };
-    const fh = rl.five_hour || {}, sd = rl.seven_day || {};
-    USAGE_SEG = `${rlSeg('5h', fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg('7d', sd.used_percentage, sd.resets_at, 3000)}`;
-  }
+  const USAGE_SEG = rl != null ? buildUsage(rl) : '';
 
   // ── assemble ────────────────────────────────────────────────────────────────
   // SL_HIDE drops named segments; SL_SEPARATOR swaps the major join (default "  ");
@@ -625,7 +626,7 @@ function build(): string {
   // next tick. Detached + unref'd so it outlives this (cancellable) render — the
   // mechanism that lets the cache populate at all when a render gets cancelled at
   // the refreshInterval boundary. Best-effort: any failure just means stale git.
-  if (kickRefresh && !cfg.gitRefresh) {
+  if (kickRefresh) {
     try {
       const child = spawn(process.execPath, [__filename, '--git-refresh'], {
         detached: true, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'], env: process.env,
@@ -645,7 +646,7 @@ else if (cliArg === '--doctor') runDoctor();
 else if (cliArg === '--report') runReport();
 else if (cliArg === '--git-refresh') {
   // Detached background invocation: warm the git cache, print nothing.
-  try { build(); } catch { /* refresh is best-effort */ }
+  refreshGitCache(readInput());
 }
 else if (cliArg && cliArg.startsWith('-')) {
   process.stdout.write('claude-statusline — a statusline command for Claude Code.\n\n'
