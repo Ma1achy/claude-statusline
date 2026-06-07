@@ -138,6 +138,33 @@ export const THEMES_DATA: Record<string, ThemeData> = {
   // crisp silver normally; pairs with the danger wash (deep safelight red when
   // context/limits are critical — the darkroom convention). See SL_DANGER.
   'silver-halide': { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8, elements: { ...RETRO, name: { attrs: ['italic'] } } },
+
+  // ── new themes ────────────────────────────────────────────────────────────────
+  // Vintage IBM-5151 amber phosphor; all-caps CRT feel.
+  'amber-crt': { cmap: [[40, 20, 0], [90, 50, 0], [160, 95, 0], [230, 150, 10], [255, 200, 90]], mix: 10, elements: { 'model.tier': { case: 'upper' }, 'git.branch': { case: 'upper' }, name: { case: 'upper' } } },
+  // Grayscale with one blood-red accent; cinematic. small-caps "alert" warning.
+  noir: { cmap: [[20, 20, 22], [70, 70, 74], [130, 130, 136], [200, 200, 206], [245, 245, 248]], mix: 8, palRgb: { RED: [225, 70, 70], GREEN: [170, 170, 176], AMBER: [200, 200, 206], BLUE: [150, 150, 156], CYAN: [190, 190, 196], WHITE: [235, 235, 240], GOLD: [210, 210, 216] }, elements: { name: { attrs: ['italic'] }, 'cost.amount': { attrs: ['italic'] }, 'usage.warn': { font: 'smallcaps' } }, labels: { 'usage.warn': 'alert' } },
+  // Teal/magenta/lilac pastel; italic gradient-cycle name.
+  vaporwave: { cmap: [[120, 90, 200], [200, 120, 220], [120, 220, 230], [255, 180, 220]], mix: 25, elements: { 'model.tier': { case: 'title' }, name: { fill: 'gradient', anim: { kind: 'gradient-cycle' }, attrs: ['italic'] } } },
+  // Cyan-on-navy drafting palette; UPPER labels, underlined path.
+  blueprint: { cmap: [[10, 20, 50], [20, 60, 110], [40, 110, 170], [90, 170, 220], [170, 220, 250]], mix: 15, elements: { 'model.tier': { case: 'upper' }, 'usage.label': { case: 'upper' }, dir: { attrs: ['underline'] } } },
+  // Charcoal → ember → white-hot; bold model, pulsing cost.
+  ember: { cmap: [[20, 12, 10], [80, 30, 10], [160, 60, 15], [230, 110, 20], [255, 200, 120]], mix: 12, elements: { 'model.tier': { weight: 'bold' }, 'cost.amount': { anim: { kind: 'pulse' } } } },
+  // E-ink: warm greys, quiet print look — no animation, dimmed secondaries.
+  paperwhite: { cmap: [[80, 78, 74], [130, 128, 122], [170, 168, 160], [205, 202, 194], [235, 232, 224]], mix: 20, palRgb: { RED: [180, 90, 80], GREEN: [120, 150, 110], AMBER: [180, 150, 90], BLUE: [110, 120, 150], CYAN: [120, 150, 150], WHITE: [232, 228, 220], GOLD: [190, 160, 110] }, elements: { ...MINIMAL, 'model.tier': { case: 'title' } } },
+  // Louder than tokyonight — hot pink / electric blue / acid yellow.
+  'neon-tokyo': { cmap: [[255, 60, 160], [120, 120, 255], [60, 220, 255], [240, 240, 80]], mix: 0, palRgb: { RED: [255, 60, 160], GREEN: [60, 230, 160], AMBER: [240, 240, 80], BLUE: [120, 120, 255], CYAN: [60, 220, 255], WHITE: [235, 235, 255], GOLD: [240, 240, 80] }, elements: { ...LOUD, 'git.branch': { fill: 'accent' } } },
+  // Old-photograph browns and creams; nostalgic, lowercase italic name.
+  sepia: { cmap: [[40, 30, 20], [90, 70, 45], [150, 120, 80], [200, 170, 120], [235, 215, 180]], mix: 18, elements: { 'model.tier': { case: 'lower' }, name: { attrs: ['italic'] } } },
+  // Ice → glacier → navy; crisp and cold, title-case + italic cost.
+  arctic: { cmap: [[20, 40, 70], [50, 90, 140], [110, 160, 210], [170, 210, 240], [225, 245, 255]], mix: 15, elements: { 'model.tier': { case: 'title' }, 'cost.amount': { attrs: ['italic'] } } },
+  // Classic VT220 single-green terminal; everything stylable in UPPER.
+  'terminal-green': { cmap: [[0, 40, 0], [0, 90, 0], [0, 150, 0], [0, 210, 20], [120, 255, 120]], mix: 5, elements: { 'model.tier': { case: 'upper' }, 'git.branch': { case: 'upper' }, name: { case: 'upper' }, 'cost.amount': { case: 'upper' } } },
+  // Designer twilight purples → rose; soft evening, italic cost + name.
+  dusk: { cmap: [[40, 30, 70], [90, 60, 130], [150, 90, 170], [210, 130, 180], [245, 190, 210]], mix: 22, elements: { name: { attrs: ['italic'] }, 'cost.amount': { attrs: ['italic'] } } },
+  // IBM Carbon — near-monochrome dark with vivid accents; bold model.
+  oxocarbon: { cmap: [[22, 22, 22], [50, 50, 60], [100, 100, 120], [160, 160, 180], [220, 220, 235]], mix: 8, palRgb: { RED: [255, 80, 120], GREEN: [66, 230, 180], AMBER: [255, 200, 90], BLUE: [120, 150, 255], CYAN: [130, 220, 255], WHITE: [240, 240, 245], GOLD: [255, 200, 90] }, elements: { ...MINIMAL, 'model.tier': { weight: 'bold' } } },
+
   // Accessibility palette (SL_ACCESSIBLE) — see A11Y_PAL below. Default gauge is
   // the CVD-safe ramp; SL_ACCESSIBLE_GAUGE swaps it (themes.ts). Paired with motion
   // off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
