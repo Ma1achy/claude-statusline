@@ -3,7 +3,7 @@
 import { drawBar, scaleCells } from '../bar';
 import { fmtCountdown } from '../format';
 import { cfg } from '../config';
-import { st } from '../style';
+import { st, labelFor } from '../style';
 import type { RateLimit } from '../types';
 
 export function buildUsage(rl: { five_hour?: RateLimit; seven_day?: RateLimit }): string {
@@ -13,7 +13,7 @@ export function buildUsage(rl: { five_hour?: RateLimit; seven_day?: RateLimit })
     const bar = drawBar(10, scaleCells(pct, 10), -1, phase);
     let pctStr: string, warn = '';
     // limit warnings (SL_LIMITS): warn role past warn, bold bad + LOW past crit; else gradient.
-    if (cfg.limits && pct >= cfg.limitCrit) { pctStr = st('usage.pct', `${pct}%`, { role: 'bad', weight: 'bold' }); warn = ` ${st('usage.warn', 'LOW')}`; }
+    if (cfg.limits && pct >= cfg.limitCrit) { pctStr = st('usage.pct', `${pct}%`, { role: 'bad', weight: 'bold' }); warn = ` ${st('usage.warn', labelFor('usage.warn', 'LOW'))}`; }
     else if (cfg.limits && pct >= cfg.limitWarn) { pctStr = st('usage.pct', `${pct}%`, { role: 'warn' }); }
     else pctStr = st('usage.pct', `${pct}%`, { pct });
     let secsLeft = 0;

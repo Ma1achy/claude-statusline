@@ -3,7 +3,7 @@
 import { drawBar, scaleCells } from '../bar';
 import { fmtCountdown } from '../format';
 import { cfg } from '../config';
-import { st } from '../style';
+import { st, glyphFor } from '../style';
 import { sparkline, etaMinutes, weatherWord } from '../insight';
 
 export interface ContextSeg { bar: string; pctSeg: string; trend: string; weather: string; compactLabel: string; }
@@ -34,9 +34,9 @@ export function buildContext(
     if (spark) parts.push(st('trend.spark', spark));
     if (!compactOff && compactPctVal > 0) {
       const eta = etaMinutes(ETA_SAMPLES, compactPctVal, PCT);
-      if (eta >= 0) parts.push(st('trend.eta', `~${fmtCountdown(eta * 60)}`, { pct: PCT }));
+      if (eta >= 0) parts.push(st('trend.eta', `${glyphFor('trend.eta', '~')}${fmtCountdown(eta * 60)}`, { pct: PCT }));
     }
-    if (COMPACTIONS > 0) parts.push(st('trend.compactions', `↺${COMPACTIONS}`));
+    if (COMPACTIONS > 0) parts.push(st('trend.compactions', `${glyphFor('trend.compactions', '↺')}${COMPACTIONS}`));
     trend = parts.join(' ');
   }
   // weather (SL_WEATHER): a one-word reading of context pressure.

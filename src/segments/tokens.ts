@@ -2,7 +2,7 @@
 import { txt } from '../ansi';
 import { fmtK } from '../format';
 import { idiv } from '../util';
-import { st } from '../style';
+import { st, glyphFor } from '../style';
 import type { CurrentUsage } from '../types';
 
 export function buildTokens(cu: CurrentUsage | null | undefined): string {
@@ -15,11 +15,11 @@ export function buildTokens(cu: CurrentUsage | null | undefined): string {
   let HIT_SEG = '';
   if (total > 0 && CU_READ > 0) {
     const hit = idiv(CU_READ * 100, total);
-    HIT_SEG = st('tokens.hit', `✦${hit}%`, { weight: hit >= 70 ? 'bold' : hit >= 40 ? 'normal' : 'dim' });
+    HIT_SEG = st('tokens.hit', `${glyphFor('tokens.hit', '✦')}${hit}%`, { weight: hit >= 70 ? 'bold' : hit >= 40 ? 'normal' : 'dim' });
   }
-  const readSeg = CU_READ > 0 ? ` ${st('tokens.read', `✦${fmtK(CU_READ)}`)}` : '';
-  const writeSeg = CU_WRITE > 0 ? ` ${st('tokens.write', `+${fmtK(CU_WRITE)}w`)}` : '';
-  const inSeg = CU_INPUT > 0 ? ` ${st('tokens.in', `${txt('↓')}${fmtK(CU_INPUT)}`)}` : '';
-  const outSeg = CU_OUT > 0 ? ` ${st('tokens.out', `${txt('↑')}${fmtK(CU_OUT)}`)}` : '';
+  const readSeg = CU_READ > 0 ? ` ${st('tokens.read', `${glyphFor('tokens.read', '✦')}${fmtK(CU_READ)}`)}` : '';
+  const writeSeg = CU_WRITE > 0 ? ` ${st('tokens.write', `${glyphFor('tokens.write', '+')}${fmtK(CU_WRITE)}w`)}` : '';
+  const inSeg = CU_INPUT > 0 ? ` ${st('tokens.in', `${txt(glyphFor('tokens.in', '↓'))}${fmtK(CU_INPUT)}`)}` : '';
+  const outSeg = CU_OUT > 0 ? ` ${st('tokens.out', `${txt(glyphFor('tokens.out', '↑'))}${fmtK(CU_OUT)}`)}` : '';
   return HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
 }

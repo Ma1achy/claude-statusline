@@ -14,6 +14,30 @@ import type { Role, Style } from './types';
 
 interface StOpts { role?: Role; weight?: 'normal' | 'bold' | 'dim'; pct?: number; }
 
+// Glyph/label resolution — same cascade as st(), highest-wins:
+//   user elements[id] → user glyphs/labels map → theme elements[id] → theme map →
+//   built-in default → the caller's fallback (the literal the segment used to hardcode).
+// Lets a theme (or user config) swap any element's icon or wording. Returns the
+// fallback unchanged when nothing overrides it, so default output is untouched.
+function resolveGlyph(id: ElementId): string | undefined {
+  return cfg.elements?.[id]?.glyph ?? cfg.glyphs?.[id]
+    ?? TH.elements?.[id]?.glyph ?? TH.glyphs?.[id]
+    ?? ELEMENT_DEFAULTS[id].glyph;
+}
+function resolveLabel(id: ElementId): string | undefined {
+  return cfg.elements?.[id]?.label ?? cfg.labels?.[id]
+    ?? TH.elements?.[id]?.label ?? TH.labels?.[id]
+    ?? ELEMENT_DEFAULTS[id].label;
+}
+/** Theme/user glyph override for element `id`, else `fallback`. */
+export function glyphFor(id: ElementId, fallback: string): string {
+  return resolveGlyph(id) ?? fallback;
+}
+/** Theme/user label override for element `id`, else `fallback`. */
+export function labelFor(id: ElementId, fallback: string): string {
+  return resolveLabel(id) ?? fallback;
+}
+
 const hexRgb = (h: string): [number, number, number] =>
   [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
