@@ -16,6 +16,17 @@ import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistor
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
 import type { StatuslineInput } from './types';
 
+// Pet faces by style, ordered calm → stressed (5 levels). All ASCII, width-safe.
+const PET_FACES: Record<string, string[]> = {
+  default: ['[^_^]', '[._.]', '[o_o]', '[>_<]', '[$_$]'],
+  cat: ['=^_^=', '=._.=', '=o_o=', '=>_<=', '=$_$='],
+  frog: ['(^_^)', '(o_o)', '(._.)', '(O_O)', '(>_<)'],
+  robot: ['[0_0]', '[o_o]', '[._.]', '[!_!]', '[x_x]'],
+  ghost: ['<^_^>', '<o_o>', '<._.>', '<!_!>', '<x_x>'],
+  slime: ['(~_~)', '(o_o)', '(._.)', '(>_<)', '(@_@)'],
+  dog: ['[^o^]', '[^.^]', '[-.-]', '[>n<]', '[ToT]'],
+};
+
 // Display form of the cwd: project aliases first, then (unless SL_PATH=full)
 // home→~ and middle-compression of deep paths (keep root + … + last two).
 function displayPath(cwd: string): string {
@@ -69,10 +80,16 @@ function build(): string {
 
   // ── persist this tick: context-% history, compaction detection, ETA samples,
   //    and a throttled cross-session history record for burn baselines ─────────
-  let SPARK: number[] = [], COMPACTIONS = 0, ETA_SAMPLES: [number, number][] = [];
+  let SPARK: number[] = [], COMPACTIONS = 0, ETA_SAMPLES: [number, number][] = [], BELL = '';
   try {
     const sk = sessionKey(data);
     const st = readState(sk);
+    // SL_BELL: ring once each time context crosses into a higher band (de-dup via state).
+    if (cfg.bell) {
+      const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
+      if (lvl > (st.bellLevel ?? 0)) BELL = '\x07';
+      st.bellLevel = lvl;
+    }
     const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
     if (prev >= 0 && PCT <= prev - 25) st.compactions += 1;        // sharp drop = an autocompact
     pushSpark(st, PCT);
@@ -131,18 +148,6 @@ function build(): string {
     VIM = ` ${col}${u[0] || '?'}${R}`;
   }
   const LEAD = `${FAST}${VIM}`;
-
-  // ── pet (SL_PET) ────────────────────────────────────────────────────────────
-  let PET = '';
-  if (cfg.pet) {
-    let face: string, col: string;
-    if (COST >= 0.50) { face = '[$_$]'; col = GOLD; }
-    else if (PCT >= 85) { face = '[>_<]'; col = RED; }
-    else if (PCT >= 70) { face = '[o_o]'; col = AMBER; }
-    else if (PCT >= 40) { face = '[._.]'; col = ''; }
-    else { face = '[^_^]'; col = GREEN; }
-    PET = `${col}${face}${R} `;
-  }
 
   // ── moon phase (SL_MOON) ────────────────────────────────────────────────────
   let MOON = '';
@@ -227,6 +232,26 @@ function build(): string {
     const level = s >= 4 ? 'high' : s >= 2 ? 'med' : 'low';
     const rc = level === 'high' ? RED : level === 'med' ? AMBER : GREEN;
     GIT_RISK = `  ${rc}risk:${level}${R}`;
+  }
+
+  // ── pet (SL_PET) ────────────────────────────────────────────────────────────
+  // Mood level 0..4 from the chosen source; unset reactsTo reproduces the original
+  // context-bands-plus-cost-override behaviour exactly (so the default is unchanged).
+  let PET = '';
+  if (cfg.pet) {
+    let lvl: number;
+    switch (cfg.petReactsTo) {
+      case 'cost': lvl = COST >= 2 ? 4 : COST >= 1 ? 3 : COST >= 0.5 ? 2 : COST >= 0.1 ? 1 : 0; break;
+      case 'git': lvl = DIRTY > 10 ? 4 : DIRTY >= 6 ? 3 : DIRTY >= 3 ? 2 : DIRTY >= 1 ? 1 : 0; break;
+      case 'time': { const h = new Date(cfg.clockMs).getHours(); lvl = h < 6 ? 0 : h < 12 ? 1 : h < 18 ? 2 : h < 22 ? 3 : 0; break; }
+      case 'random': lvl = (Math.imul(idiv(cfg.nowMs, 3000), 2654435761) >>> 0) % 5; break;
+      case 'context': lvl = PCT >= 95 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0; break;
+      default: lvl = COST >= 0.50 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;   // original behaviour
+    }
+    const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
+    const col = ['', '', '', '', ''];
+    col[0] = GREEN; col[2] = AMBER; col[3] = RED; col[4] = GOLD;
+    PET = `${col[lvl]}${faces[lvl]}${R} `;
   }
 
   // ── Claude account name ─────────────────────────────────────────────────────
@@ -488,7 +513,7 @@ function build(): string {
     lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + (col % 3) * 12, 18, 18)));
   }
 
-  return lines.join('\n') + '\n';
+  return BELL + lines.join('\n') + '\n';
 }
 
 try {

@@ -86,6 +86,30 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6h. Pet + bell — styles render; bell rings once per threshold crossing.
+test('pet styles + bell de-dup', () => {
+  // a style swaps the face glyphs (PCT 42 → neutral level for default & cat).
+  assert.ok(stripAnsi(run(fix, { SL_PET: 'on' })).includes('[._.]'), 'default pet face');
+  assert.ok(stripAnsi(run(fix, { SL_PET: 'on', SL_PET_STYLE: 'cat' })).includes('=._.='), 'cat pet face');
+  // reacts-to=cost: high cost → stressed face regardless of context.
+  const greedy = stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 10 }, cost: { total_cost_usd: 2.5, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_PET: 'on', SL_PET_REACTS_TO: 'cost' },
+  }));
+  assert.ok(greedy.includes('[$_$]'), 'cost reaction → stressed at high spend');
+  // bell rings (0x07) the first time context crosses 80, then de-dups.
+  const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-bell-'));
+  fs.mkdirSync(path.join(home, '.claude')); fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-bt-'));
+  const ring = () => execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ session_id: 'b', model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 85 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_BELL: 'on', TMPDIR: tmp },
+  });
+  assert.strictEqual(ring().charCodeAt(0), 7, 'first crossing rings the bell');
+  assert.notStrictEqual(ring().charCodeAt(0), 7, 'same level does not re-ring');
+  fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 // 6g. Bar scale — log expands the danger zone (fewer filled cells at high %).
 test('bar scale: log differs from linear and widens the danger zone', () => {
   const emptyCells = (env) => {

@@ -228,6 +228,9 @@ no emoji), so right-alignment stays exact on every terminal.
 | Variable | Effect |
 |----------|--------|
 | `SL_PET` | ASCII pet whose mood tracks context %: `[^_^]`→`[._.]`→`[o_o]`→`[>_<]`; `[$_$]` when cost ≥ $0.50 |
+| `SL_PET_STYLE` | Pet face set: `default` · `cat` · `frog` · `robot` · `ghost` · `slime` · `dog` |
+| `SL_PET_REACTS_TO` | What drives the mood: `context` (default) · `cost` · `git` · `time` · `random` |
+| `SL_BELL` | Ring the terminal bell once each time context crosses into a higher band (de-duped) |
 | `SL_CREST` | Per-model accent: `★` Opus · `◆` Sonnet · `▲` Haiku |
 | `SL_MOON` | Moon-phase glyph (`●◐○◑`) before the clock |
 | `SL_DAYNIGHT` | Clock color shifts with the real hour (dawn → midday → dusk → night) |

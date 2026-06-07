@@ -139,6 +139,9 @@ var cfg = {
   responsive: pbool("SL_RESPONSIVE"),
   gitRisk: pbool("SL_GIT_RISK"),
   danger: pbool("SL_DANGER"),
+  petStyle: penv("SL_PET_STYLE", "default"),
+  petReactsTo: penv("SL_PET_REACTS_TO", ""),
+  bell: pbool("SL_BELL"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -1015,6 +1018,15 @@ function weatherWord(pct, target) {
 }
 
 // src/index.ts
+var PET_FACES = {
+  default: ["[^_^]", "[._.]", "[o_o]", "[>_<]", "[$_$]"],
+  cat: ["=^_^=", "=._.=", "=o_o=", "=>_<=", "=$_$="],
+  frog: ["(^_^)", "(o_o)", "(._.)", "(O_O)", "(>_<)"],
+  robot: ["[0_0]", "[o_o]", "[._.]", "[!_!]", "[x_x]"],
+  ghost: ["<^_^>", "<o_o>", "<._.>", "<!_!>", "<x_x>"],
+  slime: ["(~_~)", "(o_o)", "(._.)", "(>_<)", "(@_@)"],
+  dog: ["[^o^]", "[^.^]", "[-.-]", "[>n<]", "[ToT]"]
+};
 function displayPath(cwd) {
   if (!cwd)
     return cwd;
@@ -1075,10 +1087,16 @@ function build() {
   const CU_INPUT = cu && cu.input_tokens || 0;
   const CU_OUT = cu && cu.output_tokens || 0;
   const rl = data.rate_limits;
-  let SPARK2 = [], COMPACTIONS = 0, ETA_SAMPLES = [];
+  let SPARK2 = [], COMPACTIONS = 0, ETA_SAMPLES = [], BELL = "";
   try {
     const sk = sessionKey(data);
     const st = readState(sk);
+    if (cfg.bell) {
+      const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
+      if (lvl > (st.bellLevel ?? 0))
+        BELL = "\x07";
+      st.bellLevel = lvl;
+    }
     const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
     if (prev >= 0 && PCT <= prev - 25)
       st.compactions += 1;
@@ -1150,27 +1168,6 @@ function build() {
     VIM = ` ${col}${u[0] || "?"}${R}`;
   }
   const LEAD = `${FAST}${VIM}`;
-  let PET = "";
-  if (cfg.pet) {
-    let face, col;
-    if (COST >= 0.5) {
-      face = "[$_$]";
-      col = GOLD;
-    } else if (PCT >= 85) {
-      face = "[>_<]";
-      col = RED;
-    } else if (PCT >= 70) {
-      face = "[o_o]";
-      col = AMBER;
-    } else if (PCT >= 40) {
-      face = "[._.]";
-      col = "";
-    } else {
-      face = "[^_^]";
-      col = GREEN;
-    }
-    PET = `${col}${face}${R} `;
-  }
   let MOON = "";
   if (cfg.moon) {
     const days = cfg.nowMs / 864e5 - 10961.26;
@@ -1270,6 +1267,38 @@ function build() {
     const level = s >= 4 ? "high" : s >= 2 ? "med" : "low";
     const rc = level === "high" ? RED : level === "med" ? AMBER : GREEN;
     GIT_RISK = `  ${rc}risk:${level}${R}`;
+  }
+  let PET = "";
+  if (cfg.pet) {
+    let lvl;
+    switch (cfg.petReactsTo) {
+      case "cost":
+        lvl = COST >= 2 ? 4 : COST >= 1 ? 3 : COST >= 0.5 ? 2 : COST >= 0.1 ? 1 : 0;
+        break;
+      case "git":
+        lvl = DIRTY > 10 ? 4 : DIRTY >= 6 ? 3 : DIRTY >= 3 ? 2 : DIRTY >= 1 ? 1 : 0;
+        break;
+      case "time": {
+        const h = new Date(cfg.clockMs).getHours();
+        lvl = h < 6 ? 0 : h < 12 ? 1 : h < 18 ? 2 : h < 22 ? 3 : 0;
+        break;
+      }
+      case "random":
+        lvl = (Math.imul(idiv(cfg.nowMs, 3e3), 2654435761) >>> 0) % 5;
+        break;
+      case "context":
+        lvl = PCT >= 95 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;
+        break;
+      default:
+        lvl = COST >= 0.5 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;
+    }
+    const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
+    const col = ["", "", "", "", ""];
+    col[0] = GREEN;
+    col[2] = AMBER;
+    col[3] = RED;
+    col[4] = GOLD;
+    PET = `${col[lvl]}${faces[lvl]}${R} `;
   }
   let CLAUDE_USER = "";
   try {
@@ -1550,7 +1579,7 @@ function build() {
     const pulse = Math.abs(idiv(cfg.nowMs, 200) % 60 - 30);
     lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + col % 3 * 12, 18, 18)));
   }
-  return lines.join("\n") + "\n";
+  return BELL + lines.join("\n") + "\n";
 }
 try {
   process.stdout.write(build());

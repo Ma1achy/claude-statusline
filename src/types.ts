@@ -59,6 +59,7 @@ export interface Config {
   privacy: boolean; privacyHide: string; projectAliases: string;
   path: string; sysinfo: boolean; accessible: boolean; responsive: boolean;
   gitRisk: boolean; danger: boolean;
+  petStyle: string; petReactsTo: string; bell: boolean;
   nowMs: number;
   clockMs: number;
   baseFrame: number;
