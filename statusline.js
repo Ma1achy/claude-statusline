@@ -187,7 +187,13 @@ var cfg = {
   customSegment: penv("SL_CUSTOM_SEGMENT", ""),
   event: false,
   tmuxPassthrough: pbool("SL_TMUX_PASSTHROUGH"),
-  gitCache: pbool("SL_GIT_CACHE"),
+  // Git always runs off the hot path: the foreground render paints from a cached
+  // git snapshot and a detached background process (this same binary, run with
+  // --git-refresh) re-execs git and rewrites the cache. The render itself never
+  // execs git, so a large/slow repo can't push a repaint past refreshInterval
+  // (which would get the in-flight run cancelled, freezing the clock). This flag
+  // marks the background refresher — the one process that is allowed to exec git.
+  gitRefresh: process.argv.includes("--git-refresh"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -1129,6 +1135,7 @@ function runDoctor() {
   line("TERM", process.env.TERM || "unset");
   line("tmux", process.env.TMUX ? `${ok(true)} (multiplexer \u2014 truecolor may need passthrough)` : "no");
   line("git", gitVer ? `${ok(true)} ${gitVer}` : `${ok(false)} not found`);
+  line("git mode", `${DIM}cached + background refresh (off the hot path; refreshInterval-safe)${R}`);
   line("NO_COLOR", process.env.NO_COLOR ? "set (forces mono)" : "unset");
   const active = Object.keys(process.env).filter((k) => k.startsWith("SL_")).sort();
   process.stdout.write(`
@@ -1218,6 +1225,31 @@ function displayPath(cwd) {
     p = `${p.startsWith("/") ? "/" : ""}${parts[0]}/\u2026/${parts.slice(-2).join("/")}`;
   return p;
 }
+function readTail(file, maxBytes) {
+  let fd = -1;
+  try {
+    fd = fs4.openSync(file, "r");
+    const size = fs4.fstatSync(fd).size;
+    const len = Math.min(size, maxBytes);
+    const buf = Buffer.alloc(len);
+    fs4.readSync(fd, buf, 0, len, size - len);
+    let s = buf.toString("utf8");
+    if (size > maxBytes) {
+      const nl = s.indexOf("\n");
+      if (nl >= 0)
+        s = s.slice(nl + 1);
+    }
+    return s;
+  } catch {
+    return "";
+  } finally {
+    if (fd >= 0)
+      try {
+        fs4.closeSync(fd);
+      } catch {
+      }
+  }
+}
 function build() {
   let data = {};
   if (preInput) {
@@ -1259,10 +1291,13 @@ function build() {
   const GIT_TTL = 2500;
   let gitMemo = {}, gitMemoDirty = false;
   let sessionK = "", sessionSt = null;
+  let gitFresh = false, kickRefresh = false;
   const gc = (args) => {
     const key = args.join(" ");
     if (key in gitMemo)
       return gitMemo[key];
+    if (!cfg.gitRefresh)
+      return "";
     const v = gitOut(CWD, args);
     gitMemo[key] = v;
     gitMemoDirty = true;
@@ -1274,34 +1309,43 @@ function build() {
     sessionK = sk;
     const st = readState(sk);
     sessionSt = st;
-    if (cfg.gitCache && st.git && st.git.cwd === CWD && cfg.nowMs - st.git.ts < GIT_TTL)
+    if (!cfg.gitRefresh && st.git && st.git.cwd === CWD) {
       gitMemo = { ...st.git.data };
-    if (cfg.bell) {
-      const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
-      if (lvl > (st.bellLevel ?? 0))
-        BELL = "\x07";
-      st.bellLevel = lvl;
+      gitFresh = cfg.nowMs - st.git.ts < GIT_TTL;
     }
-    const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
-    if (prev >= 0 && PCT !== prev)
-      cfg.event = true;
-    if (prev >= 0 && PCT <= prev - 25)
-      st.compactions += 1;
-    pushSpark(st, PCT);
-    st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
-    const bucket = idiv(DURATION_MS, 3e5);
-    if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
-      st.histBucket = bucket;
-      appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+    if (cfg.gitRefresh) {
+    } else {
+      if (CWD && !gitFresh && cfg.nowMs - (st.lastGitRefresh || 0) > GIT_TTL) {
+        kickRefresh = true;
+        st.lastGitRefresh = cfg.nowMs;
+      }
+      if (cfg.bell) {
+        const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
+        if (lvl > (st.bellLevel ?? 0))
+          BELL = "\x07";
+        st.bellLevel = lvl;
+      }
+      const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+      if (prev >= 0 && PCT !== prev)
+        cfg.event = true;
+      if (prev >= 0 && PCT <= prev - 25)
+        st.compactions += 1;
+      pushSpark(st, PCT);
+      st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
+      const bucket = idiv(DURATION_MS, 3e5);
+      if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
+        st.histBucket = bucket;
+        appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+      }
+      writeState(sk, st);
+      SPARK2 = st.spark.slice();
+      COMPACTIONS = st.compactions;
+      ETA_SAMPLES = st.etaSamples;
     }
-    writeState(sk, st);
-    SPARK2 = st.spark.slice();
-    COMPACTIONS = st.compactions;
-    ETA_SAMPLES = st.etaSamples;
   } catch {
   }
   let CUSTOM_SEG = "";
-  if (cfg.customSegment) {
+  if (cfg.customSegment && !cfg.gitRefresh) {
     try {
       const out = (0, import_child_process4.execFileSync)(process.execPath, [cfg.customSegment], {
         input: JSON.stringify(data),
@@ -1471,12 +1515,29 @@ function build() {
     const rc = level === "high" ? RED : level === "med" ? AMBER : GREEN;
     GIT_RISK = `  ${rc}risk:${level}${R}`;
   }
-  if (cfg.gitCache && gitMemoDirty && sessionSt) {
+  if (gitMemoDirty && sessionSt) {
+    if (cfg.gitRefresh) {
+      try {
+        sessionSt = readState(sessionK);
+      } catch {
+      }
+    }
     sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
     try {
       writeState(sessionK, sessionSt);
     } catch {
     }
+  }
+  if (cfg.gitRefresh) {
+    if (!gitMemoDirty && sessionSt) {
+      try {
+        sessionSt = readState(sessionK);
+        sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: {} };
+        writeState(sessionK, sessionSt);
+      } catch {
+      }
+    }
+    return "";
   }
   let PET = "";
   if (cfg.pet) {
@@ -1519,8 +1580,8 @@ function build() {
   let LAST_FILE = "";
   try {
     if (TRANSCRIPT && fs4.existsSync(TRANSCRIPT)) {
-      const lines2 = fs4.readFileSync(TRANSCRIPT, "utf8").split("\n").filter(Boolean).slice(-80);
-      const re = /write|edit|read|str_replace|create/;
+      const lines2 = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
+      const re = /write|edit|read|str_replace|create/i;
       for (const line of lines2) {
         let ev;
         try {
@@ -1789,6 +1850,24 @@ function build() {
     const pulse = Math.abs(idiv(cfg.nowMs, 200) % 60 - 30);
     lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + col % 3 * 12, 18, 18)));
   }
+  if (kickRefresh && !cfg.gitRefresh) {
+    try {
+      const child = (0, import_child_process4.spawn)(process.execPath, [__filename, "--git-refresh"], {
+        detached: true,
+        windowsHide: true,
+        stdio: ["pipe", "ignore", "ignore"],
+        env: process.env
+      });
+      if (child.stdin) {
+        child.stdin.write(JSON.stringify(data));
+        child.stdin.end();
+      }
+      child.on("error", () => {
+      });
+      child.unref();
+    } catch {
+    }
+  }
   return BELL + lines.join("\n") + "\n";
 }
 var cliArg = process.argv[2];
@@ -1798,7 +1877,12 @@ else if (cliArg === "--doctor")
   runDoctor();
 else if (cliArg === "--report")
   runReport();
-else if (cliArg && cliArg.startsWith("-")) {
+else if (cliArg === "--git-refresh") {
+  try {
+    build();
+  } catch {
+  }
+} else if (cliArg && cliArg.startsWith("-")) {
   process.stdout.write("claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active SL_* vars, and conflicts\n  --report    summarise cross-session usage history\n  --help      this message\n\nConfigure with SL_* environment variables \u2014 see the README.\n");
 } else {
   try {

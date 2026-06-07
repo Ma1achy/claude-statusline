@@ -56,6 +56,7 @@ export function runDoctor(): void {
   line('TERM', process.env.TERM || 'unset');
   line('tmux', process.env.TMUX ? `${ok(true)} (multiplexer — truecolor may need passthrough)` : 'no');
   line('git', gitVer ? `${ok(true)} ${gitVer}` : `${ok(false)} not found`);
+  line('git mode', `${DIM}cached + background refresh (off the hot path; refreshInterval-safe)${R}`);
   line('NO_COLOR', process.env.NO_COLOR ? 'set (forces mono)' : 'unset');
   const active = Object.keys(process.env).filter((k) => k.startsWith('SL_')).sort();
   process.stdout.write(`\n${BOLD}Active SL_* vars${R}\n`);
