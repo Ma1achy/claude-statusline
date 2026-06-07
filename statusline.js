@@ -1018,22 +1018,6 @@ function refreshGitCache(data) {
 var os7 = __toESM(require("os"));
 var import_child_process5 = require("child_process");
 
-// src/format.ts
-function fmtK(n) {
-  if (n >= 1e6)
-    return idiv(n, 1e6) + "M";
-  if (n >= 1e3)
-    return idiv(n, 1e3) + "k";
-  return String(n);
-}
-function fmtCountdown(secs) {
-  if (secs >= 86400)
-    return `${idiv(secs, 86400)}d ${idiv(secs % 86400, 3600)}h`;
-  if (secs >= 3600)
-    return `${idiv(secs, 3600)}h ${idiv(secs % 3600, 60)}m`;
-  return `${idiv(secs, 60)}m`;
-}
-
 // src/themes.ts
 var fs6 = __toESM(require("fs"));
 var os4 = __toESM(require("os"));
@@ -1342,6 +1326,341 @@ function gradientColor(posp) {
     c = [Math.min(255, Math.round(c[0] * k)), Math.min(255, Math.round(c[1] * k)), Math.min(255, Math.round(c[2] * k))];
   }
   return tc(c[0], c[1], c[2]);
+}
+
+// src/anim/shimmers.ts
+var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
+var torus = (sx, c) => {
+  const d = Math.abs(sx - c.posc);
+  return Math.min(d, c.wrap - d);
+};
+var MORSE = { C: "-.-.", L: ".-..", A: ".-", U: "..-", D: "-..", E: "." };
+var MORSE_SEQ = (() => {
+  const out = [];
+  const push = (on, n) => {
+    for (let i = 0; i < n; i++)
+      out.push(on);
+  };
+  const word = "CLAUDE".split("");
+  word.forEach((ch, li) => {
+    const code = MORSE[ch] || "";
+    code.split("").forEach((sym, si) => {
+      push(true, sym === "-" ? 3 : 1);
+      if (si < code.length - 1)
+        push(false, 1);
+    });
+    push(false, li < word.length - 1 ? 3 : 7);
+  });
+  return out;
+})();
+var HUE_SHIMMERS = {
+  sweep(sx, c) {
+    const dc = torus(sx, c);
+    return dc < c.glow ? idiv(c.waveHue * (c.glow - dc) * (c.glow - dc), c.glow * c.glow) : 0;
+  },
+  wave(sx, c) {
+    const dc = torus(sx, c);
+    return dc < 450 ? idiv(c.waveHue * (450 - dc), 450) : 0;
+  },
+  comet(sx, c) {
+    let hoff = 0;
+    const lead = mod(c.posc - sx, c.wrap);
+    if (lead < 420)
+      hoff = idiv(c.waveHue * (420 - lead), 420);
+    if (torus(sx, c) < 70)
+      hoff = c.waveHue;
+    return hoff;
+  },
+  scan(sx, c) {
+    const dc = Math.abs(sx - c.posc);
+    return dc < 140 ? idiv(c.waveHue * (140 - dc), 140) : 0;
+  },
+  breathe(_sx, c) {
+    return c.hglob;
+  },
+  drift(sx, c) {
+    return idiv(c.waveHue * c.tri(idiv(sx, 8) + idiv(c.t * c.speed, 25)), 100);
+  },
+  plasma(sx, c) {
+    return idiv(c.waveHue * (c.tri(idiv(sx, 6) + idiv(c.t, 30)) + c.tri(idiv(sx, 11) - idiv(c.t, 45))), 200);
+  },
+  glitch(sx, c) {
+    const bk = idiv(c.t, 220);
+    if (hashI(sx * 13 + bk) % 100 < 12)
+      return hashI(sx + bk) % 2 ? c.waveHue * 3 : -c.waveHue * 2;
+    return 0;
+  },
+  // two layered waves (one fast, one slow, opposite drift) → an interference tide.
+  tide(sx, c) {
+    return idiv(c.waveHue * (c.tri(idiv(sx, 7) + idiv(c.t * c.speed, 30)) + c.tri(idiv(sx, 14) - idiv(c.t, 55))), 200);
+  }
+};
+HUE_SHIMMERS.aurora = HUE_SHIMMERS.drift;
+var BRIGHT_SHIMMERS = {
+  lumin(_sx, c) {
+    return 55 + idiv(45 * c.tri(idiv(c.t, 12)), 100);
+  },
+  heartbeat(_sx, c) {
+    const m = mod(c.t, 1400);
+    const bump = (k, w) => {
+      const d = Math.abs(m - k);
+      return d < w ? w - d : 0;
+    };
+    return 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150);
+  },
+  twinkle(sx, c) {
+    return hashI(sx * 29 + idiv(c.t, 180)) % 100 < 14 ? 165 : 75;
+  },
+  storm(sx, c) {
+    const flash = mod(idiv(c.t * c.speed, 8), c.wrap);
+    const d = Math.abs(sx - flash);
+    const dd = Math.min(d, c.wrap - d);
+    let bf = dd < 120 ? 150 : 68;
+    if (hashI(idiv(c.t, 400)) % 100 < 8)
+      bf = 185;
+    return bf;
+  },
+  morse(_sx, c) {
+    return MORSE_SEQ[idiv(c.t, 160) % MORSE_SEQ.length] ? 100 : 22;
+  },
+  flash(_sx, c) {
+    return c.event ? 175 : 100;
+  },
+  // bright pulse the tick the % changes
+  ripple(sx, c) {
+    return c.event ? Math.abs(sx - c.filled * 100) < 250 ? 175 : 88 : 88;
+  },
+  // ring at the fill edge on update
+  // embers: occasional bright flickers in the fill that fade over the next bucket.
+  smoulder(sx, c) {
+    const bk = idiv(c.t, 240);
+    if (hashI(sx * 7 + bk) % 100 < 8)
+      return 165;
+    if (hashI(sx * 7 + bk - 1) % 100 < 8)
+      return 116;
+    return 78;
+  },
+  // mostly static, then a fast bright streak fires across the whole bar (~every 9s).
+  lightning(sx, c) {
+    const phase = mod(c.t, 9e3);
+    if (phase >= 240)
+      return 100;
+    const pos = idiv(phase * c.wrap, 240);
+    return Math.abs(sx - pos) < 120 ? 210 : 100;
+  }
+};
+
+// src/bar.ts
+var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
+var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
+var SHADE = "\u2591\u2592\u2593\u2588".split("");
+var hashI2 = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
+function scaleCells(pct, width) {
+  const p = Math.max(0, Math.min(100, pct));
+  if (cfg.barScale === "log" || cfg.barScale === "compact")
+    return Math.round(width * (p / 100) * (p / 100));
+  return idiv(p * width, 100);
+}
+function drawBar(width, filled, marker, phaseMs = 0) {
+  const { shimmer, speed, glow, waveHue, barStyle, nowMs, baseFrame, colorMode } = cfg;
+  const t = nowMs + phaseMs;
+  let span = filled;
+  if (span < 1)
+    span = 1;
+  let posc = 0, hglob = 0;
+  const wrap = span * 100;
+  const tri = (x) => {
+    const m = mod(Math.round(x), 200);
+    return m < 100 ? m : 200 - m;
+  };
+  if (shimmer === "sweep" || shimmer === "comet" || shimmer === "wave") {
+    posc = mod(idiv(t * speed, 10), wrap);
+    if (cfg.easing) {
+      const f = posc / wrap;
+      let e = f;
+      if (cfg.easing === "ease")
+        e = f * f * (3 - 2 * f);
+      else if (cfg.easing === "bounce") {
+        const g = 1 - f;
+        e = 1 - g * g * Math.abs(Math.cos(g * 6));
+      } else if (cfg.easing === "elastic")
+        e = Math.max(0, Math.min(1, f + 0.12 * Math.sin(f * 12)));
+      posc = mod(Math.round(e * wrap), wrap);
+    }
+  } else if (shimmer === "scan") {
+    let cyclec = span * 200;
+    if (cyclec < 1)
+      cyclec = 1;
+    posc = mod(idiv(t * speed, 10), cyclec);
+    if (posc >= span * 100)
+      posc = span * 200 - posc;
+  } else if (shimmer === "breathe") {
+    let trib = mod(t, 2600);
+    if (trib >= 1300)
+      trib = 2600 - trib;
+    hglob = idiv(waveHue * trib, 1300);
+  }
+  const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
+  const sctx = { t, speed, wrap, glow, waveHue, posc, hglob, filled, event: cfg.event, tri };
+  const px = (sx) => {
+    if (shimmer === "disco")
+      return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
+    let posp = idiv(sx, width);
+    if (posp > 100)
+      posp = 100;
+    if (posp < 0)
+      posp = 0;
+    const hoff = HUE_SHIMMERS[shimmer]?.(sx, sctx) ?? 0;
+    let base;
+    if (TH.cmap) {
+      const c = cmapSample(TH.cmap, posp);
+      base = hoff ? shiftHue(c, hoff) : c;
+    } else {
+      const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
+      const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
+      base = hsv(bh + hoff, TH.sat, vv);
+    }
+    const bf = BRIGHT_SHIMMERS[shimmer]?.(sx, sctx) ?? 100;
+    if (bf !== 100)
+      base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
+    return base;
+  };
+  const fg = (sx) => {
+    const [r, g, b] = px(sx);
+    return tc(r, g, b);
+  };
+  let out = "";
+  for (let i = 0; i < width; i++) {
+    if (marker >= 0 && i === marker) {
+      out += `${WHITE}\u2503${R}`;
+      continue;
+    }
+    const isFill = i < filled;
+    if (barStyle === "pacman") {
+      if (isFill && i === filled - 1)
+        out += `${ESC}[1m${fg(i * 100 + 50)}C${R}`;
+      else if (isFill)
+        out += `${fg(i * 100 + 50)}=${R}`;
+      else
+        out += `${ROLES.muted}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "snake") {
+      if (isFill)
+        out += i === snakeHead ? `${ESC}[1m${fg(i * 100 + 50)}@${R}` : `${fg(i * 100 + 50)}~${R}`;
+      else
+        out += `${ROLES.muted}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "matrix") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}\u2588${R}`;
+      else
+        out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI2(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
+      continue;
+    }
+    if (barStyle === "braille") {
+      out += isFill ? `${fg(i * 100 + 50)}\u28FF${R}` : `${ROLES.muted}\u2804${R}`;
+      continue;
+    }
+    if (barStyle === "battery") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2588${R}` : `${ROLES.muted}\u2591${R}`;
+      continue;
+    }
+    if (barStyle === "thermo") {
+      out += isFill ? `${fg(i * 100 + 50)}\u25B0${R}` : `${ROLES.muted}\u25B1${R}`;
+      continue;
+    }
+    if (barStyle === "shade") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
+      else
+        out += `${ROLES.muted}\u2591${R}`;
+      continue;
+    }
+    if (barStyle === "lines" || barStyle === "minimal") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2501${R}` : `${ROLES.muted}\u2500${R}`;
+      continue;
+    }
+    if (barStyle === "rule") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${i % 5 === 0 ? "\u253C" : "\u2500"}${R}`;
+      else
+        out += `${ROLES.muted}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
+      continue;
+    }
+    if (barStyle === "equalizer") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 17 + idiv(nowMs, 140)) % 8]}${R}`;
+      else
+        out += `${ROLES.muted}\u2581${R}`;
+      continue;
+    }
+    if (barStyle === "waveform") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 23 + filled) % 8]}${R}`;
+      else
+        out += `${ROLES.muted}\u2581${R}`;
+      continue;
+    }
+    if (barStyle === "retro") {
+      out += isFill ? `${fg(i * 100 + 50)}#${R}` : `${ROLES.muted}-${R}`;
+      continue;
+    }
+    if (barStyle === "arrows") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2192${R}` : `${ROLES.muted}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "dna") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${(i + idiv(nowMs, 200)) % 2 ? "X" : "x"}${R}`;
+      else
+        out += `${ROLES.muted}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "train") {
+      if (isFill && i === filled - 1)
+        out += `${ESC}[1m${fg(i * 100 + 50)}O${R}`;
+      else if (isFill)
+        out += `${fg(i * 100 + 50)}=${R}`;
+      else
+        out += `${ROLES.muted}-${R}`;
+      continue;
+    }
+    if (isFill && shimmer === "disco") {
+      const [r, g, b] = px(i * 100 + 50);
+      out += `${tc(r, g, b)}\u2588${R}`;
+      continue;
+    }
+    if (isFill) {
+      const left = px(i * 100 + 25);
+      const right = px(i * 100 + 75);
+      if (colorMode === "mono")
+        out += `${BOLD}\u2588${R}`;
+      else if (colorMode === "16")
+        out += `${tc(left[0], left[1], left[2])}\u2588${R}`;
+      else
+        out += `${fgbg(left, right)}\u258C${R}`;
+    } else
+      out += `${ROLES.muted}\u2591${R}`;
+  }
+  return out;
+}
+
+// src/format.ts
+function fmtK(n) {
+  if (n >= 1e6)
+    return idiv(n, 1e6) + "M";
+  if (n >= 1e3)
+    return idiv(n, 1e3) + "k";
+  return String(n);
+}
+function fmtCountdown(secs) {
+  if (secs >= 86400)
+    return `${idiv(secs, 86400)}d ${idiv(secs % 86400, 3600)}h`;
+  if (secs >= 3600)
+    return `${idiv(secs, 3600)}h ${idiv(secs % 3600, 60)}m`;
+  return `${idiv(secs, 60)}m`;
 }
 
 // src/rainbow.ts
@@ -1662,325 +1981,6 @@ function buildPet(COST, DIRTY, PCT) {
   const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
   const role = ["ok", "fg", "warn", "bad", "gold"][lvl];
   return `${st("pet", faces[lvl], { role })} `;
-}
-
-// src/anim/shimmers.ts
-var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
-var torus = (sx, c) => {
-  const d = Math.abs(sx - c.posc);
-  return Math.min(d, c.wrap - d);
-};
-var MORSE = { C: "-.-.", L: ".-..", A: ".-", U: "..-", D: "-..", E: "." };
-var MORSE_SEQ = (() => {
-  const out = [];
-  const push = (on, n) => {
-    for (let i = 0; i < n; i++)
-      out.push(on);
-  };
-  const word = "CLAUDE".split("");
-  word.forEach((ch, li) => {
-    const code = MORSE[ch] || "";
-    code.split("").forEach((sym, si) => {
-      push(true, sym === "-" ? 3 : 1);
-      if (si < code.length - 1)
-        push(false, 1);
-    });
-    push(false, li < word.length - 1 ? 3 : 7);
-  });
-  return out;
-})();
-var HUE_SHIMMERS = {
-  sweep(sx, c) {
-    const dc = torus(sx, c);
-    return dc < c.glow ? idiv(c.waveHue * (c.glow - dc) * (c.glow - dc), c.glow * c.glow) : 0;
-  },
-  wave(sx, c) {
-    const dc = torus(sx, c);
-    return dc < 450 ? idiv(c.waveHue * (450 - dc), 450) : 0;
-  },
-  comet(sx, c) {
-    let hoff = 0;
-    const lead = mod(c.posc - sx, c.wrap);
-    if (lead < 420)
-      hoff = idiv(c.waveHue * (420 - lead), 420);
-    if (torus(sx, c) < 70)
-      hoff = c.waveHue;
-    return hoff;
-  },
-  scan(sx, c) {
-    const dc = Math.abs(sx - c.posc);
-    return dc < 140 ? idiv(c.waveHue * (140 - dc), 140) : 0;
-  },
-  breathe(_sx, c) {
-    return c.hglob;
-  },
-  drift(sx, c) {
-    return idiv(c.waveHue * c.tri(idiv(sx, 8) + idiv(c.t * c.speed, 25)), 100);
-  },
-  plasma(sx, c) {
-    return idiv(c.waveHue * (c.tri(idiv(sx, 6) + idiv(c.t, 30)) + c.tri(idiv(sx, 11) - idiv(c.t, 45))), 200);
-  },
-  glitch(sx, c) {
-    const bk = idiv(c.t, 220);
-    if (hashI(sx * 13 + bk) % 100 < 12)
-      return hashI(sx + bk) % 2 ? c.waveHue * 3 : -c.waveHue * 2;
-    return 0;
-  },
-  // two layered waves (one fast, one slow, opposite drift) → an interference tide.
-  tide(sx, c) {
-    return idiv(c.waveHue * (c.tri(idiv(sx, 7) + idiv(c.t * c.speed, 30)) + c.tri(idiv(sx, 14) - idiv(c.t, 55))), 200);
-  }
-};
-HUE_SHIMMERS.aurora = HUE_SHIMMERS.drift;
-var BRIGHT_SHIMMERS = {
-  lumin(_sx, c) {
-    return 55 + idiv(45 * c.tri(idiv(c.t, 12)), 100);
-  },
-  heartbeat(_sx, c) {
-    const m = mod(c.t, 1400);
-    const bump = (k, w) => {
-      const d = Math.abs(m - k);
-      return d < w ? w - d : 0;
-    };
-    return 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150);
-  },
-  twinkle(sx, c) {
-    return hashI(sx * 29 + idiv(c.t, 180)) % 100 < 14 ? 165 : 75;
-  },
-  storm(sx, c) {
-    const flash = mod(idiv(c.t * c.speed, 8), c.wrap);
-    const d = Math.abs(sx - flash);
-    const dd = Math.min(d, c.wrap - d);
-    let bf = dd < 120 ? 150 : 68;
-    if (hashI(idiv(c.t, 400)) % 100 < 8)
-      bf = 185;
-    return bf;
-  },
-  morse(_sx, c) {
-    return MORSE_SEQ[idiv(c.t, 160) % MORSE_SEQ.length] ? 100 : 22;
-  },
-  flash(_sx, c) {
-    return c.event ? 175 : 100;
-  },
-  // bright pulse the tick the % changes
-  ripple(sx, c) {
-    return c.event ? Math.abs(sx - c.filled * 100) < 250 ? 175 : 88 : 88;
-  },
-  // ring at the fill edge on update
-  // embers: occasional bright flickers in the fill that fade over the next bucket.
-  smoulder(sx, c) {
-    const bk = idiv(c.t, 240);
-    if (hashI(sx * 7 + bk) % 100 < 8)
-      return 165;
-    if (hashI(sx * 7 + bk - 1) % 100 < 8)
-      return 116;
-    return 78;
-  },
-  // mostly static, then a fast bright streak fires across the whole bar (~every 9s).
-  lightning(sx, c) {
-    const phase = mod(c.t, 9e3);
-    if (phase >= 240)
-      return 100;
-    const pos = idiv(phase * c.wrap, 240);
-    return Math.abs(sx - pos) < 120 ? 210 : 100;
-  }
-};
-
-// src/bar.ts
-var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
-var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
-var SHADE = "\u2591\u2592\u2593\u2588".split("");
-var hashI2 = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
-function scaleCells(pct, width) {
-  const p = Math.max(0, Math.min(100, pct));
-  if (cfg.barScale === "log" || cfg.barScale === "compact")
-    return Math.round(width * (p / 100) * (p / 100));
-  return idiv(p * width, 100);
-}
-function drawBar(width, filled, marker, phaseMs = 0) {
-  const { shimmer, speed, glow, waveHue, barStyle, nowMs, baseFrame, colorMode } = cfg;
-  const t = nowMs + phaseMs;
-  let span = filled;
-  if (span < 1)
-    span = 1;
-  let posc = 0, hglob = 0;
-  const wrap = span * 100;
-  const tri = (x) => {
-    const m = mod(Math.round(x), 200);
-    return m < 100 ? m : 200 - m;
-  };
-  if (shimmer === "sweep" || shimmer === "comet" || shimmer === "wave") {
-    posc = mod(idiv(t * speed, 10), wrap);
-    if (cfg.easing) {
-      const f = posc / wrap;
-      let e = f;
-      if (cfg.easing === "ease")
-        e = f * f * (3 - 2 * f);
-      else if (cfg.easing === "bounce") {
-        const g = 1 - f;
-        e = 1 - g * g * Math.abs(Math.cos(g * 6));
-      } else if (cfg.easing === "elastic")
-        e = Math.max(0, Math.min(1, f + 0.12 * Math.sin(f * 12)));
-      posc = mod(Math.round(e * wrap), wrap);
-    }
-  } else if (shimmer === "scan") {
-    let cyclec = span * 200;
-    if (cyclec < 1)
-      cyclec = 1;
-    posc = mod(idiv(t * speed, 10), cyclec);
-    if (posc >= span * 100)
-      posc = span * 200 - posc;
-  } else if (shimmer === "breathe") {
-    let trib = mod(t, 2600);
-    if (trib >= 1300)
-      trib = 2600 - trib;
-    hglob = idiv(waveHue * trib, 1300);
-  }
-  const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
-  const sctx = { t, speed, wrap, glow, waveHue, posc, hglob, filled, event: cfg.event, tri };
-  const px = (sx) => {
-    if (shimmer === "disco")
-      return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
-    let posp = idiv(sx, width);
-    if (posp > 100)
-      posp = 100;
-    if (posp < 0)
-      posp = 0;
-    const hoff = HUE_SHIMMERS[shimmer]?.(sx, sctx) ?? 0;
-    let base;
-    if (TH.cmap) {
-      const c = cmapSample(TH.cmap, posp);
-      base = hoff ? shiftHue(c, hoff) : c;
-    } else {
-      const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
-      const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
-      base = hsv(bh + hoff, TH.sat, vv);
-    }
-    const bf = BRIGHT_SHIMMERS[shimmer]?.(sx, sctx) ?? 100;
-    if (bf !== 100)
-      base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
-    return base;
-  };
-  const fg = (sx) => {
-    const [r, g, b] = px(sx);
-    return tc(r, g, b);
-  };
-  let out = "";
-  for (let i = 0; i < width; i++) {
-    if (marker >= 0 && i === marker) {
-      out += `${WHITE}\u2503${R}`;
-      continue;
-    }
-    const isFill = i < filled;
-    if (barStyle === "pacman") {
-      if (isFill && i === filled - 1)
-        out += `${ESC}[1m${fg(i * 100 + 50)}C${R}`;
-      else if (isFill)
-        out += `${fg(i * 100 + 50)}=${R}`;
-      else
-        out += `${ROLES.muted}\xB7${R}`;
-      continue;
-    }
-    if (barStyle === "snake") {
-      if (isFill)
-        out += i === snakeHead ? `${ESC}[1m${fg(i * 100 + 50)}@${R}` : `${fg(i * 100 + 50)}~${R}`;
-      else
-        out += `${ROLES.muted}\xB7${R}`;
-      continue;
-    }
-    if (barStyle === "matrix") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}\u2588${R}`;
-      else
-        out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI2(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
-      continue;
-    }
-    if (barStyle === "braille") {
-      out += isFill ? `${fg(i * 100 + 50)}\u28FF${R}` : `${ROLES.muted}\u2804${R}`;
-      continue;
-    }
-    if (barStyle === "battery") {
-      out += isFill ? `${fg(i * 100 + 50)}\u2588${R}` : `${ROLES.muted}\u2591${R}`;
-      continue;
-    }
-    if (barStyle === "thermo") {
-      out += isFill ? `${fg(i * 100 + 50)}\u25B0${R}` : `${ROLES.muted}\u25B1${R}`;
-      continue;
-    }
-    if (barStyle === "shade") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
-      else
-        out += `${ROLES.muted}\u2591${R}`;
-      continue;
-    }
-    if (barStyle === "lines" || barStyle === "minimal") {
-      out += isFill ? `${fg(i * 100 + 50)}\u2501${R}` : `${ROLES.muted}\u2500${R}`;
-      continue;
-    }
-    if (barStyle === "rule") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${i % 5 === 0 ? "\u253C" : "\u2500"}${R}`;
-      else
-        out += `${ROLES.muted}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
-      continue;
-    }
-    if (barStyle === "equalizer") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 17 + idiv(nowMs, 140)) % 8]}${R}`;
-      else
-        out += `${ROLES.muted}\u2581${R}`;
-      continue;
-    }
-    if (barStyle === "waveform") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 23 + filled) % 8]}${R}`;
-      else
-        out += `${ROLES.muted}\u2581${R}`;
-      continue;
-    }
-    if (barStyle === "retro") {
-      out += isFill ? `${fg(i * 100 + 50)}#${R}` : `${ROLES.muted}-${R}`;
-      continue;
-    }
-    if (barStyle === "arrows") {
-      out += isFill ? `${fg(i * 100 + 50)}\u2192${R}` : `${ROLES.muted}\xB7${R}`;
-      continue;
-    }
-    if (barStyle === "dna") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${(i + idiv(nowMs, 200)) % 2 ? "X" : "x"}${R}`;
-      else
-        out += `${ROLES.muted}\xB7${R}`;
-      continue;
-    }
-    if (barStyle === "train") {
-      if (isFill && i === filled - 1)
-        out += `${ESC}[1m${fg(i * 100 + 50)}O${R}`;
-      else if (isFill)
-        out += `${fg(i * 100 + 50)}=${R}`;
-      else
-        out += `${ROLES.muted}-${R}`;
-      continue;
-    }
-    if (isFill && shimmer === "disco") {
-      const [r, g, b] = px(i * 100 + 50);
-      out += `${tc(r, g, b)}\u2588${R}`;
-      continue;
-    }
-    if (isFill) {
-      const left = px(i * 100 + 25);
-      const right = px(i * 100 + 75);
-      if (colorMode === "mono")
-        out += `${BOLD}\u2588${R}`;
-      else if (colorMode === "16")
-        out += `${tc(left[0], left[1], left[2])}\u2588${R}`;
-      else
-        out += `${fgbg(left, right)}\u258C${R}`;
-    } else
-      out += `${ROLES.muted}\u2591${R}`;
-  }
-  return out;
 }
 
 // src/segments/usage.ts
@@ -2433,6 +2433,23 @@ function assembleLayout(p, sh) {
       return [J(`${p.LEAD} ${p.BAR}  ${p.PCT_FULL}  ${p.BRACKET}`, p.L3_RIGHT)];
     case "2line":
       return [J(p.L1_LEFT, p.L1_RIGHT), J(p.L2_LEFT, p.L3_RIGHT)];
+    case "inverse":
+      return [J(p.L3_LEFT, p.L3_RIGHT), J(p.L2_LEFT, p.L2_RIGHT), J(p.L1_LEFT, p.L1_RIGHT)];
+    case "merged":
+      return [J(`${p.L1_LEFT}  ${p.L3_LEFT}`, p.L1_RIGHT), J(p.L2_LEFT, p.L3_RIGHT)];
+    case "bicolumn":
+      return [J(p.L1_LEFT, p.L3_LEFT), J(p.L2_LEFT, p.L3_RIGHT)];
+    case "barfirst":
+      return [`${p.WIDE_BAR}  ${p.PCT_FULL}`, J(`${p.L1_LEFT}  ${p.L3_LEFT}`, p.L3_RIGHT)];
+    case "header":
+      return [p.WIDE_BAR, J(p.L1_LEFT, p.L1_RIGHT), J(p.L3_LEFT, p.L3_RIGHT)];
+    case "split":
+      return [
+        J(p.L1_LEFT, p.L1_RIGHT),
+        `${p.WIDE_BAR}  ${p.PCT_FULL}`,
+        sh("usage", p.USAGE_SEG),
+        J(p.L3_LEFT, p.L3_RIGHT)
+      ].filter((l) => l !== "");
     default:
       return [J(p.L1_LEFT, p.L1_RIGHT), J(p.L2_LEFT, p.L2_RIGHT), J(p.L3_LEFT, p.L3_RIGHT)];
   }
@@ -2519,8 +2536,25 @@ function build() {
   if (CLAUDE_USER)
     L3_RIGHT = `${sh("name", `${st("name", CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
+  const wideW = Math.max(28, termCols() - 2 * cfg.margin - 12);
+  const WIDE_BAR = drawBar(wideW, scaleCells(PCT, wideW), -1, 0);
   let lines = assembleLayout(
-    { LEAD, BAR, PCT_SEG, PCT_FULL, BRACKET, COST_SEG, L1_LEFT, L1_RIGHT, L2_LEFT, L2_RIGHT, L3_LEFT, L3_RIGHT },
+    {
+      LEAD,
+      BAR,
+      PCT_SEG,
+      PCT_FULL,
+      BRACKET,
+      COST_SEG,
+      L1_LEFT,
+      L1_RIGHT,
+      L2_LEFT,
+      L2_RIGHT,
+      L3_LEFT,
+      L3_RIGHT,
+      WIDE_BAR,
+      USAGE_SEG
+    },
     sh
   );
   lines = applyWashes(lines, rl, PCT);

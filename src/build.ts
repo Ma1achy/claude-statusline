@@ -3,6 +3,8 @@
 // statusline string (the entry in index.ts only dispatches and prints it).
 import * as os from 'os';
 import { spawn } from 'child_process';
+import { termCols } from './ansi';
+import { drawBar, scaleCells } from './bar';
 import { fmtK } from './format';
 import { cfg, resolveBranchTheme } from './config';
 import { rebuildTheme } from './themes';
@@ -124,9 +126,14 @@ export function build(): string {
   if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${st('name', CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh('cost', COST_SEG)}  ${sh('age', AGE_SEG)}`;
 
+  // A terminal-width context bar for the dashboard layouts (header/barfirst/split).
+  const wideW = Math.max(28, termCols() - 2 * cfg.margin - 12);
+  const WIDE_BAR = drawBar(wideW, scaleCells(PCT, wideW), -1, 0);
+
   // Layout: which lines to emit (assembleLayout handles SL_LAYOUT / SL_RESPONSIVE).
   let lines = assembleLayout(
-    { LEAD, BAR, PCT_SEG, PCT_FULL, BRACKET, COST_SEG, L1_LEFT, L1_RIGHT, L2_LEFT, L2_RIGHT, L3_LEFT, L3_RIGHT },
+    { LEAD, BAR, PCT_SEG, PCT_FULL, BRACKET, COST_SEG, L1_LEFT, L1_RIGHT, L2_LEFT, L2_RIGHT, L3_LEFT, L3_RIGHT,
+      WIDE_BAR, USAGE_SEG },
     sh,
   );
 
