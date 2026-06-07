@@ -1,7 +1,7 @@
 // Animated % bar. All styles rotate HUE at a moving crest; they differ only in
 // how the crest travels. Cells are drawn per SL_BAR_STYLE. The colour at each
 // sub-pixel comes from the active theme (hue-ramp or colormap).
-import { ESC, R, DIM } from './ansi';
+import { ESC, R, DIM, BOLD, tc, fgbg, dimFg } from './ansi';
 import { WHITE } from './themes';
 import { TH } from './themes';
 import { cfg } from './config';
@@ -19,7 +19,7 @@ const hashI = (n: number): number => Math.imul(n >>> 0, 2654435761) >>> 0;
  * phaseMs — per-bar offset so staggered bars don't move in lockstep
  */
 export function drawBar(width: number, filled: number, marker: number, phaseMs = 0): string {
-  const { shimmer, speed, glow, waveHue, barStyle, nowMs, baseFrame } = cfg;
+  const { shimmer, speed, glow, waveHue, barStyle, nowMs, baseFrame, colorMode } = cfg;
   const t = nowMs + phaseMs;
   let span = filled; if (span < 1) span = 1;
   let posc = 0, hglob = 0;
@@ -79,7 +79,7 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
     const vv = (TH.valLo as number) + idiv(((TH.valHi as number) - (TH.valLo as number)) * posp, 100);
     return hsv(bh + hoff, TH.sat as number, vv);
   };
-  const fg = (sx: number): string => { const [r, g, b] = px(sx); return `${ESC}[38;2;${r};${g};${b}m`; };
+  const fg = (sx: number): string => { const [r, g, b] = px(sx); return tc(r, g, b); };
 
   let out = '';
   for (let i = 0; i < width; i++) {
@@ -99,20 +99,24 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
     }
     if (barStyle === 'matrix') {
       if (isFill) out += `${fg(i * 100 + 50)}█${R}`;
-      else out += `${ESC}[2;38;2;0;120;0m${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
+      else out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
       continue;
     }
     // disco: solid blocks (the whole line is re-rainbowed in a post-process pass)
     if (isFill && shimmer === 'disco') {
       const [r, g, b] = px(i * 100 + 50);
-      out += `${ESC}[38;2;${r};${g};${b}m█${R}`;
+      out += `${tc(r, g, b)}█${R}`;
       continue;
     }
-    // default: half-block, two colour samples per cell
+    // default: half-block, two colour samples per cell. Below truecolor the
+    // fg/bg half-block trick is unreliable, so degrade to a solid block: a
+    // single colour sample in 256/16, and a plain bold block in mono.
     if (isFill) {
-      const [lr, lg, lb] = px(i * 100 + 25);
-      const [rr, rg, rb] = px(i * 100 + 75);
-      out += `${ESC}[38;2;${lr};${lg};${lb};48;2;${rr};${rg};${rb}m▌${R}`;
+      const left = px(i * 100 + 25);
+      const right = px(i * 100 + 75);
+      if (colorMode === 'mono') out += `${BOLD}█${R}`;
+      else if (colorMode === '16') out += `${tc(left[0], left[1], left[2])}█${R}`;
+      else out += `${fgbg(left, right)}▌${R}`;
     } else out += `${DIM}░${R}`;
   }
   return out;

@@ -2,6 +2,8 @@
 
 export type RGB = [number, number, number];
 
+export type ColorMode = 'truecolor' | '256' | '16' | 'mono';
+
 export interface Palette {
   RED: string; GREEN: string; AMBER: string; BLUE: string;
   CYAN: string; WHITE: string; GOLD: string;
@@ -18,6 +20,23 @@ export interface Theme {
   pal?: Palette;
 }
 
+/** RGB accent palette — the data form (palettes-as-data, built into escapes at load). */
+export interface PaletteRGB {
+  RED: RGB; GREEN: RGB; AMBER: RGB; BLUE: RGB;
+  CYAN: RGB; WHITE: RGB; GOLD: RGB;
+}
+
+/** A theme expressed as pure data (no escape strings) so it can be contributed
+ *  or supplied at runtime. `palRaw` is a literal-SGR carve-out used only by
+ *  `heat` to keep its original truecolor bytes byte-for-byte. */
+export interface ThemeData {
+  hueHi?: number; hueLo?: number; sat?: number; valLo?: number; valHi?: number;
+  cmap?: RGB[];
+  mix: number | null;
+  palRgb?: PaletteRGB;
+  palRaw?: Palette;
+}
+
 export interface Config {
   shimmer: string;
   speed: number;
@@ -27,6 +46,9 @@ export interface Config {
   barStyle: string;
   rainbowMixRaw: number | null;
   margin: number;
+  colorMode: ColorMode;
+  themeFile: string;
+  base16: string;
   pet: boolean; crest: boolean; moon: boolean; daynight: boolean;
   costFlair: boolean; burn: boolean; gitExtra: boolean; rainbowStats: boolean;
   nowMs: number;
@@ -44,6 +66,7 @@ export interface CurrentUsage {
 export interface RateLimit { used_percentage?: number; resets_at?: number | string; }
 
 export interface StatuslineInput {
+  session_id?: string;
   workspace?: { current_dir?: string; project_dir?: string };
   model?: { id?: string; display_name?: string };
   context_window?: {

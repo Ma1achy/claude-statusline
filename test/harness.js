@@ -60,7 +60,7 @@ function run(fix, envOverrides) {
   const out = execFileSync('node', [STATUSLINE], {
     input: JSON.stringify(sample),
     encoding: 'utf8',
-    env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: FRAME_MS, ...envOverrides },
+    env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: FRAME_MS, SL_COLOR_MODE: 'truecolor', ...envOverrides },
   });
   return out;   // fixed fixture path → output is already deterministic & portable
 }
@@ -72,6 +72,7 @@ const CASES = [
   ...['heat', 'synthwave', 'matrix', 'mono', 'pastel', 'dracula', 'nord', 'gruvbox', 'tokyonight', 'rosepine',
       'viridis', 'inferno', 'magma', 'plasma', 'cividis'].map((t) => [`theme-${t}`, { SL_THEME: t }]),
   ...['blocks', 'pacman', 'snake', 'matrix'].map((b) => [`bar-${b}`, { SL_BAR_STYLE: b }]),
+  ...['256', '16', 'mono'].map((m) => [`color-${m}`, { SL_COLOR_MODE: m }]),
   ['loaded', { SL_PET: 'on', SL_CREST: 'on', SL_MOON: 'on', SL_DAYNIGHT: 'on', SL_COST_FLAIR: 'on', SL_BURN: 'on', SL_GIT_EXTRA: 'on', SL_RAINBOW_STATS: 'on', SL_SHIMMER: 'wave' }],
 ];
 

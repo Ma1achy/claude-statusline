@@ -49,7 +49,7 @@ test('lead: fast bolt always shown; vim letter only with vim.mode', () => {
   const base = { model: { id: 'claude-opus-4-8' }, context_window: { used_percentage: 30, context_window_size: 200000 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } };
   const raw = (extra) => stripAnsi(execFileSync('node', [STATUSLINE], {
     input: JSON.stringify({ ...base, ...extra }), encoding: 'utf8',
-    env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
+    env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
   }).replace(/[︀-️]/g, ''));   // drop variation selectors for glyph checks
   assert.ok(raw({ fast_mode: true }).startsWith('⚡'), 'fast bolt missing');
   assert.ok(raw({ fast_mode: false }).startsWith('▫'), 'slow glyph missing');
@@ -63,7 +63,7 @@ test('gradient: % colour changes smoothly with the value', () => {
   const pctColour = (p) => {
     const out = execFileSync('node', [STATUSLINE], {
       input: JSON.stringify({ ...base, context_window: { context_window_size: 200000, used_percentage: p } }),
-      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
+      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
     });
     return (out.split('\n')[1].match(new RegExp(`38;2;[0-9]+;[0-9]+;[0-9]+m${p}%`)) || [''])[0];
   };
@@ -79,14 +79,87 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.writeFileSync(path.join(off, '.claude', 'settings.json'), JSON.stringify({ autoCompactEnabled: false }));
   const line2 = (home) => stripAnsi(execFileSync('node', [STATUSLINE], {
     input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 50 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123' },
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
   }).split('\n')[1]);
   assert.ok(!line2(off).includes('┃') && !line2(off).includes('|'), 'marker/label should be hidden when disabled');
   assert.ok(line2(fix.home).includes('┃'), 'marker should show when enabled');
   fs.rmSync(off, { recursive: true, force: true });
 });
 
-// 7. Privacy guard — the fixture's dummy email appears; nothing else leaks.
+// 7. State layer — per-session ring buffer persists context % across repaints.
+test('state: per-session ring buffer accumulates context %', () => {
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-state-'));
+  const input = JSON.stringify({
+    session_id: 'testsess1', model: { id: 'claude-opus-4-8' },
+    context_window: { context_window_size: 200000, used_percentage: 37 },
+    cost: { total_cost_usd: 0.1, total_duration_ms: 120000 },
+  });
+  const env = { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', TMPDIR: tmp };
+  execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env });
+  execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env });
+  const sf = path.join(tmp, 'claude-statusline', 'testsess1.json');
+  assert.ok(fs.existsSync(sf), 'state file should be written');
+  const st = JSON.parse(fs.readFileSync(sf, 'utf8'));
+  assert.deepStrictEqual(st.spark, [37, 37], 'spark should accumulate context % per repaint');
+  assert.strictEqual(st.v, 1, 'schema version stamped');
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// 8. Custom themes — SL_THEME=custom from base16 or a JSON file; bad input falls back.
+test('custom theme: base16 + JSON file, malformed falls back to heat', () => {
+  const b16 = ['#282828', '#cc241d', '#98971a', '#d79921', '#458588', '#b16286', '#689d6a', '#a89984',
+    '#928374', '#fb4934', '#b8bb26', '#fabd2f', '#83a598', '#d3869b', '#8ec07c', '#ebdbb2'].join(',');
+  const b16out = run(fix, { SL_THEME: 'custom', SL_BASE16: b16 });
+  assert.strictEqual(stripAnsi(b16out).split('\n').filter(Boolean).length, 3, 'base16 renders 3 lines');
+  assert.ok(b16out.includes('38;2'), 'base16 palette colours applied (not a mono fallback)');
+  // must actually load the base16 theme, not silently fall back to heat.
+  assert.notStrictEqual(b16out, run(fix, { SL_THEME: 'heat' }), 'base16 must differ from heat');
+  // malformed base16 + no theme file → graceful fallback, identical to heat.
+  assert.strictEqual(run(fix, { SL_THEME: 'custom', SL_BASE16: '#fff,#000' }), run(fix, { SL_THEME: 'heat' }),
+    'malformed custom should fall back to heat');
+  // a JSON theme file (cmap + explicit palette) via SL_THEME_FILE.
+  const tf = path.join(fix.base, 'theme.json');
+  fs.writeFileSync(tf, JSON.stringify({
+    cmap: [[10, 20, 30], [200, 210, 220]], mix: 20,
+    palette: { RED: [255, 0, 0], GREEN: [0, 255, 0], AMBER: [255, 200, 0], BLUE: [0, 0, 255], CYAN: [0, 255, 255], WHITE: [240, 240, 240], GOLD: [255, 215, 0] },
+  }));
+  const fileOut = run(fix, { SL_THEME: 'custom', SL_THEME_FILE: tf });
+  assert.strictEqual(stripAnsi(fileOut).split('\n').filter(Boolean).length, 3, 'custom theme file renders 3 lines');
+  assert.notStrictEqual(fileOut, run(fix, { SL_THEME: 'heat' }), 'theme file must differ from heat');
+});
+
+// 8. Presets — a preset enables a bundle; an explicit var overrides it.
+test('preset: SL_PRESET bundles settings, explicit vars win', () => {
+  // bare default has no crest; the `pretty` preset turns SL_CREST on → ★ appears.
+  assert.ok(!stripAnsi(run(fix, {})).includes('★'), 'no crest by default');
+  assert.ok(stripAnsi(run(fix, { SL_PRESET: 'pretty' })).includes('★'), 'preset should enable crest');
+  // an explicit SL_CREST=off must override the preset's SL_CREST=on.
+  assert.ok(!stripAnsi(run(fix, { SL_PRESET: 'pretty', SL_CREST: 'off' })).includes('★'),
+    'explicit var should override preset');
+  // chaos preset turns the pet on → its face appears (PCT 42 → neutral face).
+  assert.ok(stripAnsi(run(fix, { SL_PRESET: 'chaos' })).includes('[._.]'), 'chaos preset should enable pet');
+});
+
+// 8. Colour degradation — modes downgrade cleanly and NO_COLOR wins.
+test('colour: mode downgrades and NO_COLOR forces mono', () => {
+  const raw = (over) => run(fix, over);
+  // mono: no truecolor (38;2) and no 256 (38;5) escapes at all.
+  const mono = raw({ SL_COLOR_MODE: 'mono' });
+  assert.ok(!mono.includes('38;2') && !mono.includes('38;5'), 'mono should emit no colour escapes');
+  // 16-colour: no truecolor sequences.
+  assert.ok(!raw({ SL_COLOR_MODE: '16' }).includes('38;2'), '16-colour should not emit truecolor');
+  // NO_COLOR (convention) wins even over an explicit truecolor mode.
+  const forced = raw({ SL_COLOR_MODE: 'truecolor', NO_COLOR: '1' });
+  assert.ok(!forced.includes('38;2') && !forced.includes('38;5'), 'NO_COLOR should force mono');
+  // every mode keeps exactly three aligned lines within the terminal width.
+  for (const m of ['256', '16', 'mono']) {
+    const lines = stripAnsi(raw({ SL_COLOR_MODE: m, COLUMNS: '200' })).split('\n').filter(Boolean);
+    assert.strictEqual(lines.length, 3, `mode ${m}: expected 3 lines`);
+    for (const l of lines) assert.ok(Array.from(l).length <= 200, `mode ${m}: line too wide`);
+  }
+});
+
+// 8. Privacy guard — the fixture's dummy email appears; nothing else leaks.
 test('privacy: dummy email rendered, no real address', () => {
   const out = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));
   assert.ok(out.includes('malachy@email.com'), 'expected dummy email');

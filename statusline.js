@@ -24,47 +24,90 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 ));
 
 // src/index.ts
-var fs = __toESM(require("fs"));
-var os = __toESM(require("os"));
+var fs3 = __toESM(require("fs"));
+var os3 = __toESM(require("os"));
 
 // src/ansi.ts
 var import_child_process = require("child_process");
 
 // src/util.ts
 var env = (k, d) => process.env[k] !== void 0 && process.env[k] !== "" ? process.env[k] : d;
-var bool = (k) => /^(on|1|true|yes)$/i.test(env(k, ""));
 var idiv = (a, b) => Math.trunc(a / b);
 var mod = (a, b) => (a % b + b) % b;
-var intEnv = (k, d) => {
-  const v = parseInt(env(k, ""), 10);
-  return Number.isFinite(v) ? v : d;
+
+// src/presets.ts
+var PRESETS = {
+  // Quiet and static: no motion, greyscale, plain bar.
+  minimal: { SL_THEME: "mono", SL_SHIMMER: "off", SL_BAR_STYLE: "blocks" },
+  // Colourful and lively without the joke modes.
+  pretty: { SL_THEME: "synthwave", SL_SHIMMER: "wave", SL_CREST: "on", SL_MOON: "on", SL_RAINBOW_STATS: "on" },
+  // Calm but informative — for long working sessions.
+  focus: { SL_THEME: "nord", SL_SHIMMER: "breathe", SL_BURN: "on", SL_GIT_EXTRA: "on" },
+  // Everything loud, on purpose.
+  chaos: { SL_SHIMMER: "disco", SL_THEME: "plasma", SL_PET: "on", SL_CREST: "on", SL_COST_FLAIR: "on", SL_RAINBOW_STATS: "on" },
+  // The kitchen-sink showcase used for screenshots/GIFs.
+  demo: { SL_THEME: "viridis", SL_SHIMMER: "comet", SL_CREST: "on", SL_PET: "on", SL_MOON: "on", SL_DAYNIGHT: "on", SL_BURN: "on", SL_GIT_EXTRA: "on", SL_RAINBOW_STATS: "on" }
 };
 
 // src/config.ts
-var shimmer = env("SL_SHIMMER", "sweep");
+var preset = PRESETS[(process.env.SL_PRESET || "").toLowerCase()] || {};
+var penv = (k, d) => {
+  const e = process.env[k];
+  if (e !== void 0 && e !== "")
+    return e;
+  if (preset[k] !== void 0)
+    return preset[k];
+  return d;
+};
+var pbool = (k) => /^(on|1|true|yes)$/i.test(penv(k, ""));
+var pint = (k, d) => {
+  const v = parseInt(penv(k, ""), 10);
+  return Number.isFinite(v) ? v : d;
+};
+function resolveColorMode() {
+  if (process.env.NO_COLOR !== void 0 && process.env.NO_COLOR !== "")
+    return "mono";
+  const m = penv("SL_COLOR_MODE", "auto").toLowerCase();
+  if (m === "truecolor" || m === "256" || m === "16" || m === "mono")
+    return m;
+  const ct = (process.env.COLORTERM || "").toLowerCase();
+  if (ct.includes("truecolor") || ct.includes("24bit"))
+    return "truecolor";
+  const term = (process.env.TERM || "").toLowerCase();
+  if (term === "dumb")
+    return "mono";
+  if (term.includes("256"))
+    return "256";
+  return "truecolor";
+}
+var shimmer = penv("SL_SHIMMER", "sweep");
 if (shimmer === "pulse")
   shimmer = "breathe";
 if (shimmer === "march")
   shimmer = "scan";
 var nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
 var clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
+var rainbowMix = penv("SL_RAINBOW_MIX", "");
 var cfg = {
   shimmer,
-  speed: intEnv("SL_SPEED", 3),
-  glow: intEnv("SL_GLOW", 240),
-  waveHue: intEnv("SL_WAVE_HUE", 32),
-  themeName: env("SL_THEME", "heat"),
-  barStyle: env("SL_BAR_STYLE", "blocks"),
-  rainbowMixRaw: process.env.SL_RAINBOW_MIX ? parseInt(process.env.SL_RAINBOW_MIX, 10) : null,
-  margin: intEnv("SL_MARGIN", 6),
-  pet: bool("SL_PET"),
-  crest: bool("SL_CREST"),
-  moon: bool("SL_MOON"),
-  daynight: bool("SL_DAYNIGHT"),
-  costFlair: bool("SL_COST_FLAIR"),
-  burn: bool("SL_BURN"),
-  gitExtra: bool("SL_GIT_EXTRA"),
-  rainbowStats: bool("SL_RAINBOW_STATS"),
+  speed: pint("SL_SPEED", 3),
+  glow: pint("SL_GLOW", 240),
+  waveHue: pint("SL_WAVE_HUE", 32),
+  themeName: penv("SL_THEME", "heat"),
+  barStyle: penv("SL_BAR_STYLE", "blocks"),
+  rainbowMixRaw: rainbowMix !== "" ? parseInt(rainbowMix, 10) : null,
+  margin: pint("SL_MARGIN", 6),
+  colorMode: resolveColorMode(),
+  themeFile: penv("SL_THEME_FILE", ""),
+  base16: penv("SL_BASE16", ""),
+  pet: pbool("SL_PET"),
+  crest: pbool("SL_CREST"),
+  moon: pbool("SL_MOON"),
+  daynight: pbool("SL_DAYNIGHT"),
+  costFlair: pbool("SL_COST_FLAIR"),
+  burn: pbool("SL_BURN"),
+  gitExtra: pbool("SL_GIT_EXTRA"),
+  rainbowStats: pbool("SL_RAINBOW_STATS"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -75,7 +118,60 @@ var ESC = "\x1B";
 var R = "\x1B[0m";
 var DIM = "\x1B[2m";
 var BOLD = "\x1B[1m";
-var tc = (r, g, b) => `${ESC}[38;2;${r};${g};${b}m`;
+function rgbTo256(r, g, b) {
+  if (r === g && g === b) {
+    if (r < 8)
+      return 16;
+    if (r > 248)
+      return 231;
+    return Math.round((r - 8) / 247 * 24) + 232;
+  }
+  const q = (v) => Math.round(v / 255 * 5);
+  return 16 + 36 * q(r) + 6 * q(g) + q(b);
+}
+function rgbTo16(r, g, b, isBg) {
+  const max = Math.max(r, g, b);
+  if (max < 40)
+    return isBg ? 40 : 30;
+  const thr = max / 2;
+  const code = (r >= thr ? 1 : 0) | (g >= thr ? 2 : 0) | (b >= thr ? 4 : 0);
+  const bright = max > 170;
+  return (isBg ? bright ? 100 : 40 : bright ? 90 : 30) + code;
+}
+function tc(r, g, b) {
+  switch (cfg.colorMode) {
+    case "mono":
+      return "";
+    case "16":
+      return `${ESC}[${rgbTo16(r, g, b, false)}m`;
+    case "256":
+      return `${ESC}[38;5;${rgbTo256(r, g, b)}m`;
+    default:
+      return `${ESC}[38;2;${r};${g};${b}m`;
+  }
+}
+function bg(r, g, b) {
+  switch (cfg.colorMode) {
+    case "mono":
+      return "";
+    case "16":
+      return `${ESC}[${rgbTo16(r, g, b, true)}m`;
+    case "256":
+      return `${ESC}[48;5;${rgbTo256(r, g, b)}m`;
+    default:
+      return `${ESC}[48;2;${r};${g};${b}m`;
+  }
+}
+function fgbg(f, b) {
+  if (cfg.colorMode === "truecolor")
+    return `${ESC}[38;2;${f[0]};${f[1]};${f[2]};48;2;${b[0]};${b[1]};${b[2]}m`;
+  return tc(f[0], f[1], f[2]) + bg(b[0], b[1], b[2]);
+}
+function dimFg(r, g, b) {
+  if (cfg.colorMode === "truecolor")
+    return `${ESC}[2;38;2;${r};${g};${b}m`;
+  return DIM + tc(r, g, b);
+}
 var VS = "\uFE0E";
 var txt = (glyph) => glyph + VS;
 var stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -206,13 +302,27 @@ function hueRgb(h, mix) {
 }
 
 // src/themes.ts
-var THEMES = {
+var fs = __toESM(require("fs"));
+var os = __toESM(require("os"));
+
+// src/themes.data.ts
+var THEMES_DATA = {
   // hue-ramp themes
-  heat: { hueHi: 120, hueLo: 0, sat: 88, valLo: 84, valHi: 84, mix: null, pal: { RED: "\x1B[31m", GREEN: "\x1B[32m", AMBER: "\x1B[33m", BLUE: "\x1B[34m", CYAN: "\x1B[36m", WHITE: "\x1B[37m", GOLD: "\x1B[38;5;220m" } },
-  synthwave: { hueHi: 300, hueLo: 180, sat: 92, valLo: 75, valHi: 92, mix: 30, pal: { RED: tc(255, 55, 135), GREEN: tc(0, 255, 170), AMBER: tc(255, 170, 70), BLUE: tc(150, 90, 255), CYAN: tc(0, 229, 255), WHITE: tc(235, 225, 255), GOLD: tc(255, 95, 205) } },
-  matrix: { hueHi: 128, hueLo: 100, sat: 95, valLo: 45, valHi: 92, mix: null, pal: { RED: tc(0, 150, 45), GREEN: tc(0, 255, 65), AMBER: tc(120, 235, 40), BLUE: tc(0, 200, 95), CYAN: tc(0, 225, 120), WHITE: tc(170, 255, 170), GOLD: tc(120, 255, 90) } },
-  mono: { hueHi: 0, hueLo: 0, sat: 0, valLo: 38, valHi: 95, mix: null, pal: { RED: tc(120, 120, 120), GREEN: tc(190, 190, 190), AMBER: tc(155, 155, 155), BLUE: tc(165, 165, 165), CYAN: tc(205, 205, 205), WHITE: tc(228, 228, 228), GOLD: tc(238, 238, 238) } },
-  pastel: { hueHi: 120, hueLo: 0, sat: 52, valLo: 88, valHi: 88, mix: 70, pal: { RED: tc(255, 150, 150), GREEN: tc(150, 230, 160), AMBER: tc(240, 210, 140), BLUE: tc(165, 185, 240), CYAN: tc(150, 215, 230), WHITE: tc(238, 238, 238), GOLD: tc(240, 220, 160) } },
+  heat: {
+    hueHi: 120,
+    hueLo: 0,
+    sat: 88,
+    valLo: 84,
+    valHi: 84,
+    mix: null,
+    palRaw: { RED: "\x1B[31m", GREEN: "\x1B[32m", AMBER: "\x1B[33m", BLUE: "\x1B[34m", CYAN: "\x1B[36m", WHITE: "\x1B[37m", GOLD: "\x1B[38;5;220m" },
+    // RGB approximations of the literals above, used only when degrading (256/16).
+    palRgb: { RED: [205, 0, 0], GREEN: [0, 205, 0], AMBER: [205, 205, 0], BLUE: [0, 0, 238], CYAN: [0, 205, 205], WHITE: [229, 229, 229], GOLD: [255, 215, 0] }
+  },
+  synthwave: { hueHi: 300, hueLo: 180, sat: 92, valLo: 75, valHi: 92, mix: 30, palRgb: { RED: [255, 55, 135], GREEN: [0, 255, 170], AMBER: [255, 170, 70], BLUE: [150, 90, 255], CYAN: [0, 229, 255], WHITE: [235, 225, 255], GOLD: [255, 95, 205] } },
+  matrix: { hueHi: 128, hueLo: 100, sat: 95, valLo: 45, valHi: 92, mix: null, palRgb: { RED: [0, 150, 45], GREEN: [0, 255, 65], AMBER: [120, 235, 40], BLUE: [0, 200, 95], CYAN: [0, 225, 120], WHITE: [170, 255, 170], GOLD: [120, 255, 90] } },
+  mono: { hueHi: 0, hueLo: 0, sat: 0, valLo: 38, valHi: 95, mix: null, palRgb: { RED: [120, 120, 120], GREEN: [190, 190, 190], AMBER: [155, 155, 155], BLUE: [165, 165, 165], CYAN: [205, 205, 205], WHITE: [228, 228, 228], GOLD: [238, 238, 238] } },
+  pastel: { hueHi: 120, hueLo: 0, sat: 52, valLo: 88, valHi: 88, mix: 70, palRgb: { RED: [255, 150, 150], GREEN: [150, 230, 160], AMBER: [240, 210, 140], BLUE: [165, 185, 240], CYAN: [150, 215, 230], WHITE: [238, 238, 238], GOLD: [240, 220, 160] } },
   // matplotlib colormaps (palette auto-derived)
   viridis: { cmap: [[68, 1, 84], [70, 50, 126], [54, 92, 141], [39, 127, 142], [31, 161, 135], [74, 193, 109], [160, 218, 57], [253, 231, 37]], mix: 25 },
   inferno: { cmap: [[0, 0, 4], [40, 11, 83], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 194, 40], [252, 255, 164]], mix: 20 },
@@ -220,12 +330,24 @@ var THEMES = {
   plasma: { cmap: [[13, 8, 135], [83, 2, 163], [139, 10, 165], [184, 50, 137], [219, 92, 104], [244, 136, 73], [254, 189, 42], [240, 249, 33]], mix: 22 },
   cividis: { cmap: [[0, 34, 78], [33, 59, 110], [76, 85, 108], [108, 110, 114], [142, 137, 120], [177, 165, 112], [217, 197, 92], [254, 232, 56]], mix: 25 },
   // designer palettes
-  dracula: { cmap: [[80, 250, 123], [139, 233, 253], [189, 147, 249], [255, 121, 198]], mix: 35, pal: { RED: tc(255, 85, 85), AMBER: tc(255, 184, 108), GREEN: tc(80, 250, 123), BLUE: tc(189, 147, 249), CYAN: tc(139, 233, 253), GOLD: tc(241, 250, 140), WHITE: tc(248, 248, 242) } },
-  nord: { cmap: [[94, 129, 172], [129, 161, 193], [136, 192, 208], [143, 188, 187]], mix: 40, pal: { RED: tc(191, 97, 106), AMBER: tc(235, 203, 139), GREEN: tc(163, 190, 140), BLUE: tc(129, 161, 193), CYAN: tc(136, 192, 208), GOLD: tc(235, 203, 139), WHITE: tc(236, 239, 244) } },
-  gruvbox: { cmap: [[131, 165, 152], [184, 187, 38], [250, 189, 47], [254, 128, 25]], mix: 25, pal: { RED: tc(251, 73, 52), AMBER: tc(250, 189, 47), GREEN: tc(184, 187, 38), BLUE: tc(131, 165, 152), CYAN: tc(142, 192, 124), GOLD: tc(250, 189, 47), WHITE: tc(235, 219, 178) } },
-  tokyonight: { cmap: [[122, 162, 247], [125, 207, 255], [187, 154, 247], [247, 118, 142]], mix: 30, pal: { RED: tc(247, 118, 142), AMBER: tc(224, 175, 104), GREEN: tc(158, 206, 106), BLUE: tc(122, 162, 247), CYAN: tc(125, 207, 255), GOLD: tc(224, 175, 104), WHITE: tc(192, 202, 245) } },
-  rosepine: { cmap: [[49, 116, 143], [156, 207, 216], [196, 167, 231], [235, 188, 186]], mix: 45, pal: { RED: tc(235, 111, 146), AMBER: tc(246, 193, 119), GREEN: tc(156, 207, 216), BLUE: tc(49, 116, 143), CYAN: tc(156, 207, 216), GOLD: tc(246, 193, 119), WHITE: tc(224, 222, 244) } }
+  dracula: { cmap: [[80, 250, 123], [139, 233, 253], [189, 147, 249], [255, 121, 198]], mix: 35, palRgb: { RED: [255, 85, 85], AMBER: [255, 184, 108], GREEN: [80, 250, 123], BLUE: [189, 147, 249], CYAN: [139, 233, 253], GOLD: [241, 250, 140], WHITE: [248, 248, 242] } },
+  nord: { cmap: [[94, 129, 172], [129, 161, 193], [136, 192, 208], [143, 188, 187]], mix: 40, palRgb: { RED: [191, 97, 106], AMBER: [235, 203, 139], GREEN: [163, 190, 140], BLUE: [129, 161, 193], CYAN: [136, 192, 208], GOLD: [235, 203, 139], WHITE: [236, 239, 244] } },
+  gruvbox: { cmap: [[131, 165, 152], [184, 187, 38], [250, 189, 47], [254, 128, 25]], mix: 25, palRgb: { RED: [251, 73, 52], AMBER: [250, 189, 47], GREEN: [184, 187, 38], BLUE: [131, 165, 152], CYAN: [142, 192, 124], GOLD: [250, 189, 47], WHITE: [235, 219, 178] } },
+  tokyonight: { cmap: [[122, 162, 247], [125, 207, 255], [187, 154, 247], [247, 118, 142]], mix: 30, palRgb: { RED: [247, 118, 142], AMBER: [224, 175, 104], GREEN: [158, 206, 106], BLUE: [122, 162, 247], CYAN: [125, 207, 255], GOLD: [224, 175, 104], WHITE: [192, 202, 245] } },
+  rosepine: { cmap: [[49, 116, 143], [156, 207, 216], [196, 167, 231], [235, 188, 186]], mix: 45, palRgb: { RED: [235, 111, 146], AMBER: [246, 193, 119], GREEN: [156, 207, 216], BLUE: [49, 116, 143], CYAN: [156, 207, 216], GOLD: [246, 193, 119], WHITE: [224, 222, 244] } }
 };
+
+// src/themes.ts
+var EMPTY_PAL = { RED: "", GREEN: "", AMBER: "", BLUE: "", CYAN: "", WHITE: "", GOLD: "" };
+var palFromRgb = (p) => ({
+  RED: tc(...p.RED),
+  GREEN: tc(...p.GREEN),
+  AMBER: tc(...p.AMBER),
+  BLUE: tc(...p.BLUE),
+  CYAN: tc(...p.CYAN),
+  WHITE: tc(...p.WHITE),
+  GOLD: tc(...p.GOLD)
+});
 function deriveCmapPal(cmap) {
   const f = (p, floor = 125) => {
     let c = cmapSample(cmap, p);
@@ -238,8 +360,87 @@ function deriveCmapPal(cmap) {
   };
   return { RED: f(93), AMBER: f(72), GREEN: f(48), BLUE: f(22), CYAN: f(40), GOLD: f(85), WHITE: tc(228, 228, 228) };
 }
-var TH = THEMES[cfg.themeName] || THEMES.heat;
-var PAL = TH.pal || deriveCmapPal(TH.cmap);
+function buildTheme(d) {
+  let pal;
+  if (cfg.colorMode === "mono")
+    pal = EMPTY_PAL;
+  else if (cfg.colorMode === "truecolor" && d.palRaw)
+    pal = d.palRaw;
+  else if (d.palRgb)
+    pal = palFromRgb(d.palRgb);
+  else if (d.palRaw)
+    pal = d.palRaw;
+  return { hueHi: d.hueHi, hueLo: d.hueLo, sat: d.sat, valLo: d.valLo, valHi: d.valHi, cmap: d.cmap, mix: d.mix, pal };
+}
+var THEMES = {};
+for (const k of Object.keys(THEMES_DATA))
+  THEMES[k] = buildTheme(THEMES_DATA[k]);
+var clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+var isRgb = (x) => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === "number");
+var hexToRgb = (h) => {
+  const m = h.trim().replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{6}$/.test(m))
+    return null;
+  return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
+};
+function coerceThemeData(j) {
+  if (!j || typeof j !== "object")
+    return null;
+  const d = { mix: typeof j.mix === "number" ? j.mix : null };
+  if (Array.isArray(j.cmap)) {
+    const c = j.cmap.filter(isRgb).map((s) => s.map(clamp));
+    if (c.length >= 2)
+      d.cmap = c;
+  }
+  for (const k of ["hueHi", "hueLo", "sat", "valLo", "valHi"])
+    if (typeof j[k] === "number")
+      d[k] = j[k];
+  if (j.palette && typeof j.palette === "object") {
+    const keys = ["RED", "GREEN", "AMBER", "BLUE", "CYAN", "WHITE", "GOLD"];
+    if (keys.every((k) => isRgb(j.palette[k]))) {
+      d.palRgb = keys.reduce((o, k) => {
+        o[k] = j.palette[k].map(clamp);
+        return o;
+      }, {});
+    }
+  }
+  if (!d.cmap && d.hueHi === void 0 && !d.palRgb)
+    return null;
+  if (!d.cmap && d.hueHi === void 0 && d.palRgb)
+    d.cmap = [d.palRgb.GREEN, d.palRgb.AMBER, d.palRgb.RED];
+  return d;
+}
+function themeFromBase16(spec) {
+  const cols = spec.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).map(hexToRgb);
+  if (cols.length < 16 || cols.some((c2) => c2 === null))
+    return null;
+  const c = cols;
+  const palRgb = { RED: c[8], GREEN: c[11], AMBER: c[10], BLUE: c[13], CYAN: c[12], WHITE: c[5], GOLD: c[9] };
+  return { cmap: [c[11], c[10], c[9], c[8]], mix: 30, palRgb };
+}
+function loadCustom() {
+  try {
+    const p = cfg.themeFile || `${os.homedir()}/.claude/statusline-theme.json`;
+    if (fs.existsSync(p)) {
+      const d = coerceThemeData(JSON.parse(fs.readFileSync(p, "utf8")));
+      if (d)
+        return buildTheme(d);
+    }
+  } catch {
+  }
+  try {
+    if (cfg.base16) {
+      const d = themeFromBase16(cfg.base16);
+      if (d)
+        return buildTheme(d);
+    }
+  } catch {
+  }
+  return null;
+}
+var CUSTOM = cfg.themeName === "custom" ? loadCustom() : null;
+var TH = CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
+var PAL = cfg.colorMode === "mono" ? EMPTY_PAL : TH.pal || deriveCmapPal(TH.cmap);
 var { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
 var RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
 function gradientColor(posp) {
@@ -264,7 +465,7 @@ function gradientColor(posp) {
 var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
 var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
 function drawBar(width, filled, marker, phaseMs = 0) {
-  const { shimmer: shimmer2, speed, glow, waveHue, barStyle, nowMs: nowMs2, baseFrame } = cfg;
+  const { shimmer: shimmer2, speed, glow, waveHue, barStyle, nowMs: nowMs2, baseFrame, colorMode } = cfg;
   const t = nowMs2 + phaseMs;
   let span = filled;
   if (span < 1)
@@ -341,7 +542,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
   };
   const fg = (sx) => {
     const [r, g, b] = px(sx);
-    return `${ESC}[38;2;${r};${g};${b}m`;
+    return tc(r, g, b);
   };
   let out = "";
   for (let i = 0; i < width; i++) {
@@ -370,18 +571,23 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       if (isFill)
         out += `${fg(i * 100 + 50)}\u2588${R}`;
       else
-        out += `${ESC}[2;38;2;0;120;0m${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
+        out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
       continue;
     }
     if (isFill && shimmer2 === "disco") {
       const [r, g, b] = px(i * 100 + 50);
-      out += `${ESC}[38;2;${r};${g};${b}m\u2588${R}`;
+      out += `${tc(r, g, b)}\u2588${R}`;
       continue;
     }
     if (isFill) {
-      const [lr, lg, lb] = px(i * 100 + 25);
-      const [rr, rg, rb] = px(i * 100 + 75);
-      out += `${ESC}[38;2;${lr};${lg};${lb};48;2;${rr};${rg};${rb}m\u258C${R}`;
+      const left = px(i * 100 + 25);
+      const right = px(i * 100 + 75);
+      if (colorMode === "mono")
+        out += `${BOLD}\u2588${R}`;
+      else if (colorMode === "16")
+        out += `${tc(left[0], left[1], left[2])}\u2588${R}`;
+      else
+        out += `${fgbg(left, right)}\u258C${R}`;
     } else
       out += `${DIM}\u2591${R}`;
   }
@@ -399,7 +605,7 @@ function rainbow(text) {
   let out = "";
   for (let i = 0; i < chars.length; i++) {
     const [r, g, b] = hueRgb(i * step + idiv(frame, flow), mix);
-    out += `${ESC}[38;2;${r};${g};${b}m${chars[i]}`;
+    out += `${tc(r, g, b)}${chars[i]}`;
   }
   return out + R;
 }
@@ -437,11 +643,93 @@ function gitOut(cwd, args) {
 }
 var countLines = (s) => s ? s.split("\n").filter((l) => l.length).length : 0;
 
+// src/state.ts
+var fs2 = __toESM(require("fs"));
+var os2 = __toESM(require("os"));
+var path = __toESM(require("path"));
+var DIR = path.join(os2.tmpdir(), "claude-statusline");
+var HISTORY = path.join(os2.homedir(), ".claude", "statusline-history.jsonl");
+var TTL_MS = 7 * 864e5;
+var SPARK_CAP = 30;
+var ETA_CAP = 20;
+var now = () => cfg.nowMs;
+var fresh = () => ({ v: 1, updated: 0, spark: [], compactions: 0 });
+function hash(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(16);
+}
+var sanitize = (s) => s.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+function sessionKey(input) {
+  const sid = input.session_id ? sanitize(String(input.session_id)) : "";
+  if (sid)
+    return sid;
+  if (input.transcript_path)
+    return hash(input.transcript_path);
+  return "default";
+}
+var fileFor = (key) => path.join(DIR, `${key}.json`);
+function readState(key) {
+  try {
+    const s = JSON.parse(fs2.readFileSync(fileFor(key), "utf8"));
+    if (!s || typeof s !== "object")
+      return fresh();
+    if (now() - (s.updated || 0) > TTL_MS)
+      return fresh();
+    return { ...fresh(), ...s };
+  } catch {
+    return fresh();
+  }
+}
+function writeState(key, s) {
+  try {
+    fs2.mkdirSync(DIR, { recursive: true });
+    s.v = 1;
+    s.updated = now();
+    if (s.spark.length > SPARK_CAP)
+      s.spark = s.spark.slice(-SPARK_CAP);
+    if (s.etaSamples && s.etaSamples.length > ETA_CAP)
+      s.etaSamples = s.etaSamples.slice(-ETA_CAP);
+    const tmp = `${fileFor(key)}.${process.pid}.tmp`;
+    fs2.writeFileSync(tmp, JSON.stringify(s));
+    try {
+      fs2.renameSync(tmp, fileFor(key));
+    } catch {
+      fs2.writeFileSync(fileFor(key), JSON.stringify(s));
+    }
+    janitor();
+  } catch {
+  }
+}
+function pushSpark(s, pct) {
+  s.spark.push(Math.max(0, Math.min(100, Math.round(pct))));
+  if (s.spark.length > SPARK_CAP)
+    s.spark = s.spark.slice(-SPARK_CAP);
+}
+function janitor() {
+  if (now() % 100 >= 1)
+    return;
+  try {
+    for (const f of fs2.readdirSync(DIR)) {
+      const fp = path.join(DIR, f);
+      try {
+        if (now() - fs2.statSync(fp).mtimeMs > TTL_MS)
+          fs2.unlinkSync(fp);
+      } catch {
+      }
+    }
+  } catch {
+  }
+}
+
 // src/index.ts
 function build() {
   let input = "";
   try {
-    input = fs.readFileSync(0, "utf8");
+    input = fs3.readFileSync(0, "utf8");
   } catch {
   }
   let data = {};
@@ -472,6 +760,13 @@ function build() {
   const CU_INPUT = cu && cu.input_tokens || 0;
   const CU_OUT = cu && cu.output_tokens || 0;
   const rl = data.rate_limits;
+  try {
+    const sk = sessionKey(data);
+    const st = readState(sk);
+    pushSpark(st, PCT);
+    writeState(sk, st);
+  } catch {
+  }
   const idl = MODEL_ID.toLowerCase();
   let TIER = "Sonnet", MODEL_COLOUR = CYAN;
   if (idl.includes("haiku")) {
@@ -560,14 +855,14 @@ function build() {
       return DIM;
     const h = new Date(cfg.clockMs).getHours();
     if (h < 5 || h >= 22)
-      return `${ESC}[38;2;90;110;170m`;
+      return tc(90, 110, 170);
     if (h < 8)
-      return `${ESC}[38;2;150;170;210m`;
+      return tc(150, 170, 210);
     if (h < 17)
-      return `${ESC}[38;2;230;225;180m`;
+      return tc(230, 225, 180);
     if (h < 20)
-      return `${ESC}[38;2;235;165;90m`;
-    return `${ESC}[38;2;150;130;180m`;
+      return tc(235, 165, 90);
+    return tc(150, 130, 180);
   };
   const DIR_SEG = `${DIM}${CWD}${R}`;
   const BRANCH = gitOut(CWD, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -606,14 +901,14 @@ function build() {
   }
   let CLAUDE_USER = "";
   try {
-    const cj = JSON.parse(fs.readFileSync(`${os.homedir()}/.claude.json`, "utf8"));
+    const cj = JSON.parse(fs3.readFileSync(`${os3.homedir()}/.claude.json`, "utf8"));
     CLAUDE_USER = cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
   } catch {
   }
   let LAST_FILE = "";
   try {
-    if (TRANSCRIPT && fs.existsSync(TRANSCRIPT)) {
-      const lines2 = fs.readFileSync(TRANSCRIPT, "utf8").split("\n").filter(Boolean).slice(-80);
+    if (TRANSCRIPT && fs3.existsSync(TRANSCRIPT)) {
+      const lines2 = fs3.readFileSync(TRANSCRIPT, "utf8").split("\n").filter(Boolean).slice(-80);
       const re = /write|edit|read|str_replace|create/;
       for (const line of lines2) {
         let ev;
@@ -638,7 +933,7 @@ function build() {
   const FILE_SEG = LAST_FILE ? ` ${DIM}\u203A ${LAST_FILE}${R}` : "";
   let COMPACT_PCT = "", COMPACT_OFF = false;
   try {
-    const st = JSON.parse(fs.readFileSync(`${os.homedir()}/.claude/settings.json`, "utf8"));
+    const st = JSON.parse(fs3.readFileSync(`${os3.homedir()}/.claude/settings.json`, "utf8"));
     if (st.env && st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
       COMPACT_PCT = String(st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
     if (st.autoCompactEnabled === false || st.autoCompact === false)
@@ -785,7 +1080,7 @@ function build() {
           continue;
         }
         const [r, gg, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
-        out += `${ESC}[38;2;${r};${gg};${b}m${g}${R}`;
+        out += `${tc(r, gg, b)}${g}${R}`;
         col++;
       }
       return out;

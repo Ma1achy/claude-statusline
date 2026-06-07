@@ -64,6 +64,23 @@ Perceptually-uniform [matplotlib](https://matplotlib.org/stable/users/explain/co
 | `plasma` | Blue → magenta → orange → yellow |
 | `cividis` | Deep blue → muted gold |
 
+### Custom themes — `SL_THEME=custom`
+
+Bring your own palette without touching the code. Resolved at runtime, in order:
+
+1. **A JSON file** at `~/.claude/statusline-theme.json` (or any path in `SL_THEME_FILE`):
+   ```json
+   { "cmap": [[13,8,135],[240,249,33]], "mix": 20,
+     "palette": { "RED":[255,0,0], "GREEN":[0,255,0], "AMBER":[255,200,0],
+                  "BLUE":[0,0,255], "CYAN":[0,255,255], "WHITE":[240,240,240], "GOLD":[255,215,0] } }
+   ```
+   Provide a `cmap` (multi-stop bar gradient) **or** a hue ramp (`hueHi`/`hueLo`/`sat`/`valLo`/`valHi`),
+   plus an optional `palette`. Anything malformed falls back to `heat` — it never errors.
+2. **base16** via `SL_BASE16` — 16 comma/space-separated hex values (`#rrggbb`). Every base16/base24
+   scheme just works: `SL_BASE16="#282828,#cc241d,…,#ebdbb2"`.
+
+> Adding a *built-in* theme is now a one-file data change in [`src/themes.data.ts`](src/themes.data.ts) — pure RGB, no TypeScript.
+
 ### Bar styles — `SL_BAR_STYLE`
 
 <p align="center"><img src="assets/demo-bar-styles.gif" width="100%" /></p>
@@ -141,6 +158,24 @@ Set everything in the `env` block of `settings.json`, e.g.:
 }
 ```
 
+### Presets — `SL_PRESET`
+
+A preset bundles a theme + shimmer + bar + extras in one switch. **Any individual `SL_*` var you
+also set overrides the preset** (precedence: explicit var → preset → default), so a preset is just
+a starting point.
+
+| Value | Vibe |
+|-------|------|
+| `minimal` | Greyscale, no motion, plain bar |
+| `pretty` | Synthwave + wave + crest + moon + rainbow stats |
+| `focus` | Calm nord + breathe + burn rate + git extras |
+| `chaos` | Everything loud — disco, pet, plasma, cost flair |
+| `demo` | The kitchen-sink showcase |
+
+```jsonc
+"env": { "SL_PRESET": "pretty", "SL_THEME": "nord" }  // pretty, but force the nord palette
+```
+
 ### Opt-in extras
 
 All default **off**; enable with `on` / `1` / `true`. Everything is text-safe (width-1 glyphs,
@@ -168,7 +203,24 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_SPEED` | `3` | Crest travel speed (cells/sec) |
 | `SL_RAINBOW_MIX` | `50` | Rainbow pastel level (0 = vivid, 100 = white) |
 | `SL_MARGIN` | `6` | Right-edge margin in columns (raise if content clips) |
+| `SL_PRESET` | — | Bundle of settings (see Presets); individual vars override it |
+| `SL_COLOR_MODE` | `auto` | Colour depth: `truecolor` / `256` / `16` / `mono` / `auto` |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Sets the white `┃` autocompact marker position on the context bar |
+
+### Colour depth & accessibility
+
+By default the statusline assumes truecolor, but it degrades cleanly for terminals that don't:
+
+| Mode | Behaviour |
+|------|-----------|
+| `truecolor` | Full 24-bit gradients (default) |
+| `256` | Nearest xterm-256 colours |
+| `16` | Nearest of the 8/16 ANSI colours |
+| `mono` | No colour at all — structure carried by bold/dim; bar fills with `█`/`░` |
+| `auto` | Detect from `COLORTERM`/`TERM`, assume truecolor when unsure |
+
+The [`NO_COLOR`](https://no-color.org/) convention is honoured: setting `NO_COLOR` to any value forces
+`mono`, overriding everything else.
 
 ### Leading indicator (fast / vim)
 

@@ -1,5 +1,5 @@
 // Animated per-letter rainbow (account name, and optionally cost/age).
-import { ESC, R } from './ansi';
+import { R, tc } from './ansi';
 import { hueRgb } from './color';
 import { cfg } from './config';
 import { RAINBOW_MIX } from './themes';
@@ -15,7 +15,7 @@ export function rainbow(text: string): string {
   let out = '';
   for (let i = 0; i < chars.length; i++) {
     const [r, g, b] = hueRgb(i * step + idiv(frame, flow), mix);
-    out += `${ESC}[38;2;${r};${g};${b}m${chars[i]}`;
+    out += `${tc(r, g, b)}${chars[i]}`;
   }
   return out + R;
 }

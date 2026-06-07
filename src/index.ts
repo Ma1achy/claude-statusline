@@ -2,7 +2,7 @@
 // Everything is wrapped so a bug prints a minimal line instead of a blank bar.
 import * as fs from 'fs';
 import * as os from 'os';
-import { ESC, R, DIM, BOLD, justified, stripAnsi, txt } from './ansi';
+import { ESC, R, DIM, BOLD, justified, stripAnsi, txt, tc } from './ansi';
 import { hueRgb } from './color';
 import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
 import { drawBar } from './bar';
@@ -11,6 +11,7 @@ import { fmtK, fmtCountdown } from './format';
 import { gitOut, countLines } from './git';
 import { cfg } from './config';
 import { idiv } from './util';
+import { sessionKey, readState, writeState, pushSpark } from './state';
 import type { StatuslineInput } from './types';
 
 function build(): string {
@@ -42,6 +43,15 @@ function build(): string {
   const CU_INPUT = (cu && cu.input_tokens) || 0;
   const CU_OUT = (cu && cu.output_tokens) || 0;
   const rl = data.rate_limits;
+
+  // ── persist this tick's context % (substrate for the sparkline / ETA / ──────
+  //    compaction count in later phases; produces no visible output yet) ───────
+  try {
+    const sk = sessionKey(data);
+    const st = readState(sk);
+    pushSpark(st, PCT);
+    writeState(sk, st);
+  } catch { /* state is best-effort */ }
 
   // ── model: tier + version ─────────────────────────────────────────────────
   const idl = MODEL_ID.toLowerCase();
@@ -111,11 +121,11 @@ function build(): string {
   const clockColour = (): string => {
     if (!cfg.daynight) return DIM;
     const h = new Date(cfg.clockMs).getHours();
-    if (h < 5 || h >= 22) return `${ESC}[38;2;90;110;170m`;
-    if (h < 8) return `${ESC}[38;2;150;170;210m`;
-    if (h < 17) return `${ESC}[38;2;230;225;180m`;
-    if (h < 20) return `${ESC}[38;2;235;165;90m`;
-    return `${ESC}[38;2;150;130;180m`;
+    if (h < 5 || h >= 22) return tc(90, 110, 170);
+    if (h < 8) return tc(150, 170, 210);
+    if (h < 17) return tc(230, 225, 180);
+    if (h < 20) return tc(235, 165, 90);
+    return tc(150, 130, 180);
   };
 
   const DIR_SEG = `${DIM}${CWD}${R}`;
@@ -317,7 +327,7 @@ function build(): string {
       for (const g of glyphs) {
         if (g === ' ') { out += ' '; col++; continue; }
         const [r, gg, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
-        out += `${ESC}[38;2;${r};${gg};${b}m${g}${R}`;
+        out += `${tc(r, gg, b)}${g}${R}`;
         col++;
       }
       return out;
