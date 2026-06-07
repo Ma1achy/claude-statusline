@@ -15,10 +15,6 @@ import type { Config, ColorMode, StatuslineInput, Style } from './types';
 // stdin twice. Null unless branch-theming actually consumed it.
 export let preInput: StatuslineInput | null = null;
 
-// ── bootstrap (env only — deterministic for tests/renders) ────────────────────
-const nowMs = parseInt(env('SL_FRAME_MS', ''), 10) || Date.now();
-const clockMs = parseInt(env('SL_CLOCK_MS', ''), 10) || nowMs;
-
 // ── load + merge config: preset bundle < explicit file ────────────────────────
 function loadJson(): Record<string, any> {
   try {
@@ -27,117 +23,138 @@ function loadJson(): Record<string, any> {
     return j && typeof j === 'object' ? j : {};
   } catch { return {}; }                              // missing/bad config → all defaults
 }
-const raw = loadJson();
-const preset = (typeof raw.preset === 'string' && PRESETS[raw.preset.toLowerCase()]) || {};
-const J: Record<string, any> = { ...preset, ...raw };
 
-// Typed readers — never throw, fall back per field (clamp/validate where needed).
-const jstr = (k: string, d: string): string => (typeof J[k] === 'string' ? J[k] : d);
-const jbool = (k: string): boolean => J[k] === true;
-const jint = (k: string, d: number): number => (typeof J[k] === 'number' && Number.isFinite(J[k]) ? J[k] : d);
-const jobj = (k: string): Record<string, any> | undefined =>
-  (J[k] && typeof J[k] === 'object' && !Array.isArray(J[k]) ? J[k] : undefined);
-const jlist = (k: string): string =>                 // hide / privacyHide: array or string
-  (Array.isArray(J[k]) ? J[k].join(' ') : typeof J[k] === 'string' ? J[k] : '');
+// Build the typed config from the environment + JSON file. Pure aside from the
+// branch-auto-theme stdin read (which sets preInput); called once at module load
+// and again by resetConfigForTest() so tests can drive different environments.
+function loadConfig(): Config {
+  // ── bootstrap (env only — deterministic for tests/renders) ────────────────────
+  const nowMs = parseInt(env('SL_FRAME_MS', ''), 10) || Date.now();
+  const clockMs = parseInt(env('SL_CLOCK_MS', ''), 10) || nowMs;
 
-// Colour depth: NO_COLOR → mono; else SL_COLOR_MODE env; else config.colorMode;
-// else auto-detect, defaulting to truecolor when uncertain.
-function resolveColorMode(): ColorMode {
-  if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== '') return 'mono';
-  const m = (process.env.SL_COLOR_MODE || jstr('colorMode', 'auto')).toLowerCase();
-  if (m === 'truecolor' || m === '256' || m === '16' || m === 'mono') return m as ColorMode;
-  const ct = (process.env.COLORTERM || '').toLowerCase();
-  if (ct.includes('truecolor') || ct.includes('24bit')) return 'truecolor';
-  const term = (process.env.TERM || '').toLowerCase();
-  if (term === 'dumb') return 'mono';
-  if (term.includes('256')) return '256';
-  return 'truecolor';
+  const raw = loadJson();
+  const preset = (typeof raw.preset === 'string' && PRESETS[raw.preset.toLowerCase()]) || {};
+  const J: Record<string, any> = { ...preset, ...raw };
+
+  // Typed readers — never throw, fall back per field (clamp/validate where needed).
+  const jstr = (k: string, d: string): string => (typeof J[k] === 'string' ? J[k] : d);
+  const jbool = (k: string): boolean => J[k] === true;
+  const jint = (k: string, d: number): number => (typeof J[k] === 'number' && Number.isFinite(J[k]) ? J[k] : d);
+  const jobj = (k: string): Record<string, any> | undefined =>
+    (J[k] && typeof J[k] === 'object' && !Array.isArray(J[k]) ? J[k] : undefined);
+  const jlist = (k: string): string =>                 // hide / privacyHide: array or string
+    (Array.isArray(J[k]) ? J[k].join(' ') : typeof J[k] === 'string' ? J[k] : '');
+
+  // Colour depth: NO_COLOR → mono; else SL_COLOR_MODE env; else config.colorMode;
+  // else auto-detect, defaulting to truecolor when uncertain.
+  const resolveColorMode = (): ColorMode => {
+    if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== '') return 'mono';
+    const m = (process.env.SL_COLOR_MODE || jstr('colorMode', 'auto')).toLowerCase();
+    if (m === 'truecolor' || m === '256' || m === '16' || m === 'mono') return m as ColorMode;
+    const ct = (process.env.COLORTERM || '').toLowerCase();
+    if (ct.includes('truecolor') || ct.includes('24bit')) return 'truecolor';
+    const term = (process.env.TERM || '').toLowerCase();
+    if (term === 'dumb') return 'mono';
+    if (term.includes('256')) return '256';
+    return 'truecolor';
+  };
+
+  let shimmer = jstr('shimmer', 'sweep');
+  if (shimmer === 'pulse') shimmer = 'breathe';        // aliases
+  if (shimmer === 'march') shimmer = 'scan';
+  if (jbool('accessible')) shimmer = 'off';            // accessibility kills motion
+
+  // Clock-driven / branch auto-theme.
+  let themeName = jstr('theme', 'heat');
+  const autoTheme = jstr('autoTheme', '');
+  if (autoTheme === 'daynight') {
+    const h = new Date(clockMs).getHours();
+    themeName = h >= 7 && h < 19 ? jstr('dayTheme', 'heat') : jstr('nightTheme', 'tokyonight');
+  } else if (autoTheme === 'seasonal') {
+    const m = new Date(clockMs).getMonth();
+    themeName = m <= 1 || m === 11 ? 'void' : m <= 4 ? 'everforest' : m <= 7 ? 'oceanic' : 'verdigris';
+  } else if (autoTheme === 'branch') {
+    try {
+      if (!process.stdin.isTTY) {
+        preInput = JSON.parse(fs.readFileSync(0, 'utf8')) as StatuslineInput;
+        const cwd = (preInput && preInput.workspace && preInput.workspace.current_dir) || '';
+        const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+        const bt = jobj('branchThemes') || {};
+        if (/^(main|master)$/i.test(br)) themeName = bt.main || 'nord';
+        else if (/^(feat|feature)\//i.test(br)) themeName = bt.feat || 'everforest';
+        else if (/^hotfix\//i.test(br)) themeName = bt.hotfix || 'heat';
+        else if (/^(fix|bugfix)\//i.test(br)) themeName = bt.fix || 'gruvbox';
+        else if (/^(exp|experiment)\//i.test(br)) themeName = bt.exp || 'tokyonight';
+      }
+    } catch { /* ignore — fall back to config.theme */ }
+  }
+
+  const projAliases = jobj('projectAliases');
+
+  return {
+    shimmer,
+    speed: jint('speed', 3),
+    glow: jint('glow', 240),
+    waveHue: jint('waveHue', 32),
+    easing: jstr('easing', ''),
+    themeName,
+    barStyle: jstr('barStyle', 'blocks'),
+    barScale: jstr('barScale', 'linear'),
+    rainbowMixRaw: typeof J.rainbowMix === 'number' ? J.rainbowMix : null,
+    margin: jint('margin', 6),
+    colorMode: resolveColorMode(),
+    themeFile: jstr('themeFile', ''),
+    base16: jstr('base16', ''),
+    pet: jbool('pet'),
+    crest: jbool('crest'),
+    moon: jbool('moon'),
+    daynight: jbool('daynight'),
+    costFlair: jbool('costFlair'),
+    burn: jbool('burn'),
+    gitExtra: jbool('gitExtra'),
+    rainbowStats: jbool('rainbowStats'),
+    trend: jbool('trend'),
+    weather: jbool('weather'),
+    limits: jbool('limits'),
+    limitWarn: jint('limitWarn', 80),
+    limitCrit: jint('limitCrit', 95),
+    layout: jstr('layout', '3line'),
+    separator: jstr('separator', ''),
+    hide: jlist('hide'),
+    privacy: jbool('privacy'),
+    privacyHide: jlist('privacyHide'),
+    projectAliases: projAliases ? JSON.stringify(projAliases) : jstr('projectAliases', ''),
+    path: jstr('path', 'auto'),
+    sysinfo: jbool('sysinfo'),
+    accessible: jbool('accessible'),
+    accessibleGauge: jstr('accessibleGauge', 'cvd'),
+    responsive: jbool('responsive'),
+    gitRisk: jbool('gitRisk'),
+    danger: jbool('danger'),
+    petStyle: jstr('petStyle', 'default'),
+    petReactsTo: jstr('petReactsTo', ''),
+    bell: jbool('bell'),
+    nerdfont: jbool('nerdfont'),
+    customSegment: jstr('customSegment', ''),
+    event: false,
+    tmuxPassthrough: jbool('tmuxPassthrough'),
+    elements: jobj('elements') as Record<string, Style> | undefined,
+    glyphs: jobj('glyphs') as Record<string, string> | undefined,
+    labels: jobj('labels') as Record<string, string> | undefined,
+    customTheme: jobj('customTheme'),
+    nowMs,
+    clockMs,
+    baseFrame: idiv(nowMs, 1000),
+  };
 }
 
-let shimmer = jstr('shimmer', 'sweep');
-if (shimmer === 'pulse') shimmer = 'breathe';        // aliases
-if (shimmer === 'march') shimmer = 'scan';
-if (jbool('accessible')) shimmer = 'off';            // accessibility kills motion
+export const cfg: Config = loadConfig();
 
-// Clock-driven / branch auto-theme.
-let themeName = jstr('theme', 'heat');
-const autoTheme = jstr('autoTheme', '');
-if (autoTheme === 'daynight') {
-  const h = new Date(clockMs).getHours();
-  themeName = h >= 7 && h < 19 ? jstr('dayTheme', 'heat') : jstr('nightTheme', 'tokyonight');
-} else if (autoTheme === 'seasonal') {
-  const m = new Date(clockMs).getMonth();
-  themeName = m <= 1 || m === 11 ? 'void' : m <= 4 ? 'everforest' : m <= 7 ? 'oceanic' : 'verdigris';
-} else if (autoTheme === 'branch') {
-  try {
-    if (!process.stdin.isTTY) {
-      preInput = JSON.parse(fs.readFileSync(0, 'utf8')) as StatuslineInput;
-      const cwd = (preInput && preInput.workspace && preInput.workspace.current_dir) || '';
-      const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-      const bt = jobj('branchThemes') || {};
-      if (/^(main|master)$/i.test(br)) themeName = bt.main || 'nord';
-      else if (/^(feat|feature)\//i.test(br)) themeName = bt.feat || 'everforest';
-      else if (/^hotfix\//i.test(br)) themeName = bt.hotfix || 'heat';
-      else if (/^(fix|bugfix)\//i.test(br)) themeName = bt.fix || 'gruvbox';
-      else if (/^(exp|experiment)\//i.test(br)) themeName = bt.exp || 'tokyonight';
-    }
-  } catch { /* ignore — fall back to config.theme */ }
+// Test-only: recompute the config from the current environment, mutating the
+// existing `cfg` object in place so every module's imported reference stays valid.
+// (Themes/roles are computed once at load from `cfg`; theme-dependent code is
+// covered by the golden suite, so this resets config-driven behaviour only.)
+export function resetConfigForTest(): void {
+  preInput = null;
+  Object.assign(cfg, loadConfig());
 }
-
-const projAliases = jobj('projectAliases');
-
-export const cfg: Config = {
-  shimmer,
-  speed: jint('speed', 3),
-  glow: jint('glow', 240),
-  waveHue: jint('waveHue', 32),
-  easing: jstr('easing', ''),
-  themeName,
-  barStyle: jstr('barStyle', 'blocks'),
-  barScale: jstr('barScale', 'linear'),
-  rainbowMixRaw: typeof J.rainbowMix === 'number' ? J.rainbowMix : null,
-  margin: jint('margin', 6),
-  colorMode: resolveColorMode(),
-  themeFile: jstr('themeFile', ''),
-  base16: jstr('base16', ''),
-  pet: jbool('pet'),
-  crest: jbool('crest'),
-  moon: jbool('moon'),
-  daynight: jbool('daynight'),
-  costFlair: jbool('costFlair'),
-  burn: jbool('burn'),
-  gitExtra: jbool('gitExtra'),
-  rainbowStats: jbool('rainbowStats'),
-  trend: jbool('trend'),
-  weather: jbool('weather'),
-  limits: jbool('limits'),
-  limitWarn: jint('limitWarn', 80),
-  limitCrit: jint('limitCrit', 95),
-  layout: jstr('layout', '3line'),
-  separator: jstr('separator', ''),
-  hide: jlist('hide'),
-  privacy: jbool('privacy'),
-  privacyHide: jlist('privacyHide'),
-  projectAliases: projAliases ? JSON.stringify(projAliases) : jstr('projectAliases', ''),
-  path: jstr('path', 'auto'),
-  sysinfo: jbool('sysinfo'),
-  accessible: jbool('accessible'),
-  accessibleGauge: jstr('accessibleGauge', 'cvd'),
-  responsive: jbool('responsive'),
-  gitRisk: jbool('gitRisk'),
-  danger: jbool('danger'),
-  petStyle: jstr('petStyle', 'default'),
-  petReactsTo: jstr('petReactsTo', ''),
-  bell: jbool('bell'),
-  nerdfont: jbool('nerdfont'),
-  customSegment: jstr('customSegment', ''),
-  event: false,
-  tmuxPassthrough: jbool('tmuxPassthrough'),
-  elements: jobj('elements') as Record<string, Style> | undefined,
-  glyphs: jobj('glyphs') as Record<string, string> | undefined,
-  labels: jobj('labels') as Record<string, string> | undefined,
-  customTheme: jobj('customTheme'),
-  nowMs,
-  clockMs,
-  baseFrame: idiv(nowMs, 1000),
-};
