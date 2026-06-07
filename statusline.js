@@ -179,6 +179,7 @@ function loadConfig() {
     accessible: jbool("accessible"),
     accessibleGauge: jstr("accessibleGauge", "cvd"),
     responsive: jbool("responsive"),
+    adaptive: jbool("adaptive"),
     gitRisk: jbool("gitRisk"),
     danger: jbool("danger"),
     warningLine: jbool("warningLine"),
@@ -2420,10 +2421,10 @@ function applyWashes(lines, rl, PCT) {
 }
 
 // src/render/layout.ts
-function assembleLayout(p, sh) {
+function assembleLayout(p, sh, override) {
   const J = justified;
-  let layout = cfg.layout;
-  if (cfg.responsive) {
+  let layout = override || cfg.layout;
+  if (!override && cfg.responsive) {
     const c = termCols();
     layout = c < 70 ? "tiny" : c < 100 ? "1line" : c < 140 ? "2line" : "3line";
   }
@@ -2562,6 +2563,7 @@ function build() {
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
   const wideW = Math.max(28, termCols() - 2 * cfg.margin - 12);
   const WIDE_BAR = drawBar(wideW, scaleCells(PCT, wideW), -1, 0);
+  const adaptiveLayout = cfg.adaptive ? PCT < 50 ? "1line" : PCT < 75 ? "3line" : "split" : void 0;
   let lines = assembleLayout(
     {
       LEAD,
@@ -2579,10 +2581,11 @@ function build() {
       WIDE_BAR,
       USAGE_SEG
     },
-    sh
+    sh,
+    adaptiveLayout
   );
   lines = applyWashes(lines, rl, PCT);
-  if (cfg.warningLine) {
+  if (cfg.warningLine || cfg.adaptive && PCT >= 90) {
     const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
     if (warn)
       lines.push(warn);

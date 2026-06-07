@@ -73,7 +73,7 @@ const SL_MAP = {
   SL_COST_FLAIR: ['costFlair', 'b'], SL_BURN: ['burn', 'b'], SL_GIT_EXTRA: ['gitExtra', 'b'],
   SL_RAINBOW_STATS: ['rainbowStats', 'b'], SL_TREND: ['trend', 'b'], SL_WEATHER: ['weather', 'b'],
   SL_LIMITS: ['limits', 'b'], SL_PRIVACY: ['privacy', 'b'], SL_SYSINFO: ['sysinfo', 'b'],
-  SL_ACCESSIBLE: ['accessible', 'b'], SL_RESPONSIVE: ['responsive', 'b'], SL_GIT_RISK: ['gitRisk', 'b'],
+  SL_ACCESSIBLE: ['accessible', 'b'], SL_RESPONSIVE: ['responsive', 'b'], SL_ADAPTIVE: ['adaptive', 'b'], SL_GIT_RISK: ['gitRisk', 'b'],
   SL_DANGER: ['danger', 'b'], SL_BELL: ['bell', 'b'], SL_NERDFONT: ['nerdfont', 'b'], SL_TMUX_PASSTHROUGH: ['tmuxPassthrough', 'b'],
   SL_WARNING_LINE: ['warningLine', 'b'], SL_ACTIVITY_LINE: ['activityLine', 'b'], SL_CONVERSATION_LINE: ['conversationLine', 'b'],
 };
@@ -143,6 +143,7 @@ const CASES = [
   ['separator', { SL_SEPARATOR: '|' }],
   ['frame-rule', { SL_FRAME: 'rule' }],
   ['frame-box', { SL_FRAME: 'box' }],
+  ['adaptive', { SL_ADAPTIVE: 'on' }],
   ['privacy', { SL_PRIVACY: 'on', SL_GIT_EXTRA: 'on' }],
   ['nerdfont', { SL_NERDFONT: 'on' }],
   ['style-showcase', { SL_THEME: 'showcase' }],
