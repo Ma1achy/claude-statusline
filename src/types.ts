@@ -9,6 +9,11 @@ export interface Palette {
   CYAN: string; WHITE: string; GOLD: string;
 }
 
+/** Semantic colour roles — what the styling engine targets instead of literal
+ *  colour names, so themes (and the accessibility profile) can remap every element
+ *  consistently. `muted` replaces the old theme-independent `DIM`. */
+export type Role = 'fg' | 'muted' | 'accent' | 'ok' | 'warn' | 'bad' | 'info' | 'gold';
+
 export interface Theme {
   // hue-ramp themes
   hueHi?: number; hueLo?: number; sat?: number; valLo?: number; valHi?: number;
@@ -18,6 +23,8 @@ export interface Theme {
   mix: number | null;
   // explicit accent palette (cmap themes may omit it → auto-derived)
   pal?: Palette;
+  // resolved, colour-mode-aware escapes for the semantic roles (incl. derived muted)
+  roles?: Record<Role, string>;
 }
 
 /** RGB accent palette — the data form (palettes-as-data, built into escapes at load). */

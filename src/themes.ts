@@ -4,12 +4,12 @@
 // recolours the WHOLE statusline. `heat` reproduces the original byte-for-byte.
 import * as fs from 'fs';
 import * as os from 'os';
-import { tc } from './ansi';
+import { tc, DIM } from './ansi';
 import { hsv, cmapSample } from './color';
 import { cfg } from './config';
 import { idiv } from './util';
 import { THEMES_DATA, A11Y_PAL, A11Y_GAUGES } from './themes.data';
-import type { Theme, Palette, PaletteRGB, ThemeData, RGB } from './types';
+import type { Theme, Palette, PaletteRGB, ThemeData, RGB, Role } from './types';
 
 const EMPTY_PAL: Palette = { RED: '', GREEN: '', AMBER: '', BLUE: '', CYAN: '', WHITE: '', GOLD: '' };
 const palFromRgb = (p: PaletteRGB): Palette => ({
@@ -102,6 +102,30 @@ export const PAL: Palette = cfg.colorMode === 'mono'
   ? EMPTY_PAL
   : (TH.pal || deriveCmapPal(TH.cmap as RGB[]));
 export const { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
+
+// ── semantic roles ────────────────────────────────────────────────────────────
+// The styling engine (style.ts) targets these instead of literal colour names, so
+// themes + the accessibility profile recolour every element consistently. `muted`
+// is the theme-derived replacement for the old literal DIM: the foreground pulled
+// toward the background (still visible via a floor), so "dim" bits finally follow
+// the theme. In mono there's no colour to dim → fall back to the SGR dim attribute.
+function fgRgb(): RGB {
+  if (cfg.accessible) return A11Y_PAL.WHITE;
+  const d = THEMES_DATA[cfg.themeName];
+  if (d && d.palRgb) return d.palRgb.WHITE;
+  if (d && d.palRaw) return [229, 229, 229];
+  if (d && d.cmap) return [228, 228, 228];
+  return [220, 222, 230];                 // custom / unknown
+}
+function deriveMuted(): string {
+  if (cfg.colorMode === 'mono') return DIM;
+  const m = fgRgb().map((v) => Math.max(72, Math.round(v * 0.5))) as RGB;
+  return tc(m[0], m[1], m[2]);
+}
+export const ROLES: Record<Role, string> = {
+  fg: WHITE, muted: deriveMuted(), accent: CYAN, ok: GREEN, warn: AMBER, bad: RED, info: BLUE, gold: GOLD,
+};
+TH.roles = ROLES;
 
 // Explicit SL_RAINBOW_MIX wins; else the theme's mix; else 50.
 export const RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : (TH.mix != null ? TH.mix : 50);

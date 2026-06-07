@@ -611,6 +611,35 @@ var a11yTheme = () => buildTheme({ cmap: A11Y_GAUGES[cfg.accessibleGauge] || A11
 var TH = cfg.accessible ? a11yTheme() : CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
 var PAL = cfg.colorMode === "mono" ? EMPTY_PAL : TH.pal || deriveCmapPal(TH.cmap);
 var { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
+function fgRgb() {
+  if (cfg.accessible)
+    return A11Y_PAL.WHITE;
+  const d = THEMES_DATA[cfg.themeName];
+  if (d && d.palRgb)
+    return d.palRgb.WHITE;
+  if (d && d.palRaw)
+    return [229, 229, 229];
+  if (d && d.cmap)
+    return [228, 228, 228];
+  return [220, 222, 230];
+}
+function deriveMuted() {
+  if (cfg.colorMode === "mono")
+    return DIM;
+  const m = fgRgb().map((v) => Math.max(72, Math.round(v * 0.5)));
+  return tc(m[0], m[1], m[2]);
+}
+var ROLES = {
+  fg: WHITE,
+  muted: deriveMuted(),
+  accent: CYAN,
+  ok: GREEN,
+  warn: AMBER,
+  bad: RED,
+  info: BLUE,
+  gold: GOLD
+};
+TH.roles = ROLES;
 var RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
 function gradientColor(posp) {
   posp = Math.max(0, Math.min(100, posp));
