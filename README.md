@@ -194,6 +194,10 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_TREND` | Context-% sparkline `▁▂▃▄`, ETA to autocompact `~11m`, and a compaction counter `↺2` |
 | `SL_WEATHER` | One-word context-pressure reading: `clear → breezy → dense → stormy → compacting` |
 | `SL_LIMITS` | Flag the 5h/7d usage bars: amber past `SL_LIMIT_WARN`, bold-red `LOW` past `SL_LIMIT_CRIT` |
+| `SL_SYSINFO` | Show the 1-minute load average `↯0.82` (no-op where unsupported) |
+| `SL_PRIVACY` | Hide email / account / cost / path — for screenshots and streams |
+| `SL_ACCESSIBLE` | High-contrast, motion off (pairs with `NO_COLOR` / `SL_COLOR_MODE=mono`) |
+| `SL_RESPONSIVE` | Auto-pick the layout from the terminal width (avoids wrapping when narrow) |
 
 ### Tuning
 
@@ -212,7 +216,10 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_LIMIT_CRIT` | `95` | Usage % at which `SL_LIMITS` shows bold-red `LOW` |
 | `SL_LAYOUT` | `3line` | Vertical footprint: `3line` / `2line` / `1line` / `tiny` |
 | `SL_SEPARATOR` | — | Divider glyph between major segments (e.g. `\|`, `⋮`); default is spacing |
-| `SL_HIDE` | — | Comma list of segments to drop: `clock,moon,usage,name,dir,file,git,cost,age,tokens,weather,trend,pet,crest,model,effort,thinking` |
+| `SL_HIDE` | — | Comma list of segments to drop: `clock,moon,usage,name,dir,file,git,email,cost,age,tokens,weather,trend,pet,crest,model,effort,thinking,sysinfo` |
+| `SL_PATH` | `auto` | Path display: `auto` (home→`~`, compress deep paths to `root/…/leaf`) or `full` |
+| `SL_PRIVACY_HIDE` | — | Granular privacy list: `email,path,account,cost` |
+| `SL_PROJECT_ALIASES` | — | JSON map of real dirs to safe labels, e.g. `{"/Users/me/work/acme":"client-x"}` |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Sets the white `┃` autocompact marker position on the context bar |
 
 ### Colour depth & accessibility

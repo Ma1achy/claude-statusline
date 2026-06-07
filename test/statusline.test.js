@@ -86,6 +86,30 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6d. Privacy — SL_PRIVACY hides email / account / cost; aliasing + truncation.
+test('privacy: SL_PRIVACY hides sensitive segments', () => {
+  const plain = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));
+  assert.ok(plain.includes('malachy@email.com') && plain.includes('Malachy'), 'shown by default');
+  const priv = stripAnsi(run(fix, { SL_PRIVACY: 'on', SL_GIT_EXTRA: 'on' }));
+  assert.ok(!priv.includes('malachy@email.com'), 'privacy hides git email');
+  assert.ok(!priv.includes('Malachy'), 'privacy hides account name');
+  assert.ok(!priv.includes('$0.234'), 'privacy hides cost');
+});
+
+test('path: deep paths truncate; aliases and SL_PATH=full apply', () => {
+  const deep = '/a/b/c/d/e/f/g/leaf';
+  const at = (env) => {
+    const out = execFileSync('node', [STATUSLINE], {
+      input: JSON.stringify({ workspace: { current_dir: deep }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', ...env },
+    });
+    return stripAnsi(out).split('\n')[2];
+  };
+  assert.match(at({}), /\/a\/…\/g\/leaf/, 'deep path compresses to root/…/last2');
+  assert.ok(at({ SL_PATH: 'full' }).includes(deep), 'SL_PATH=full keeps the whole path');
+  assert.ok(at({ SL_PROJECT_ALIASES: JSON.stringify({ [deep]: 'proj-x' }) }).includes('proj-x'), 'alias relabels the dir');
+});
+
 // 6a. Layout — line count varies; SL_HIDE drops named segments.
 test('layout: line count + hide', () => {
   const nlines = (env) => stripAnsi(run(fix, env)).split('\n').filter(Boolean).length;

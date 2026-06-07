@@ -2,7 +2,7 @@
 // Everything is wrapped so a bug prints a minimal line instead of a blank bar.
 import * as fs from 'fs';
 import * as os from 'os';
-import { ESC, R, DIM, BOLD, justified, stripAnsi, txt, tc } from './ansi';
+import { ESC, R, DIM, BOLD, justified, stripAnsi, txt, tc, termCols } from './ansi';
 import { hueRgb } from './color';
 import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
 import { drawBar } from './bar';
@@ -14,6 +14,27 @@ import { idiv } from './util';
 import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
 import type { StatuslineInput } from './types';
+
+// Display form of the cwd: project aliases first, then (unless SL_PATH=full)
+// home→~ and middle-compression of deep paths (keep root + … + last two).
+function displayPath(cwd: string): string {
+  if (!cwd) return cwd;
+  let p = cwd;
+  if (cfg.projectAliases) {
+    try {
+      const map = JSON.parse(cfg.projectAliases) as Record<string, string>;
+      let best = '';
+      for (const k of Object.keys(map)) if ((p === k || p.startsWith(k + '/')) && k.length > best.length) best = k;
+      if (best) p = map[best] + p.slice(best.length);
+    } catch { /* bad JSON → ignore */ }
+  }
+  if (cfg.path === 'full') return p;
+  const home = os.homedir();
+  if (home && (p === home || p.startsWith(home + '/'))) p = '~' + p.slice(home.length);
+  const parts = p.split('/').filter(Boolean);
+  if (parts.length > 5) p = `${p.startsWith('/') ? '/' : ''}${parts[0]}/…/${parts.slice(-2).join('/')}`;
+  return p;
+}
 
 function build(): string {
   let input = '';
@@ -142,7 +163,7 @@ function build(): string {
     return tc(150, 130, 180);
   };
 
-  const DIR_SEG = `${DIM}${CWD}${R}`;
+  const DIR_SEG = `${DIM}${displayPath(CWD)}${R}`;
 
   // ── git ─────────────────────────────────────────────────────────────────────
   const BRANCH = gitOut(CWD, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -336,8 +357,18 @@ function build(): string {
   // SL_HIDE drops named segments; SL_SEPARATOR swaps the major join (default "  ");
   // SL_LAYOUT chooses how many lines to emit. All three are no-ops at defaults.
   const HIDE = new Set(cfg.hide.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
+  // SL_PRIVACY merges a sensitive-segment set into HIDE (for screenshots/streams).
+  if (cfg.privacy) {
+    const alias: Record<string, string> = { email: 'email', path: 'dir', account: 'name', cost: 'cost' };
+    const toks = cfg.privacyHide ? cfg.privacyHide.split(/[\s,]+/).filter(Boolean) : ['email', 'path', 'account', 'cost'];
+    for (const t of toks) HIDE.add(alias[t] || t);
+  }
   const sh = (name: string, val: string): string => (HIDE.has(name) ? '' : val);
   const SEP = cfg.separator ? ` ${DIM}${cfg.separator}${R} ` : '  ';
+
+  // SL_SYSINFO: 1-minute load average (os.loadavg is 0 on unsupported platforms).
+  let SYS_SEG = '';
+  if (cfg.sysinfo) { const la = os.loadavg()[0]; if (la > 0) SYS_SEG = `${DIM}↯${la.toFixed(2)}${R} `; }
 
   const CTX_SIZE_K = fmtK(MAX_TOK);
   let BRACKET = `${sh('crest', CREST)}${sh('model', MODEL_DISPLAY)}`;
@@ -346,7 +377,7 @@ function build(): string {
   if (THINKING_WORD) BRACKET += ` ${sh('thinking', THINKING_WORD)}`;
 
   const L1_LEFT = `${LEAD} ${sh('pet', PET)}${DIM}[${R}${BRACKET}${DIM}]${R}`;
-  const L1_RIGHT = `${sh('moon', MOON)}${sh('clock', CLOCK_SEG)}`;
+  const L1_RIGHT = `${sh('sysinfo', SYS_SEG)}${sh('moon', MOON)}${sh('clock', CLOCK_SEG)}`;
 
   const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${sh('weather', WEATHER_SEG)}` : PCT_SEG;
   let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
@@ -359,7 +390,7 @@ function build(): string {
   let GIT_SEG = '';
   if (BRANCH) GIT_SEG += `  ${BRANCH_MOOD}${CYAN}⎇ ${BRANCH}${R}`;
   GIT_SEG += GIT_AB + GIT_AGE;
-  if (GIT_ID) GIT_SEG += `  ${DIM}${GIT_ID}${R}`;
+  if (GIT_ID && !HIDE.has('email')) GIT_SEG += `  ${DIM}${GIT_ID}${R}`;
   if (ADDED > 0 || REMOVED > 0) GIT_SEG += `  ${GREEN}+${ADDED}${R}/${RED}-${REMOVED}${R}`;
   if (DIRTY > 0) GIT_SEG += `  ${AMBER}~${DIRTY}${R}`;
   if (STAGED > 0) GIT_SEG += ` ${GREEN}●${STAGED}${R}`;
@@ -370,9 +401,12 @@ function build(): string {
   L3_RIGHT += `${sh('cost', COST_SEG)}  ${sh('age', AGE_SEG)}`;
 
   // Layout: which lines to emit. Compact forms reuse the segments already built.
+  // SL_RESPONSIVE picks a layout from the terminal width to avoid wrapping.
   const J = justified;
   let lines: string[];
-  switch (cfg.layout) {
+  let layout = cfg.layout;
+  if (cfg.responsive) { const c = termCols(); layout = c < 70 ? 'tiny' : c < 100 ? '1line' : c < 140 ? '2line' : '3line'; }
+  switch (layout) {
     case 'tiny':
       lines = [J(`${BAR} ${PCT_SEG}`, sh('cost', COST_SEG))];
       break;

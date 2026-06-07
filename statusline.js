@@ -85,6 +85,8 @@ if (shimmer === "pulse")
   shimmer = "breathe";
 if (shimmer === "march")
   shimmer = "scan";
+if (pbool("SL_ACCESSIBLE"))
+  shimmer = "off";
 var nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
 var clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
 var rainbowMix = penv("SL_RAINBOW_MIX", "");
@@ -116,6 +118,13 @@ var cfg = {
   layout: penv("SL_LAYOUT", "3line"),
   separator: penv("SL_SEPARATOR", ""),
   hide: penv("SL_HIDE", ""),
+  privacy: pbool("SL_PRIVACY"),
+  privacyHide: penv("SL_PRIVACY_HIDE", ""),
+  projectAliases: penv("SL_PROJECT_ALIASES", ""),
+  path: penv("SL_PATH", "auto"),
+  sysinfo: pbool("SL_SYSINFO"),
+  accessible: pbool("SL_ACCESSIBLE"),
+  responsive: pbool("SL_RESPONSIVE"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -824,6 +833,32 @@ function weatherWord(pct, target) {
 }
 
 // src/index.ts
+function displayPath(cwd) {
+  if (!cwd)
+    return cwd;
+  let p = cwd;
+  if (cfg.projectAliases) {
+    try {
+      const map = JSON.parse(cfg.projectAliases);
+      let best = "";
+      for (const k of Object.keys(map))
+        if ((p === k || p.startsWith(k + "/")) && k.length > best.length)
+          best = k;
+      if (best)
+        p = map[best] + p.slice(best.length);
+    } catch {
+    }
+  }
+  if (cfg.path === "full")
+    return p;
+  const home = os3.homedir();
+  if (home && (p === home || p.startsWith(home + "/")))
+    p = "~" + p.slice(home.length);
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length > 5)
+    p = `${p.startsWith("/") ? "/" : ""}${parts[0]}/\u2026/${parts.slice(-2).join("/")}`;
+  return p;
+}
 function build() {
   let input = "";
   try {
@@ -975,7 +1010,7 @@ function build() {
       return tc(235, 165, 90);
     return tc(150, 130, 180);
   };
-  const DIR_SEG = `${DIM}${CWD}${R}`;
+  const DIR_SEG = `${DIM}${displayPath(CWD)}${R}`;
   const BRANCH = gitOut(CWD, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const DIRTY = countLines(gitOut(CWD, ["status", "--porcelain"]));
   const STAGED = countLines(gitOut(CWD, ["diff", "--cached", "--name-only"]));
@@ -1178,8 +1213,20 @@ function build() {
     USAGE_SEG = `${rlSeg("5h", fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg("7d", sd.used_percentage, sd.resets_at, 3e3)}`;
   }
   const HIDE = new Set(cfg.hide.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
+  if (cfg.privacy) {
+    const alias = { email: "email", path: "dir", account: "name", cost: "cost" };
+    const toks = cfg.privacyHide ? cfg.privacyHide.split(/[\s,]+/).filter(Boolean) : ["email", "path", "account", "cost"];
+    for (const t of toks)
+      HIDE.add(alias[t] || t);
+  }
   const sh = (name, val) => HIDE.has(name) ? "" : val;
   const SEP = cfg.separator ? ` ${DIM}${cfg.separator}${R} ` : "  ";
+  let SYS_SEG = "";
+  if (cfg.sysinfo) {
+    const la = os3.loadavg()[0];
+    if (la > 0)
+      SYS_SEG = `${DIM}\u21AF${la.toFixed(2)}${R} `;
+  }
   const CTX_SIZE_K = fmtK(MAX_TOK);
   let BRACKET = `${sh("crest", CREST)}${sh("model", MODEL_DISPLAY)}`;
   if (ONEM)
@@ -1189,7 +1236,7 @@ function build() {
   if (THINKING_WORD)
     BRACKET += ` ${sh("thinking", THINKING_WORD)}`;
   const L1_LEFT = `${LEAD} ${sh("pet", PET)}${DIM}[${R}${BRACKET}${DIM}]${R}`;
-  const L1_RIGHT = `${sh("moon", MOON)}${sh("clock", CLOCK_SEG)}`;
+  const L1_RIGHT = `${sh("sysinfo", SYS_SEG)}${sh("moon", MOON)}${sh("clock", CLOCK_SEG)}`;
   const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${sh("weather", WEATHER_SEG)}` : PCT_SEG;
   let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
   if (TURN_SEG)
@@ -1203,7 +1250,7 @@ function build() {
   if (BRANCH)
     GIT_SEG += `  ${BRANCH_MOOD}${CYAN}\u2387 ${BRANCH}${R}`;
   GIT_SEG += GIT_AB + GIT_AGE;
-  if (GIT_ID)
+  if (GIT_ID && !HIDE.has("email"))
     GIT_SEG += `  ${DIM}${GIT_ID}${R}`;
   if (ADDED > 0 || REMOVED > 0)
     GIT_SEG += `  ${GREEN}+${ADDED}${R}/${RED}-${REMOVED}${R}`;
@@ -1219,7 +1266,12 @@ function build() {
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
   const J = justified;
   let lines;
-  switch (cfg.layout) {
+  let layout = cfg.layout;
+  if (cfg.responsive) {
+    const c = termCols();
+    layout = c < 70 ? "tiny" : c < 100 ? "1line" : c < 140 ? "2line" : "3line";
+  }
+  switch (layout) {
     case "tiny":
       lines = [J(`${BAR} ${PCT_SEG}`, sh("cost", COST_SEG))];
       break;

@@ -54,6 +54,8 @@ export interface Config {
   trend: boolean; weather: boolean; limits: boolean;
   limitWarn: number; limitCrit: number;
   layout: string; separator: string; hide: string;
+  privacy: boolean; privacyHide: string; projectAliases: string;
+  path: string; sysinfo: boolean; accessible: boolean; responsive: boolean;
   nowMs: number;
   clockMs: number;
   baseFrame: number;

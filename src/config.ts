@@ -37,6 +37,9 @@ function resolveColorMode(): ColorMode {
 let shimmer = penv('SL_SHIMMER', 'sweep');
 if (shimmer === 'pulse') shimmer = 'breathe';   // aliases
 if (shimmer === 'march') shimmer = 'scan';
+// Accessibility: kill motion (reduces distraction / flashing). Pairs well with
+// NO_COLOR or SL_COLOR_MODE=mono and the CVD-safe colormaps.
+if (pbool('SL_ACCESSIBLE')) shimmer = 'off';
 
 // Claude Code repaints at most once/second (refreshInterval is in seconds, min 1),
 // so ms timing can't make motion sub-second-smooth — it just keeps the animation
@@ -77,6 +80,13 @@ export const cfg: Config = {
   layout: penv('SL_LAYOUT', '3line'),
   separator: penv('SL_SEPARATOR', ''),
   hide: penv('SL_HIDE', ''),
+  privacy: pbool('SL_PRIVACY'),
+  privacyHide: penv('SL_PRIVACY_HIDE', ''),
+  projectAliases: penv('SL_PROJECT_ALIASES', ''),
+  path: penv('SL_PATH', 'auto'),
+  sysinfo: pbool('SL_SYSINFO'),
+  accessible: pbool('SL_ACCESSIBLE'),
+  responsive: pbool('SL_RESPONSIVE'),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1000),
