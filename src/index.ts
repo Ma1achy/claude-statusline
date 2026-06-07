@@ -11,7 +11,7 @@ import { drawBar, scaleCells } from './bar';
 import { rainbow } from './rainbow';
 import { fmtK, fmtCountdown } from './format';
 import { gitOut, countLines } from './git';
-import { cfg } from './config';
+import { cfg, preInput } from './config';
 import { idiv } from './util';
 import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
@@ -51,10 +51,14 @@ function displayPath(cwd: string): string {
 }
 
 function build(): string {
-  let input = '';
-  try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
   let data: StatuslineInput = {};
-  try { data = (JSON.parse(input) as StatuslineInput) || {}; } catch { data = {}; }
+  if (preInput) {
+    data = preInput;   // branch-theming already read & parsed stdin in config
+  } else {
+    let input = '';
+    try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
+    try { data = (JSON.parse(input) as StatuslineInput) || {}; } catch { data = {}; }
+  }
 
   // ── extract fields ──────────────────────────────────────────────────────────
   const ws = data.workspace || {};
@@ -82,10 +86,26 @@ function build(): string {
 
   // ── persist this tick: context-% history, compaction detection, ETA samples,
   //    and a throttled cross-session history record for burn baselines ─────────
+  // git-output cache (SL_GIT_CACHE): memoise within a render and, when fresh,
+  // across ticks — trades a little staleness for fewer git execs per repaint.
+  const GIT_TTL = 2500;
+  let gitMemo: Record<string, string> = {}, gitMemoDirty = false;
+  let sessionK = '', sessionSt: ReturnType<typeof readState> | null = null;
+  const gc = (args: string[]): string => {
+    const key = args.join(' ');
+    if (key in gitMemo) return gitMemo[key];
+    const v = gitOut(CWD, args);
+    gitMemo[key] = v; gitMemoDirty = true;
+    return v;
+  };
+
   let SPARK: number[] = [], COMPACTIONS = 0, ETA_SAMPLES: [number, number][] = [], BELL = '';
   try {
     const sk = sessionKey(data);
+    sessionK = sk;
     const st = readState(sk);
+    sessionSt = st;
+    if (cfg.gitCache && st.git && st.git.cwd === CWD && cfg.nowMs - st.git.ts < GIT_TTL) gitMemo = { ...st.git.data };
     // SL_BELL: ring once each time context crosses into a higher band (de-dup via state).
     if (cfg.bell) {
       const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
@@ -190,19 +210,19 @@ function build(): string {
   const DIR_SEG = `${DIM}${cfg.nerdfont ? ' ' : ''}${displayPath(CWD)}${R}`;
 
   // ── git ─────────────────────────────────────────────────────────────────────
-  const BRANCH = gitOut(CWD, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  const DIRTY = countLines(gitOut(CWD, ['status', '--porcelain']));
-  const STAGED = countLines(gitOut(CWD, ['diff', '--cached', '--name-only']));
-  const GIT_ID = gitOut(CWD, ['config', 'user.email']);
+  const BRANCH = gc(['rev-parse', '--abbrev-ref', 'HEAD']);
+  const DIRTY = countLines(gc(['status', '--porcelain']));
+  const STAGED = countLines(gc(['diff', '--cached', '--name-only']));
+  const GIT_ID = gc(['config', 'user.email']);
 
   let GIT_AB = '', GIT_AGE = '', GIT_UNTRACKED = '', GIT_STASH = '', BRANCH_MOOD = '';
   let BRANCH_LABEL = BRANCH, GIT_STATE = '', GIT_TODAY = '', GIT_RISK = '';
   if (cfg.gitExtra && BRANCH) {
     // detached HEAD → show a short sha instead of "HEAD".
-    if (BRANCH === 'HEAD') { const sha = gitOut(CWD, ['rev-parse', '--short', 'HEAD']); if (sha) BRANCH_LABEL = `:${sha}`; }
+    if (BRANCH === 'HEAD') { const sha = gc(['rev-parse', '--short', 'HEAD']); if (sha) BRANCH_LABEL = `:${sha}`; }
     // mid-operation state from the git dir (merge / rebase / cherry-pick).
     try {
-      let gd = gitOut(CWD, ['rev-parse', '--git-dir']);
+      let gd = gc(['rev-parse', '--git-dir']);
       if (gd) {
         if (!path.isAbsolute(gd)) gd = path.join(CWD, gd);
         if (fs.existsSync(path.join(gd, 'MERGE_HEAD'))) GIT_STATE = 'merge';
@@ -212,9 +232,9 @@ function build(): string {
     } catch { /* ignore */ }
     // commits made since local midnight of the current frame (today's momentum).
     const mid = new Date(cfg.clockMs); mid.setHours(0, 0, 0, 0);
-    const ct2 = parseInt(gitOut(CWD, ['rev-list', '--count', `--since=${idiv(mid.getTime(), 1000)}`, 'HEAD']), 10);
+    const ct2 = parseInt(gc(['rev-list', '--count', `--since=${idiv(mid.getTime(), 1000)}`, 'HEAD']), 10);
     if (Number.isFinite(ct2) && ct2 > 0) GIT_TODAY = ` ${GREEN}${txt('✓')}${ct2}${R}`;
-    const ab = gitOut(CWD, ['rev-list', '--count', '--left-right', '@{upstream}...HEAD']);
+    const ab = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']);
     const m = ab.match(/^(\d+)\s+(\d+)$/);
     if (m) {
       const behind = +m[1], ahead = +m[2];
@@ -223,16 +243,16 @@ function build(): string {
       if (behind) s += `${RED}${txt('↓')}${behind}${R}`;
       if (s) GIT_AB = `  ${s}`;
     }
-    const ct = parseInt(gitOut(CWD, ['log', '-1', '--format=%ct']), 10);
+    const ct = parseInt(gc(['log', '-1', '--format=%ct']), 10);
     if (Number.isFinite(ct) && ct > 0) {
       const secs = Math.max(0, cfg.baseFrame - ct);
       const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m`
         : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
       GIT_AGE = `  ${DIM}·${a}${R}`;
     }
-    const ut = countLines(gitOut(CWD, ['ls-files', '--others', '--exclude-standard']));
+    const ut = countLines(gc(['ls-files', '--others', '--exclude-standard']));
     if (ut > 0) GIT_UNTRACKED = `  ${AMBER}?${ut}${R}`;
-    const st = countLines(gitOut(CWD, ['stash', 'list']));
+    const st = countLines(gc(['stash', 'list']));
     if (st > 0) GIT_STASH = ` ${DIM}s:${st}${R}`;
     const tag = /^wip\//i.test(BRANCH) ? 'wip' : /^(hotfix|fix)\//i.test(BRANCH) ? 'fix'
       : /^(feat|feature)\//i.test(BRANCH) ? 'feat' : /^test\//i.test(BRANCH) ? 'test' : '';
@@ -243,13 +263,19 @@ function build(): string {
   if (cfg.gitRisk && BRANCH) {
     let s = 0;
     if (DIRTY > 0) s += DIRTY >= 10 ? 2 : 1;
-    if (countLines(gitOut(CWD, ['stash', 'list'])) > 0) s += 1;
-    const rm = gitOut(CWD, ['rev-list', '--count', '--left-right', '@{upstream}...HEAD']).match(/^(\d+)\s+(\d+)$/);
+    if (countLines(gc(['stash', 'list'])) > 0) s += 1;
+    const rm = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']).match(/^(\d+)\s+(\d+)$/);
     if (rm) { if (+rm[1] > 0) s += 1; if (+rm[2] >= 5) s += 1; }
     if (GIT_STATE) s += 2;
     const level = s >= 4 ? 'high' : s >= 2 ? 'med' : 'low';
     const rc = level === 'high' ? RED : level === 'med' ? AMBER : GREEN;
     GIT_RISK = `  ${rc}risk:${level}${R}`;
+  }
+
+  // persist the git cache for the next tick (second best-effort write; opt-in).
+  if (cfg.gitCache && gitMemoDirty && sessionSt) {
+    sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
+    try { writeState(sessionK, sessionSt); } catch { /* best-effort */ }
   }
 
   // ── pet (SL_PET) ────────────────────────────────────────────────────────────

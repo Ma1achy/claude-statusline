@@ -28,6 +28,7 @@ export interface SessionState {
   etaSamples?: [number, number][];
   histBucket?: number;             // last 5-min duration bucket appended to history
   bellLevel?: number;              // highest bell threshold already rung (de-dup)
+  git?: { cwd: string; ts: number; data: Record<string, string> };   // SL_GIT_CACHE
 }
 
 export interface HistoryRecord { t: number; cost: number; ctx: number; dur: number; }

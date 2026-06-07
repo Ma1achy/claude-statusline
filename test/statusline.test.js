@@ -178,6 +178,16 @@ test('bar scale: log differs from linear and widens the danger zone', () => {
   assert.ok(emptyCells({ SL_BAR_SCALE: 'log' }) > emptyCells({}), 'log leaves more empty cells at 90% (danger zone widened)');
 });
 
+// 6m. Branch auto-theme — the fixture's feat/ branch maps to everforest.
+test('branch auto-theme: feat/* → everforest', () => {
+  const branch = run(fix, { SL_AUTO_THEME: 'branch' });
+  assert.strictEqual(branch, run(fix, { SL_THEME: 'everforest' }), 'feat/ branch should resolve to everforest');
+  assert.notStrictEqual(branch, run(fix, {}), 'and differ from the default theme');
+  // an override maps the prefix elsewhere.
+  assert.strictEqual(run(fix, { SL_AUTO_THEME: 'branch', SL_BRANCH_FEAT: 'dracula' }), run(fix, { SL_THEME: 'dracula' }),
+    'SL_BRANCH_FEAT overrides the mapping');
+});
+
 // 6f. Reactive themes — daynight picks by clock; danger wash on critical context.
 test('reactive: daynight + silver-halide danger wash', () => {
   const at = (env) => execFileSync('node', [STATUSLINE], {
@@ -191,6 +201,26 @@ test('reactive: daynight + silver-halide danger wash', () => {
   // silver-halide: no wash at low context, deep-red wash at critical context.
   assert.ok(!at({ SL_THEME: 'silver-halide', _pct: 40 }).includes(';18;18m'), 'no red wash when calm');
   assert.ok(at({ SL_THEME: 'silver-halide', _pct: 95 }).includes(';18;18m'), 'red wash when critical');
+});
+
+// 6n. Git cache — SL_GIT_CACHE serves stale branch within TTL, refreshes after.
+test('git cache: stale within TTL, refresh after', () => {
+  const base = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-gc-'));
+  const home = path.join(base, 'home'); fs.mkdirSync(path.join(home, '.claude'), { recursive: true }); fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+  const tmp = path.join(base, 'tmp'); fs.mkdirSync(tmp);
+  const repo = path.join(base, 'repo'); fs.mkdirSync(repo);
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'ignore' });
+  g('init', '-q'); g('config', 'user.email', 'x@y.z'); g('config', 'user.name', 'x'); g('config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(repo, 'f'), '1\n'); g('add', 'f'); g('commit', '-q', '-m', 'c'); g('branch', '-m', 'one');
+  const l3 = (fm) => stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ session_id: 'gc', workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: String(fm), SL_COLOR_MODE: 'truecolor', SL_GIT_CACHE: 'on', TMPDIR: tmp },
+  })).split('\n')[2];
+  assert.match(l3(1700000000000), /one/, 'first tick shows the real branch');
+  g('branch', '-m', 'two');
+  assert.match(l3(1700000001000), /one/, 'within TTL still shows the cached branch');
+  assert.match(l3(1700000005000), /two/, 'past TTL refreshes to the new branch');
+  fs.rmSync(base, { recursive: true, force: true });
 });
 
 // 6e. Git — detached HEAD shows a sha; a merge in progress flags merge!.

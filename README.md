@@ -62,8 +62,11 @@ More palettes (all recolor the whole statusline):
 | Reactive | `silver-halide` (crisp silver → deep-red **danger wash** when context/limits go critical) |
 
 **Reactive theming** — `SL_AUTO_THEME=daynight` switches between `SL_DAY_THEME` and `SL_NIGHT_THEME`
-by the hour; `SL_AUTO_THEME=seasonal` tracks the month. `SL_DANGER=on` (implied by `silver-halide`)
-washes the whole line a throbbing safelight red once context ≥ 90% or a usage limit is critical.
+by the hour; `=seasonal` tracks the month; `=branch` maps the git branch to a theme
+(`main`→nord, `feat/*`→everforest, `fix/*`→gruvbox, `hotfix/*`→heat, `experiment/*`→tokyonight;
+override any with `SL_BRANCH_MAIN`/`_FEAT`/`_FIX`/`_HOTFIX`/`_EXP`). `SL_DANGER=on` (implied by
+`silver-halide`) washes the whole line a throbbing safelight red once context ≥ 90% or a usage limit
+is critical.
 
 ### Colormap themes
 
@@ -147,6 +150,8 @@ All styles rotate **hue** at a moving crest; they differ only in how the crest t
 | `twinkle` | Deterministic sparkle on scattered cells |
 | `storm` | A bright flash sweeps through, with occasional lightning |
 | `glitch` | Brief broken hue jumps |
+| `flash` / `ripple` | Event-driven — pulse / ring at the fill edge the tick the context % changes |
+| `morse` | Blinks "CLAUDE" in morse along the fill |
 | `off` | Static |
 
 **`SL_EASING`** (`ease` / `bounce` / `elastic`) reshapes where the crest sits each tick — composes with
@@ -246,6 +251,8 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_PRIVACY` | Hide email / account / cost / path — for screenshots and streams |
 | `SL_ACCESSIBLE` | High-contrast, motion off (pairs with `NO_COLOR` / `SL_COLOR_MODE=mono`) |
 | `SL_RESPONSIVE` | Auto-pick the layout from the terminal width (avoids wrapping when narrow) |
+| `SL_GIT_CACHE` | Cache git output in session state (~2.5s TTL) — fewer execs per repaint, slightly staler |
+| `SL_TMUX_PASSTHROUGH` | Wrap output in the tmux DCS so truecolor survives tmux (needs `allow-passthrough on`) |
 
 ### Tuning
 

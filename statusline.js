@@ -24,18 +24,21 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 ));
 
 // src/index.ts
-var fs3 = __toESM(require("fs"));
+var fs4 = __toESM(require("fs"));
 var os3 = __toESM(require("os"));
 var path2 = __toESM(require("path"));
 var import_child_process4 = require("child_process");
 
 // src/ansi.ts
-var import_child_process = require("child_process");
+var import_child_process2 = require("child_process");
 
 // src/util.ts
 var env = (k, d) => process.env[k] !== void 0 && process.env[k] !== "" ? process.env[k] : d;
 var idiv = (a, b) => Math.trunc(a / b);
 var mod = (a, b) => (a % b + b) % b;
+
+// src/config.ts
+var fs = __toESM(require("fs"));
 
 // src/presets.ts
 var PRESETS = {
@@ -51,7 +54,25 @@ var PRESETS = {
   demo: { SL_THEME: "viridis", SL_SHIMMER: "comet", SL_CREST: "on", SL_PET: "on", SL_MOON: "on", SL_DAYNIGHT: "on", SL_BURN: "on", SL_GIT_EXTRA: "on", SL_RAINBOW_STATS: "on" }
 };
 
+// src/git.ts
+var import_child_process = require("child_process");
+function gitOut(cwd, args) {
+  if (!cwd)
+    return "";
+  try {
+    return (0, import_child_process.execFileSync)(
+      "git",
+      ["-C", cwd, "--no-optional-locks", ...args],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+var countLines = (s) => s ? s.split("\n").filter((l) => l.length).length : 0;
+
 // src/config.ts
+var preInput = null;
 var preset = PRESETS[(process.env.SL_PRESET || "").toLowerCase()] || {};
 var penv = (k, d) => {
   const e = process.env[k];
@@ -99,6 +120,25 @@ if (autoTheme === "daynight") {
 } else if (autoTheme === "seasonal") {
   const m = new Date(clockMs).getMonth();
   themeName = m <= 1 || m === 11 ? "void" : m <= 4 ? "everforest" : m <= 7 ? "oceanic" : "verdigris";
+} else if (autoTheme === "branch") {
+  try {
+    if (!process.stdin.isTTY) {
+      preInput = JSON.parse(fs.readFileSync(0, "utf8"));
+      const cwd = preInput && preInput.workspace && preInput.workspace.current_dir || "";
+      const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+      if (/^(main|master)$/i.test(br))
+        themeName = penv("SL_BRANCH_MAIN", "nord");
+      else if (/^(feat|feature)\//i.test(br))
+        themeName = penv("SL_BRANCH_FEAT", "everforest");
+      else if (/^hotfix\//i.test(br))
+        themeName = penv("SL_BRANCH_HOTFIX", "heat");
+      else if (/^(fix|bugfix)\//i.test(br))
+        themeName = penv("SL_BRANCH_FIX", "gruvbox");
+      else if (/^(exp|experiment)\//i.test(br))
+        themeName = penv("SL_BRANCH_EXP", "tokyonight");
+    }
+  } catch {
+  }
 }
 var rainbowMix = penv("SL_RAINBOW_MIX", "");
 var cfg = {
@@ -220,7 +260,7 @@ function termCols() {
   let c = 0;
   try {
     c = parseInt(
-      (0, import_child_process.execFileSync)("tput", ["cols"], { encoding: "utf8", stdio: ["inherit", "pipe", "ignore"], windowsHide: true }),
+      (0, import_child_process2.execFileSync)("tput", ["cols"], { encoding: "utf8", stdio: ["inherit", "pipe", "ignore"], windowsHide: true }),
       10
     );
   } catch {
@@ -342,7 +382,7 @@ function hueRgb(h, mix) {
 }
 
 // src/themes.ts
-var fs = __toESM(require("fs"));
+var fs2 = __toESM(require("fs"));
 var os = __toESM(require("os"));
 
 // src/themes.data.ts
@@ -514,8 +554,8 @@ function themeFromBase16(spec) {
 function loadCustom() {
   try {
     const p = cfg.themeFile || `${os.homedir()}/.claude/statusline-theme.json`;
-    if (fs.existsSync(p)) {
-      const d = coerceThemeData(JSON.parse(fs.readFileSync(p, "utf8")));
+    if (fs2.existsSync(p)) {
+      const d = coerceThemeData(JSON.parse(fs2.readFileSync(p, "utf8")));
       if (d)
         return buildTheme(d);
     }
@@ -858,25 +898,8 @@ function fmtCountdown(secs) {
   return `${idiv(secs, 60)}m`;
 }
 
-// src/git.ts
-var import_child_process2 = require("child_process");
-function gitOut(cwd, args) {
-  if (!cwd)
-    return "";
-  try {
-    return (0, import_child_process2.execFileSync)(
-      "git",
-      ["-C", cwd, "--no-optional-locks", ...args],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
-    ).trim();
-  } catch {
-    return "";
-  }
-}
-var countLines = (s) => s ? s.split("\n").filter((l) => l.length).length : 0;
-
 // src/state.ts
-var fs2 = __toESM(require("fs"));
+var fs3 = __toESM(require("fs"));
 var os2 = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DIR = path.join(os2.tmpdir(), "claude-statusline");
@@ -907,7 +930,7 @@ function sessionKey(input) {
 var fileFor = (key) => path.join(DIR, `${key}.json`);
 function readState(key) {
   try {
-    const s = JSON.parse(fs2.readFileSync(fileFor(key), "utf8"));
+    const s = JSON.parse(fs3.readFileSync(fileFor(key), "utf8"));
     if (!s || typeof s !== "object")
       return fresh();
     if (now() - (s.updated || 0) > TTL_MS)
@@ -919,7 +942,7 @@ function readState(key) {
 }
 function writeState(key, s) {
   try {
-    fs2.mkdirSync(DIR, { recursive: true });
+    fs3.mkdirSync(DIR, { recursive: true });
     s.v = 1;
     s.updated = now();
     if (s.spark.length > SPARK_CAP)
@@ -927,11 +950,11 @@ function writeState(key, s) {
     if (s.etaSamples && s.etaSamples.length > ETA_CAP)
       s.etaSamples = s.etaSamples.slice(-ETA_CAP);
     const tmp = `${fileFor(key)}.${process.pid}.tmp`;
-    fs2.writeFileSync(tmp, JSON.stringify(s));
+    fs3.writeFileSync(tmp, JSON.stringify(s));
     try {
-      fs2.renameSync(tmp, fileFor(key));
+      fs3.renameSync(tmp, fileFor(key));
     } catch {
-      fs2.writeFileSync(fileFor(key), JSON.stringify(s));
+      fs3.writeFileSync(fileFor(key), JSON.stringify(s));
     }
     janitor();
   } catch {
@@ -946,11 +969,11 @@ function janitor() {
   if (now() % 100 >= 1)
     return;
   try {
-    for (const f of fs2.readdirSync(DIR)) {
+    for (const f of fs3.readdirSync(DIR)) {
       const fp = path.join(DIR, f);
       try {
-        if (now() - fs2.statSync(fp).mtimeMs > TTL_MS)
-          fs2.unlinkSync(fp);
+        if (now() - fs3.statSync(fp).mtimeMs > TTL_MS)
+          fs3.unlinkSync(fp);
       } catch {
       }
     }
@@ -959,12 +982,12 @@ function janitor() {
 }
 function appendHistory(rec) {
   try {
-    fs2.mkdirSync(path.dirname(HISTORY), { recursive: true });
-    fs2.appendFileSync(HISTORY, JSON.stringify(rec) + "\n");
+    fs3.mkdirSync(path.dirname(HISTORY), { recursive: true });
+    fs3.appendFileSync(HISTORY, JSON.stringify(rec) + "\n");
     if (now() % 50 < 1) {
       const kept = readHistory();
       if (kept.length >= HISTORY_CAP)
-        fs2.writeFileSync(HISTORY, kept.map((r) => JSON.stringify(r)).join("\n") + "\n");
+        fs3.writeFileSync(HISTORY, kept.map((r) => JSON.stringify(r)).join("\n") + "\n");
     }
   } catch {
   }
@@ -972,7 +995,7 @@ function appendHistory(rec) {
 function readHistory() {
   try {
     const out = [];
-    for (const l of fs2.readFileSync(HISTORY, "utf8").split("\n")) {
+    for (const l of fs3.readFileSync(HISTORY, "utf8").split("\n")) {
       if (!l)
         continue;
       try {
@@ -1196,16 +1219,20 @@ function displayPath(cwd) {
   return p;
 }
 function build() {
-  let input = "";
-  try {
-    input = fs3.readFileSync(0, "utf8");
-  } catch {
-  }
   let data = {};
-  try {
-    data = JSON.parse(input) || {};
-  } catch {
-    data = {};
+  if (preInput) {
+    data = preInput;
+  } else {
+    let input = "";
+    try {
+      input = fs4.readFileSync(0, "utf8");
+    } catch {
+    }
+    try {
+      data = JSON.parse(input) || {};
+    } catch {
+      data = {};
+    }
   }
   const ws = data.workspace || {};
   const CWD = ws.current_dir || "";
@@ -1229,10 +1256,26 @@ function build() {
   const CU_INPUT = cu && cu.input_tokens || 0;
   const CU_OUT = cu && cu.output_tokens || 0;
   const rl = data.rate_limits;
+  const GIT_TTL = 2500;
+  let gitMemo = {}, gitMemoDirty = false;
+  let sessionK = "", sessionSt = null;
+  const gc = (args) => {
+    const key = args.join(" ");
+    if (key in gitMemo)
+      return gitMemo[key];
+    const v = gitOut(CWD, args);
+    gitMemo[key] = v;
+    gitMemoDirty = true;
+    return v;
+  };
   let SPARK2 = [], COMPACTIONS = 0, ETA_SAMPLES = [], BELL = "";
   try {
     const sk = sessionKey(data);
+    sessionK = sk;
     const st = readState(sk);
+    sessionSt = st;
+    if (cfg.gitCache && st.git && st.git.cwd === CWD && cfg.nowMs - st.git.ts < GIT_TTL)
+      gitMemo = { ...st.git.data };
     if (cfg.bell) {
       const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
       if (lvl > (st.bellLevel ?? 0))
@@ -1350,38 +1393,38 @@ function build() {
     return tc(150, 130, 180);
   };
   const DIR_SEG = `${DIM}${cfg.nerdfont ? "\uF07B " : ""}${displayPath(CWD)}${R}`;
-  const BRANCH = gitOut(CWD, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const DIRTY = countLines(gitOut(CWD, ["status", "--porcelain"]));
-  const STAGED = countLines(gitOut(CWD, ["diff", "--cached", "--name-only"]));
-  const GIT_ID = gitOut(CWD, ["config", "user.email"]);
+  const BRANCH = gc(["rev-parse", "--abbrev-ref", "HEAD"]);
+  const DIRTY = countLines(gc(["status", "--porcelain"]));
+  const STAGED = countLines(gc(["diff", "--cached", "--name-only"]));
+  const GIT_ID = gc(["config", "user.email"]);
   let GIT_AB = "", GIT_AGE = "", GIT_UNTRACKED = "", GIT_STASH = "", BRANCH_MOOD = "";
   let BRANCH_LABEL = BRANCH, GIT_STATE = "", GIT_TODAY = "", GIT_RISK = "";
   if (cfg.gitExtra && BRANCH) {
     if (BRANCH === "HEAD") {
-      const sha = gitOut(CWD, ["rev-parse", "--short", "HEAD"]);
+      const sha = gc(["rev-parse", "--short", "HEAD"]);
       if (sha)
         BRANCH_LABEL = `:${sha}`;
     }
     try {
-      let gd = gitOut(CWD, ["rev-parse", "--git-dir"]);
+      let gd = gc(["rev-parse", "--git-dir"]);
       if (gd) {
         if (!path2.isAbsolute(gd))
           gd = path2.join(CWD, gd);
-        if (fs3.existsSync(path2.join(gd, "MERGE_HEAD")))
+        if (fs4.existsSync(path2.join(gd, "MERGE_HEAD")))
           GIT_STATE = "merge";
-        else if (fs3.existsSync(path2.join(gd, "rebase-merge")) || fs3.existsSync(path2.join(gd, "rebase-apply")))
+        else if (fs4.existsSync(path2.join(gd, "rebase-merge")) || fs4.existsSync(path2.join(gd, "rebase-apply")))
           GIT_STATE = "rebase";
-        else if (fs3.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
+        else if (fs4.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
           GIT_STATE = "cherry";
       }
     } catch {
     }
     const mid = new Date(cfg.clockMs);
     mid.setHours(0, 0, 0, 0);
-    const ct2 = parseInt(gitOut(CWD, ["rev-list", "--count", `--since=${idiv(mid.getTime(), 1e3)}`, "HEAD"]), 10);
+    const ct2 = parseInt(gc(["rev-list", "--count", `--since=${idiv(mid.getTime(), 1e3)}`, "HEAD"]), 10);
     if (Number.isFinite(ct2) && ct2 > 0)
       GIT_TODAY = ` ${GREEN}${txt("\u2713")}${ct2}${R}`;
-    const ab = gitOut(CWD, ["rev-list", "--count", "--left-right", "@{upstream}...HEAD"]);
+    const ab = gc(["rev-list", "--count", "--left-right", "@{upstream}...HEAD"]);
     const m = ab.match(/^(\d+)\s+(\d+)$/);
     if (m) {
       const behind = +m[1], ahead = +m[2];
@@ -1393,16 +1436,16 @@ function build() {
       if (s)
         GIT_AB = `  ${s}`;
     }
-    const ct = parseInt(gitOut(CWD, ["log", "-1", "--format=%ct"]), 10);
+    const ct = parseInt(gc(["log", "-1", "--format=%ct"]), 10);
     if (Number.isFinite(ct) && ct > 0) {
       const secs = Math.max(0, cfg.baseFrame - ct);
       const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m` : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
       GIT_AGE = `  ${DIM}\xB7${a}${R}`;
     }
-    const ut = countLines(gitOut(CWD, ["ls-files", "--others", "--exclude-standard"]));
+    const ut = countLines(gc(["ls-files", "--others", "--exclude-standard"]));
     if (ut > 0)
       GIT_UNTRACKED = `  ${AMBER}?${ut}${R}`;
-    const st = countLines(gitOut(CWD, ["stash", "list"]));
+    const st = countLines(gc(["stash", "list"]));
     if (st > 0)
       GIT_STASH = ` ${DIM}s:${st}${R}`;
     const tag = /^wip\//i.test(BRANCH) ? "wip" : /^(hotfix|fix)\//i.test(BRANCH) ? "fix" : /^(feat|feature)\//i.test(BRANCH) ? "feat" : /^test\//i.test(BRANCH) ? "test" : "";
@@ -1413,9 +1456,9 @@ function build() {
     let s = 0;
     if (DIRTY > 0)
       s += DIRTY >= 10 ? 2 : 1;
-    if (countLines(gitOut(CWD, ["stash", "list"])) > 0)
+    if (countLines(gc(["stash", "list"])) > 0)
       s += 1;
-    const rm = gitOut(CWD, ["rev-list", "--count", "--left-right", "@{upstream}...HEAD"]).match(/^(\d+)\s+(\d+)$/);
+    const rm = gc(["rev-list", "--count", "--left-right", "@{upstream}...HEAD"]).match(/^(\d+)\s+(\d+)$/);
     if (rm) {
       if (+rm[1] > 0)
         s += 1;
@@ -1427,6 +1470,13 @@ function build() {
     const level = s >= 4 ? "high" : s >= 2 ? "med" : "low";
     const rc = level === "high" ? RED : level === "med" ? AMBER : GREEN;
     GIT_RISK = `  ${rc}risk:${level}${R}`;
+  }
+  if (cfg.gitCache && gitMemoDirty && sessionSt) {
+    sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
+    try {
+      writeState(sessionK, sessionSt);
+    } catch {
+    }
   }
   let PET = "";
   if (cfg.pet) {
@@ -1462,14 +1512,14 @@ function build() {
   }
   let CLAUDE_USER = "";
   try {
-    const cj = JSON.parse(fs3.readFileSync(`${os3.homedir()}/.claude.json`, "utf8"));
+    const cj = JSON.parse(fs4.readFileSync(`${os3.homedir()}/.claude.json`, "utf8"));
     CLAUDE_USER = cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
   } catch {
   }
   let LAST_FILE = "";
   try {
-    if (TRANSCRIPT && fs3.existsSync(TRANSCRIPT)) {
-      const lines2 = fs3.readFileSync(TRANSCRIPT, "utf8").split("\n").filter(Boolean).slice(-80);
+    if (TRANSCRIPT && fs4.existsSync(TRANSCRIPT)) {
+      const lines2 = fs4.readFileSync(TRANSCRIPT, "utf8").split("\n").filter(Boolean).slice(-80);
       const re = /write|edit|read|str_replace|create/;
       for (const line of lines2) {
         let ev;
@@ -1494,7 +1544,7 @@ function build() {
   const FILE_SEG = LAST_FILE ? ` ${DIM}\u203A ${LAST_FILE}${R}` : "";
   let COMPACT_PCT = "", COMPACT_OFF = false;
   try {
-    const st = JSON.parse(fs3.readFileSync(`${os3.homedir()}/.claude/settings.json`, "utf8"));
+    const st = JSON.parse(fs4.readFileSync(`${os3.homedir()}/.claude/settings.json`, "utf8"));
     if (st.env && st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
       COMPACT_PCT = String(st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
     if (st.autoCompactEnabled === false || st.autoCompact === false)

@@ -1,7 +1,14 @@
 // Parse every SL_* env var (and the wall-clock frame) into one typed config.
+import * as fs from 'fs';
 import { env, idiv } from './util';
 import { PRESETS } from './presets';
-import type { Config, ColorMode } from './types';
+import { gitOut } from './git';
+import type { Config, ColorMode, StatuslineInput } from './types';
+
+// When SL_AUTO_THEME=branch we must read stdin here (to learn the cwd/branch
+// before the theme is resolved). The parsed input is shared so index.ts doesn't
+// read stdin a second time. Null unless branch-theming actually consumed it.
+export let preInput: StatuslineInput | null = null;
 
 // A named preset (SL_PRESET) supplies fallback values for any SL_* var. The
 // three preset-aware readers below enforce: explicit env > preset > default.
@@ -60,6 +67,21 @@ if (autoTheme === 'daynight') {
 } else if (autoTheme === 'seasonal') {
   const m = new Date(clockMs).getMonth();
   themeName = m <= 1 || m === 11 ? 'void' : m <= 4 ? 'everforest' : m <= 7 ? 'oceanic' : 'verdigris';
+} else if (autoTheme === 'branch') {
+  // Read stdin now (only when piped — never block an interactive TTY), find the
+  // git branch, and map it to a theme. Branch prefixes are overridable.
+  try {
+    if (!process.stdin.isTTY) {
+      preInput = JSON.parse(fs.readFileSync(0, 'utf8')) as StatuslineInput;
+      const cwd = (preInput && preInput.workspace && preInput.workspace.current_dir) || '';
+      const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+      if (/^(main|master)$/i.test(br)) themeName = penv('SL_BRANCH_MAIN', 'nord');
+      else if (/^(feat|feature)\//i.test(br)) themeName = penv('SL_BRANCH_FEAT', 'everforest');
+      else if (/^hotfix\//i.test(br)) themeName = penv('SL_BRANCH_HOTFIX', 'heat');
+      else if (/^(fix|bugfix)\//i.test(br)) themeName = penv('SL_BRANCH_FIX', 'gruvbox');
+      else if (/^(exp|experiment)\//i.test(br)) themeName = penv('SL_BRANCH_EXP', 'tokyonight');
+    }
+  } catch { /* ignore — fall back to SL_THEME */ }
 }
 
 const rainbowMix = penv('SL_RAINBOW_MIX', '');
