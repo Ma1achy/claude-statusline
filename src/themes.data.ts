@@ -121,4 +121,16 @@ export const THEMES_DATA: Record<string, ThemeData> = {
   // the CVD-safe ramp; SL_ACCESSIBLE_GAUGE swaps it (themes.ts). Paired with motion
   // off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
   'high-contrast': { cmap: A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL },
+  // A demo theme that exercises the per-element typography + animation engine:
+  // UPPERCASE bold model, small-caps branch, italic cost, animated name + clock.
+  showcase: {
+    cmap: [[80, 200, 255], [180, 140, 255], [255, 120, 200]], mix: 30,
+    elements: {
+      'model.tier': { case: 'upper', weight: 'bold' },
+      'git.branch': { font: 'smallcaps' },
+      'cost.amount': { attrs: ['italic'] },
+      'name': { fill: 'gradient', anim: { kind: 'gradient-cycle' } },
+      'clock': { fill: 'accent', anim: { kind: 'pulse' } },
+    },
+  },
 };

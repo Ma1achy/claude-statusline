@@ -442,6 +442,18 @@ test('theme v2: a theme restyles individual elements', () => {
   assert.doesNotMatch(run(fix, { SL_THEME: 'heat' }), /\x1b\[1m\x1b\[[0-9;]*m\$0\.234/, 'heat leaves cost unbold');
 });
 
+// 7d. Typography — per-element case, pseudo-font, and attrs apply (showcase theme).
+test('style: case / pseudo-font / italic per element', () => {
+  const out = stripAnsi(run(fix, { SL_THEME: 'showcase' }));
+  assert.match(out, /OPUS/, 'model.tier case:upper → OPUS');
+  assert.match(out, /ꜰᴇᴀᴛ/, 'git.branch font:smallcaps → small-caps "feat"');
+  assert.match(run(fix, { SL_THEME: 'showcase' }), /\x1b\[3m/, 'cost.amount attrs:italic → italic SGR');
+  // pseudo-fonts must NOT break width-1 alignment of the 3 lines
+  for (const l of stripAnsi(run(fix, { SL_THEME: 'showcase', COLUMNS: '160' })).split('\n').filter(Boolean)) {
+    assert.ok(Array.from(l).length <= 160, 'showcase line within width');
+  }
+});
+
 // 8. Privacy guard — the fixture's dummy email appears; nothing else leaks.
 test('privacy: dummy email rendered, no real address', () => {
   const out = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));

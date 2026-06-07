@@ -9,6 +9,8 @@ export const ESC = '\x1b';
 export const R = '\x1b[0m';
 export const DIM = '\x1b[2m';
 export const BOLD = '\x1b[1m';
+export const ITALIC = '\x1b[3m';
+export const UNDERLINE = '\x1b[4m';
 
 // ── colour-depth quantizers (pure integer math, no deps) ──────────────────────
 /** RGB → nearest xterm-256 index (6×6×6 cube, with the dedicated grey ramp). */

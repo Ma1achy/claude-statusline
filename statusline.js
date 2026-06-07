@@ -204,6 +204,8 @@ var ESC = "\x1B";
 var R = "\x1B[0m";
 var DIM = "\x1B[2m";
 var BOLD = "\x1B[1m";
+var ITALIC = "\x1B[3m";
+var UNDERLINE = "\x1B[4m";
 function rgbTo256(r, g, b) {
   if (r === g && g === b) {
     if (r < 8)
@@ -508,7 +510,20 @@ var THEMES_DATA = {
   // Accessibility palette (SL_ACCESSIBLE) — see A11Y_PAL below. Default gauge is
   // the CVD-safe ramp; SL_ACCESSIBLE_GAUGE swaps it (themes.ts). Paired with motion
   // off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
-  "high-contrast": { cmap: A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL }
+  "high-contrast": { cmap: A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL },
+  // A demo theme that exercises the per-element typography + animation engine:
+  // UPPERCASE bold model, small-caps branch, italic cost, animated name + clock.
+  showcase: {
+    cmap: [[80, 200, 255], [180, 140, 255], [255, 120, 200]],
+    mix: 30,
+    elements: {
+      "model.tier": { case: "upper", weight: "bold" },
+      "git.branch": { font: "smallcaps" },
+      "cost.amount": { attrs: ["italic"] },
+      "name": { fill: "gradient", anim: { kind: "gradient-cycle" } },
+      "clock": { fill: "accent", anim: { kind: "pulse" } }
+    }
+  }
 };
 
 // src/themes.ts
@@ -1174,6 +1189,56 @@ function weatherWord(pct, target) {
   return "clear";
 }
 
+// src/textfx.ts
+function toCase(s, mode) {
+  if (mode === "upper")
+    return s.toUpperCase();
+  if (mode === "lower")
+    return s.toLowerCase();
+  if (mode === "title")
+    return s.replace(/(^|[^A-Za-z])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+  return s;
+}
+var SMALLCAPS = "\u1D00\u0299\u1D04\u1D05\u1D07\uA730\u0262\u029C\u026A\u1D0A\u1D0B\u029F\u1D0D\u0274\u1D0F\u1D18\uA7AF\u0280\uA731\u1D1B\u1D1C\u1D20\u1D21x\u028F\u1D22";
+var SCRIPT_U = { B: "\u212C", E: "\u2130", F: "\u2131", H: "\u210B", I: "\u2110", L: "\u2112", M: "\u2133", R: "\u211B" };
+var SCRIPT_L = { e: "\u212F", g: "\u210A", o: "\u2134" };
+function mapChar(ch, kind) {
+  const c = ch.codePointAt(0) || 0;
+  const U = c >= 65 && c <= 90, L = c >= 97 && c <= 122, D = c >= 48 && c <= 57;
+  if (kind === "bold") {
+    if (U)
+      return String.fromCodePoint(119808 + c - 65);
+    if (L)
+      return String.fromCodePoint(119834 + c - 97);
+    if (D)
+      return String.fromCodePoint(120782 + c - 48);
+  } else if (kind === "italic") {
+    if (U)
+      return String.fromCodePoint(119860 + c - 65);
+    if (ch === "h")
+      return "\u210E";
+    if (L)
+      return String.fromCodePoint(119886 + c - 97);
+  } else if (kind === "script") {
+    if (U)
+      return SCRIPT_U[ch] || String.fromCodePoint(119964 + c - 65);
+    if (L)
+      return SCRIPT_L[ch] || String.fromCodePoint(119990 + c - 97);
+  } else if (kind === "smallcaps") {
+    if (L)
+      return SMALLCAPS[c - 97];
+  }
+  return ch;
+}
+function pseudoFont(s, kind) {
+  if (!kind || kind === "none")
+    return s;
+  let out = "";
+  for (const ch of s)
+    out += mapChar(ch, kind);
+  return out;
+}
+
 // src/elements.ts
 var ELEMENT_DEFAULTS = {
   "lead.fast": { fill: "gold" },
@@ -1234,24 +1299,42 @@ var ELEMENT_DEFAULTS = {
 
 // src/style.ts
 var hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function throb(speed) {
+  const m = mod(idiv(cfg.nowMs * speed, 16), 100);
+  const tri = m < 50 ? m : 100 - m;
+  return 0.55 + 0.45 * (tri / 50);
+}
+function modBright(esc, f) {
+  const m = esc.match(/38;2;(\d+);(\d+);(\d+)/);
+  if (!m)
+    return esc;
+  const g = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return tc(g(+m[1]), g(+m[2]), g(+m[3]));
+}
 function st(id, text, opts = {}) {
   if (text === "")
     return "";
   const d = { ...ELEMENT_DEFAULTS[id], ...TH.elements && TH.elements[id] };
   const fill = opts.role ?? d.fill ?? "fg";
   const weight = opts.weight ?? d.weight ?? "normal";
-  const w = weight === "bold" ? BOLD : weight === "dim" ? DIM : "";
-  if (fill === "rainbow")
-    return `${w}${rainbow(text)}`;
-  let colour;
-  if (fill === "gradient")
-    colour = gradientColor(opts.pct ?? 0);
-  else if (fill[0] === "#") {
-    const [r, g, b] = hexRgb(fill);
-    colour = tc(r, g, b);
-  } else
-    colour = TH.roles && TH.roles[fill] || "";
-  return `${w}${colour}${text}${R}`;
+  const anim = d.anim && d.anim.kind || "none";
+  const speed = d.anim && d.anim.speed || 1;
+  let t = toCase(text, d.case);
+  if (d.font && d.font !== "none")
+    t = pseudoFont(t, d.font);
+  let pre = weight === "bold" ? BOLD : weight === "dim" ? DIM : "";
+  if (d.attrs)
+    for (const a of d.attrs)
+      pre += a === "italic" ? ITALIC : a === "underline" ? UNDERLINE : "";
+  if (fill === "rainbow" || anim === "rainbow")
+    return `${pre}${rainbow(t)}`;
+  let pct = opts.pct ?? 0;
+  if (anim === "gradient-cycle")
+    pct = mod(pct + idiv(cfg.nowMs * speed, 80), 100);
+  let colour = fill === "gradient" ? gradientColor(pct) : fill[0] === "#" ? tc(...hexRgb(fill)) : TH.roles && TH.roles[fill] || "";
+  if (anim === "pulse" || anim === "breathe" || anim === "wave")
+    colour = modBright(colour, throb(speed));
+  return `${pre}${colour}${t}${R}`;
 }
 
 // src/cli.ts

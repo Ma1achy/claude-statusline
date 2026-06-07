@@ -99,6 +99,7 @@ const CASES = [
   ['separator', { SL_SEPARATOR: '|' }],
   ['privacy', { SL_PRIVACY: 'on', SL_GIT_EXTRA: 'on' }],
   ['nerdfont', { SL_NERDFONT: 'on' }],
+  ['style-showcase', { SL_THEME: 'showcase' }],
   ['accessible', { SL_ACCESSIBLE: 'on' }],
   ['accessible-traffic', { SL_ACCESSIBLE: 'on', SL_ACCESSIBLE_GAUGE: 'traffic' }],
   ['accessible-grayscale', { SL_ACCESSIBLE: 'on', SL_ACCESSIBLE_GAUGE: 'grayscale' }],
