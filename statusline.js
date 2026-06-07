@@ -24,9 +24,8 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 ));
 
 // src/index.ts
-var fs8 = __toESM(require("fs"));
 var os7 = __toESM(require("os"));
-var import_child_process4 = require("child_process");
+var import_child_process5 = require("child_process");
 
 // src/ansi.ts
 var import_child_process2 = require("child_process");
@@ -291,6 +290,22 @@ function justified(left, right) {
   if (pad < 1)
     pad = 1;
   return left + " ".repeat(pad) + right;
+}
+
+// src/format.ts
+function fmtK(n) {
+  if (n >= 1e6)
+    return idiv(n, 1e6) + "M";
+  if (n >= 1e3)
+    return idiv(n, 1e3) + "k";
+  return String(n);
+}
+function fmtCountdown(secs) {
+  if (secs >= 86400)
+    return `${idiv(secs, 86400)}d ${idiv(secs % 86400, 3600)}h`;
+  if (secs >= 3600)
+    return `${idiv(secs, 3600)}h ${idiv(secs % 3600, 60)}m`;
+  return `${idiv(secs, 60)}m`;
 }
 
 // src/themes.ts
@@ -728,278 +743,6 @@ function gradientColor(posp) {
   return tc(c[0], c[1], c[2]);
 }
 
-// src/bar.ts
-var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
-var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
-var SHADE = "\u2591\u2592\u2593\u2588".split("");
-var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
-var MORSE = { C: "-.-.", L: ".-..", A: ".-", U: "..-", D: "-..", E: "." };
-var MORSE_SEQ = (() => {
-  const out = [];
-  const push = (on, n) => {
-    for (let i = 0; i < n; i++)
-      out.push(on);
-  };
-  const word = "CLAUDE".split("");
-  word.forEach((ch, li) => {
-    const code = MORSE[ch] || "";
-    code.split("").forEach((sym, si) => {
-      push(true, sym === "-" ? 3 : 1);
-      if (si < code.length - 1)
-        push(false, 1);
-    });
-    push(false, li < word.length - 1 ? 3 : 7);
-  });
-  return out;
-})();
-function scaleCells(pct, width) {
-  const p = Math.max(0, Math.min(100, pct));
-  if (cfg.barScale === "log" || cfg.barScale === "compact")
-    return Math.round(width * (p / 100) * (p / 100));
-  return idiv(p * width, 100);
-}
-function drawBar(width, filled, marker, phaseMs = 0) {
-  const { shimmer: shimmer2, speed, glow, waveHue, barStyle, nowMs: nowMs2, baseFrame, colorMode } = cfg;
-  const t = nowMs2 + phaseMs;
-  let span = filled;
-  if (span < 1)
-    span = 1;
-  let posc = 0, hglob = 0;
-  const wrap = span * 100;
-  const tri = (x) => {
-    const m = mod(Math.round(x), 200);
-    return m < 100 ? m : 200 - m;
-  };
-  if (shimmer2 === "sweep" || shimmer2 === "comet" || shimmer2 === "wave") {
-    posc = mod(idiv(t * speed, 10), wrap);
-    if (cfg.easing) {
-      const f = posc / wrap;
-      let e = f;
-      if (cfg.easing === "ease")
-        e = f * f * (3 - 2 * f);
-      else if (cfg.easing === "bounce") {
-        const g = 1 - f;
-        e = 1 - g * g * Math.abs(Math.cos(g * 6));
-      } else if (cfg.easing === "elastic")
-        e = Math.max(0, Math.min(1, f + 0.12 * Math.sin(f * 12)));
-      posc = mod(Math.round(e * wrap), wrap);
-    }
-  } else if (shimmer2 === "scan") {
-    let cyclec = span * 200;
-    if (cyclec < 1)
-      cyclec = 1;
-    posc = mod(idiv(t * speed, 10), cyclec);
-    if (posc >= span * 100)
-      posc = span * 200 - posc;
-  } else if (shimmer2 === "breathe") {
-    let trib = mod(t, 2600);
-    if (trib >= 1300)
-      trib = 2600 - trib;
-    hglob = idiv(waveHue * trib, 1300);
-  }
-  const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
-  const px = (sx) => {
-    if (shimmer2 === "disco")
-      return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
-    let posp = idiv(sx, width);
-    if (posp > 100)
-      posp = 100;
-    if (posp < 0)
-      posp = 0;
-    let hoff = 0;
-    const torus = () => {
-      const d = Math.abs(sx - posc);
-      return Math.min(d, wrap - d);
-    };
-    switch (shimmer2) {
-      case "sweep": {
-        const dc = torus();
-        if (dc < glow)
-          hoff = idiv(waveHue * (glow - dc) * (glow - dc), glow * glow);
-        break;
-      }
-      case "wave": {
-        const dc = torus();
-        if (dc < 450)
-          hoff = idiv(waveHue * (450 - dc), 450);
-        break;
-      }
-      case "comet": {
-        const lead = mod(posc - sx, wrap);
-        if (lead < 420)
-          hoff = idiv(waveHue * (420 - lead), 420);
-        if (torus() < 70)
-          hoff = waveHue;
-        break;
-      }
-      case "scan": {
-        const dc = Math.abs(sx - posc);
-        if (dc < 140)
-          hoff = idiv(waveHue * (140 - dc), 140);
-        break;
-      }
-      case "breathe":
-        hoff = hglob;
-        break;
-      case "drift":
-      case "aurora":
-        hoff = idiv(waveHue * tri(idiv(sx, 8) + idiv(t * speed, 25)), 100);
-        break;
-      case "plasma":
-        hoff = idiv(waveHue * (tri(idiv(sx, 6) + idiv(t, 30)) + tri(idiv(sx, 11) - idiv(t, 45))), 200);
-        break;
-      case "glitch": {
-        const bk = idiv(t, 220);
-        if (hashI(sx * 13 + bk) % 100 < 12)
-          hoff = hashI(sx + bk) % 2 ? waveHue * 3 : -waveHue * 2;
-        break;
-      }
-    }
-    let base;
-    if (TH.cmap) {
-      const c = cmapSample(TH.cmap, posp);
-      base = hoff ? shiftHue(c, hoff) : c;
-    } else {
-      const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
-      const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
-      base = hsv(bh + hoff, TH.sat, vv);
-    }
-    let bf = 100;
-    if (shimmer2 === "lumin")
-      bf = 55 + idiv(45 * tri(idiv(t, 12)), 100);
-    else if (shimmer2 === "heartbeat") {
-      const m = mod(t, 1400);
-      const bump = (c, w) => {
-        const d = Math.abs(m - c);
-        return d < w ? w - d : 0;
-      };
-      bf = 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150);
-    } else if (shimmer2 === "twinkle")
-      bf = hashI(sx * 29 + idiv(t, 180)) % 100 < 14 ? 165 : 75;
-    else if (shimmer2 === "storm") {
-      const flash = mod(idiv(t * speed, 8), wrap);
-      const d = Math.abs(sx - flash);
-      const dd = Math.min(d, wrap - d);
-      bf = dd < 120 ? 150 : 68;
-      if (hashI(idiv(t, 400)) % 100 < 8)
-        bf = 185;
-    } else if (shimmer2 === "morse")
-      bf = MORSE_SEQ[idiv(t, 160) % MORSE_SEQ.length] ? 100 : 22;
-    else if (shimmer2 === "flash")
-      bf = cfg.event ? 175 : 100;
-    else if (shimmer2 === "ripple")
-      bf = cfg.event ? Math.abs(sx - filled * 100) < 250 ? 175 : 88 : 88;
-    if (bf !== 100)
-      base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
-    return base;
-  };
-  const fg = (sx) => {
-    const [r, g, b] = px(sx);
-    return tc(r, g, b);
-  };
-  let out = "";
-  for (let i = 0; i < width; i++) {
-    if (marker >= 0 && i === marker) {
-      out += `${WHITE}\u2503${R}`;
-      continue;
-    }
-    const isFill = i < filled;
-    if (barStyle === "pacman") {
-      if (isFill && i === filled - 1)
-        out += `${ESC}[1m${fg(i * 100 + 50)}C${R}`;
-      else if (isFill)
-        out += `${fg(i * 100 + 50)}=${R}`;
-      else
-        out += `${ROLES.muted}\xB7${R}`;
-      continue;
-    }
-    if (barStyle === "snake") {
-      if (isFill)
-        out += i === snakeHead ? `${ESC}[1m${fg(i * 100 + 50)}@${R}` : `${fg(i * 100 + 50)}~${R}`;
-      else
-        out += `${ROLES.muted}\xB7${R}`;
-      continue;
-    }
-    if (barStyle === "matrix") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}\u2588${R}`;
-      else
-        out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
-      continue;
-    }
-    if (barStyle === "braille") {
-      out += isFill ? `${fg(i * 100 + 50)}\u28FF${R}` : `${ROLES.muted}\u2804${R}`;
-      continue;
-    }
-    if (barStyle === "battery") {
-      out += isFill ? `${fg(i * 100 + 50)}\u2588${R}` : `${ROLES.muted}\u2591${R}`;
-      continue;
-    }
-    if (barStyle === "thermo") {
-      out += isFill ? `${fg(i * 100 + 50)}\u25B0${R}` : `${ROLES.muted}\u25B1${R}`;
-      continue;
-    }
-    if (barStyle === "shade") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
-      else
-        out += `${ROLES.muted}\u2591${R}`;
-      continue;
-    }
-    if (barStyle === "lines" || barStyle === "minimal") {
-      out += isFill ? `${fg(i * 100 + 50)}\u2501${R}` : `${ROLES.muted}\u2500${R}`;
-      continue;
-    }
-    if (barStyle === "rule") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${i % 5 === 0 ? "\u253C" : "\u2500"}${R}`;
-      else
-        out += `${ROLES.muted}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
-      continue;
-    }
-    if (barStyle === "equalizer" || barStyle === "waveform") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs2, 140)) % 8]}${R}`;
-      else
-        out += `${ROLES.muted}\u2581${R}`;
-      continue;
-    }
-    if (barStyle === "dna") {
-      if (isFill)
-        out += `${fg(i * 100 + 50)}${(i + idiv(nowMs2, 200)) % 2 ? "X" : "x"}${R}`;
-      else
-        out += `${ROLES.muted}\xB7${R}`;
-      continue;
-    }
-    if (barStyle === "train") {
-      if (isFill && i === filled - 1)
-        out += `${ESC}[1m${fg(i * 100 + 50)}O${R}`;
-      else if (isFill)
-        out += `${fg(i * 100 + 50)}=${R}`;
-      else
-        out += `${ROLES.muted}-${R}`;
-      continue;
-    }
-    if (isFill && shimmer2 === "disco") {
-      const [r, g, b] = px(i * 100 + 50);
-      out += `${tc(r, g, b)}\u2588${R}`;
-      continue;
-    }
-    if (isFill) {
-      const left = px(i * 100 + 25);
-      const right = px(i * 100 + 75);
-      if (colorMode === "mono")
-        out += `${BOLD}\u2588${R}`;
-      else if (colorMode === "16")
-        out += `${tc(left[0], left[1], left[2])}\u2588${R}`;
-      else
-        out += `${fgbg(left, right)}\u258C${R}`;
-    } else
-      out += `${ROLES.muted}\u2591${R}`;
-  }
-  return out;
-}
-
 // src/rainbow.ts
 function rainbow(text) {
   const disco = cfg.shimmer === "disco";
@@ -1016,21 +759,161 @@ function rainbow(text) {
   return out + R;
 }
 
-// src/format.ts
-function fmtK(n) {
-  if (n >= 1e6)
-    return idiv(n, 1e6) + "M";
-  if (n >= 1e3)
-    return idiv(n, 1e3) + "k";
-  return String(n);
+// src/textfx.ts
+function toCase(s, mode) {
+  if (mode === "upper")
+    return s.toUpperCase();
+  if (mode === "lower")
+    return s.toLowerCase();
+  if (mode === "title")
+    return s.replace(/(^|[^A-Za-z])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+  return s;
 }
-function fmtCountdown(secs) {
-  if (secs >= 86400)
-    return `${idiv(secs, 86400)}d ${idiv(secs % 86400, 3600)}h`;
-  if (secs >= 3600)
-    return `${idiv(secs, 3600)}h ${idiv(secs % 3600, 60)}m`;
-  return `${idiv(secs, 60)}m`;
+var SMALLCAPS = "\u1D00\u0299\u1D04\u1D05\u1D07\uA730\u0262\u029C\u026A\u1D0A\u1D0B\u029F\u1D0D\u0274\u1D0F\u1D18\uA7AF\u0280\uA731\u1D1B\u1D1C\u1D20\u1D21x\u028F\u1D22";
+var SCRIPT_U = { B: "\u212C", E: "\u2130", F: "\u2131", H: "\u210B", I: "\u2110", L: "\u2112", M: "\u2133", R: "\u211B" };
+var SCRIPT_L = { e: "\u212F", g: "\u210A", o: "\u2134" };
+function mapChar(ch, kind) {
+  const c = ch.codePointAt(0) || 0;
+  const U = c >= 65 && c <= 90, L = c >= 97 && c <= 122, D = c >= 48 && c <= 57;
+  if (kind === "bold") {
+    if (U)
+      return String.fromCodePoint(119808 + c - 65);
+    if (L)
+      return String.fromCodePoint(119834 + c - 97);
+    if (D)
+      return String.fromCodePoint(120782 + c - 48);
+  } else if (kind === "italic") {
+    if (U)
+      return String.fromCodePoint(119860 + c - 65);
+    if (ch === "h")
+      return "\u210E";
+    if (L)
+      return String.fromCodePoint(119886 + c - 97);
+  } else if (kind === "script") {
+    if (U)
+      return SCRIPT_U[ch] || String.fromCodePoint(119964 + c - 65);
+    if (L)
+      return SCRIPT_L[ch] || String.fromCodePoint(119990 + c - 97);
+  } else if (kind === "smallcaps") {
+    if (L)
+      return SMALLCAPS[c - 97];
+  }
+  return ch;
 }
+function pseudoFont(s, kind) {
+  if (!kind || kind === "none")
+    return s;
+  let out = "";
+  for (const ch of s)
+    out += mapChar(ch, kind);
+  return out;
+}
+
+// src/elements.ts
+var ELEMENT_DEFAULTS = {
+  "lead.fast": { fill: "gold" },
+  "lead.vim": { fill: "accent" },
+  "pet": { fill: "ok" },
+  "bracket.delim": { fill: "muted" },
+  "crest": { fill: "gold" },
+  "model.tier": { fill: "accent" },
+  "model.version": { fill: "accent" },
+  "model.badge1m": { fill: "muted" },
+  "effort": { fill: "fg" },
+  "thinking": { fill: "muted" },
+  "moon": { fill: "muted" },
+  "clock": { fill: "muted" },
+  "sysinfo": { fill: "muted" },
+  "bar.empty": { fill: "muted" },
+  "ctx.pct": { fill: "gradient" },
+  "ctx.weather": { fill: "gradient" },
+  "ctx.size": { fill: "muted" },
+  "ctx.compactLabel": { fill: "muted" },
+  "trend.spark": { fill: "muted" },
+  "trend.eta": { fill: "gradient" },
+  "trend.compactions": { fill: "muted" },
+  "tokens.hit": { fill: "ok" },
+  "tokens.read": { fill: "ok" },
+  "tokens.write": { fill: "warn" },
+  "tokens.in": { fill: "muted" },
+  "tokens.out": { fill: "muted" },
+  "usage.label": { fill: "muted" },
+  "usage.pct": { fill: "gradient" },
+  "usage.warn": { fill: "bad", weight: "bold" },
+  "usage.countdown": { fill: "muted" },
+  "dir": { fill: "muted" },
+  "file": { fill: "muted" },
+  "git.branch": { fill: "accent" },
+  "git.mood": { fill: "muted" },
+  "git.state": { fill: "bad", weight: "bold" },
+  "git.today": { fill: "ok" },
+  "git.ahead": { fill: "ok" },
+  "git.behind": { fill: "bad" },
+  "git.age": { fill: "muted" },
+  "git.email": { fill: "muted" },
+  "git.added": { fill: "ok" },
+  "git.removed": { fill: "bad" },
+  "git.dirty": { fill: "warn" },
+  "git.staged": { fill: "ok" },
+  "git.untracked": { fill: "warn" },
+  "git.stash": { fill: "muted" },
+  "git.risk": { fill: "ok" },
+  "name": { fill: "rainbow" },
+  "cost.amount": { fill: "ok" },
+  "cost.flair": { fill: "ok" },
+  "cost.rate": { fill: "muted" },
+  "cost.ratio": { fill: "muted" },
+  "age": { fill: "ok" },
+  "separator": { fill: "muted" }
+};
+
+// src/style.ts
+var hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function throb(speed) {
+  const m = mod(idiv(cfg.nowMs * speed, 16), 100);
+  const tri = m < 50 ? m : 100 - m;
+  return 0.55 + 0.45 * (tri / 50);
+}
+function modBright(esc, f) {
+  const m = esc.match(/38;2;(\d+);(\d+);(\d+)/);
+  if (!m)
+    return esc;
+  const g = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return tc(g(+m[1]), g(+m[2]), g(+m[3]));
+}
+function st(id, text, opts = {}) {
+  if (text === "")
+    return "";
+  const d = { ...ELEMENT_DEFAULTS[id], ...TH.elements && TH.elements[id], ...cfg.elements && cfg.elements[id] };
+  const a11y = cfg.accessible;
+  let fill = opts.role ?? d.fill ?? "fg";
+  if (a11y && fill === "rainbow")
+    fill = "fg";
+  const weight = opts.weight ?? d.weight ?? "normal";
+  const anim = a11y ? "none" : d.anim && d.anim.kind || "none";
+  const speed = d.anim && d.anim.speed || 1;
+  let t = toCase(text, d.case);
+  if (!a11y && d.font && d.font !== "none")
+    t = pseudoFont(t, d.font);
+  let pre = weight === "bold" ? BOLD : weight === "dim" ? DIM : "";
+  if (d.attrs)
+    for (const a of d.attrs)
+      pre += a === "italic" ? ITALIC : a === "underline" ? UNDERLINE : "";
+  if (fill === "rainbow" || anim === "rainbow")
+    return `${pre}${rainbow(t)}`;
+  let pct = opts.pct ?? 0;
+  if (anim === "gradient-cycle")
+    pct = mod(pct + idiv(cfg.nowMs * speed, 80), 100);
+  let colour = fill === "gradient" ? gradientColor(pct) : fill[0] === "#" ? tc(...hexRgb(fill)) : TH.roles && TH.roles[fill] || "";
+  if (anim === "pulse" || anim === "breathe" || anim === "wave")
+    colour = modBright(colour, throb(speed));
+  return `${pre}${colour}${t}${R}`;
+}
+
+// src/cli.ts
+var fs4 = __toESM(require("fs"));
+var os4 = __toESM(require("os"));
+var import_child_process3 = require("child_process");
 
 // src/state.ts
 var fs3 = __toESM(require("fs"));
@@ -1208,161 +1091,7 @@ function weatherWord(pct, target) {
   return "clear";
 }
 
-// src/textfx.ts
-function toCase(s, mode) {
-  if (mode === "upper")
-    return s.toUpperCase();
-  if (mode === "lower")
-    return s.toLowerCase();
-  if (mode === "title")
-    return s.replace(/(^|[^A-Za-z])([a-z])/g, (_, p, c) => p + c.toUpperCase());
-  return s;
-}
-var SMALLCAPS = "\u1D00\u0299\u1D04\u1D05\u1D07\uA730\u0262\u029C\u026A\u1D0A\u1D0B\u029F\u1D0D\u0274\u1D0F\u1D18\uA7AF\u0280\uA731\u1D1B\u1D1C\u1D20\u1D21x\u028F\u1D22";
-var SCRIPT_U = { B: "\u212C", E: "\u2130", F: "\u2131", H: "\u210B", I: "\u2110", L: "\u2112", M: "\u2133", R: "\u211B" };
-var SCRIPT_L = { e: "\u212F", g: "\u210A", o: "\u2134" };
-function mapChar(ch, kind) {
-  const c = ch.codePointAt(0) || 0;
-  const U = c >= 65 && c <= 90, L = c >= 97 && c <= 122, D = c >= 48 && c <= 57;
-  if (kind === "bold") {
-    if (U)
-      return String.fromCodePoint(119808 + c - 65);
-    if (L)
-      return String.fromCodePoint(119834 + c - 97);
-    if (D)
-      return String.fromCodePoint(120782 + c - 48);
-  } else if (kind === "italic") {
-    if (U)
-      return String.fromCodePoint(119860 + c - 65);
-    if (ch === "h")
-      return "\u210E";
-    if (L)
-      return String.fromCodePoint(119886 + c - 97);
-  } else if (kind === "script") {
-    if (U)
-      return SCRIPT_U[ch] || String.fromCodePoint(119964 + c - 65);
-    if (L)
-      return SCRIPT_L[ch] || String.fromCodePoint(119990 + c - 97);
-  } else if (kind === "smallcaps") {
-    if (L)
-      return SMALLCAPS[c - 97];
-  }
-  return ch;
-}
-function pseudoFont(s, kind) {
-  if (!kind || kind === "none")
-    return s;
-  let out = "";
-  for (const ch of s)
-    out += mapChar(ch, kind);
-  return out;
-}
-
-// src/elements.ts
-var ELEMENT_DEFAULTS = {
-  "lead.fast": { fill: "gold" },
-  "lead.vim": { fill: "accent" },
-  "pet": { fill: "ok" },
-  "bracket.delim": { fill: "muted" },
-  "crest": { fill: "gold" },
-  "model.tier": { fill: "accent" },
-  "model.version": { fill: "accent" },
-  "model.badge1m": { fill: "muted" },
-  "effort": { fill: "fg" },
-  "thinking": { fill: "muted" },
-  "moon": { fill: "muted" },
-  "clock": { fill: "muted" },
-  "sysinfo": { fill: "muted" },
-  "bar.empty": { fill: "muted" },
-  "ctx.pct": { fill: "gradient" },
-  "ctx.weather": { fill: "gradient" },
-  "ctx.size": { fill: "muted" },
-  "ctx.compactLabel": { fill: "muted" },
-  "trend.spark": { fill: "muted" },
-  "trend.eta": { fill: "gradient" },
-  "trend.compactions": { fill: "muted" },
-  "tokens.hit": { fill: "ok" },
-  "tokens.read": { fill: "ok" },
-  "tokens.write": { fill: "warn" },
-  "tokens.in": { fill: "muted" },
-  "tokens.out": { fill: "muted" },
-  "usage.label": { fill: "muted" },
-  "usage.pct": { fill: "gradient" },
-  "usage.warn": { fill: "bad", weight: "bold" },
-  "usage.countdown": { fill: "muted" },
-  "dir": { fill: "muted" },
-  "file": { fill: "muted" },
-  "git.branch": { fill: "accent" },
-  "git.mood": { fill: "muted" },
-  "git.state": { fill: "bad", weight: "bold" },
-  "git.today": { fill: "ok" },
-  "git.ahead": { fill: "ok" },
-  "git.behind": { fill: "bad" },
-  "git.age": { fill: "muted" },
-  "git.email": { fill: "muted" },
-  "git.added": { fill: "ok" },
-  "git.removed": { fill: "bad" },
-  "git.dirty": { fill: "warn" },
-  "git.staged": { fill: "ok" },
-  "git.untracked": { fill: "warn" },
-  "git.stash": { fill: "muted" },
-  "git.risk": { fill: "ok" },
-  "name": { fill: "rainbow" },
-  "cost.amount": { fill: "ok" },
-  "cost.flair": { fill: "ok" },
-  "cost.rate": { fill: "muted" },
-  "cost.ratio": { fill: "muted" },
-  "age": { fill: "ok" },
-  "separator": { fill: "muted" }
-};
-
-// src/style.ts
-var hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-function throb(speed) {
-  const m = mod(idiv(cfg.nowMs * speed, 16), 100);
-  const tri = m < 50 ? m : 100 - m;
-  return 0.55 + 0.45 * (tri / 50);
-}
-function modBright(esc, f) {
-  const m = esc.match(/38;2;(\d+);(\d+);(\d+)/);
-  if (!m)
-    return esc;
-  const g = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
-  return tc(g(+m[1]), g(+m[2]), g(+m[3]));
-}
-function st(id, text, opts = {}) {
-  if (text === "")
-    return "";
-  const d = { ...ELEMENT_DEFAULTS[id], ...TH.elements && TH.elements[id], ...cfg.elements && cfg.elements[id] };
-  const a11y = cfg.accessible;
-  let fill = opts.role ?? d.fill ?? "fg";
-  if (a11y && fill === "rainbow")
-    fill = "fg";
-  const weight = opts.weight ?? d.weight ?? "normal";
-  const anim = a11y ? "none" : d.anim && d.anim.kind || "none";
-  const speed = d.anim && d.anim.speed || 1;
-  let t = toCase(text, d.case);
-  if (!a11y && d.font && d.font !== "none")
-    t = pseudoFont(t, d.font);
-  let pre = weight === "bold" ? BOLD : weight === "dim" ? DIM : "";
-  if (d.attrs)
-    for (const a of d.attrs)
-      pre += a === "italic" ? ITALIC : a === "underline" ? UNDERLINE : "";
-  if (fill === "rainbow" || anim === "rainbow")
-    return `${pre}${rainbow(t)}`;
-  let pct = opts.pct ?? 0;
-  if (anim === "gradient-cycle")
-    pct = mod(pct + idiv(cfg.nowMs * speed, 80), 100);
-  let colour = fill === "gradient" ? gradientColor(pct) : fill[0] === "#" ? tc(...hexRgb(fill)) : TH.roles && TH.roles[fill] || "";
-  if (anim === "pulse" || anim === "breathe" || anim === "wave")
-    colour = modBright(colour, throb(speed));
-  return `${pre}${colour}${t}${R}`;
-}
-
 // src/cli.ts
-var fs4 = __toESM(require("fs"));
-var os4 = __toESM(require("os"));
-var import_child_process3 = require("child_process");
 var SAMPLE = JSON.stringify({
   session_id: "preview",
   model: { id: "claude-opus-4-8", display_name: "Opus" },
@@ -1683,8 +1412,77 @@ function refreshGitCache(data) {
   }
 }
 
-// src/segments/path.ts
+// src/io/settings.ts
+var fs7 = __toESM(require("fs"));
 var os5 = __toESM(require("os"));
+function readAccountName() {
+  try {
+    const cj = JSON.parse(fs7.readFileSync(`${os5.homedir()}/.claude.json`, "utf8"));
+    return cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
+  } catch {
+    return "";
+  }
+}
+function readAutocompact() {
+  let pct = "", off = false;
+  try {
+    const s = JSON.parse(fs7.readFileSync(`${os5.homedir()}/.claude/settings.json`, "utf8"));
+    if (s.env && s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
+      pct = String(s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
+    if (s.autoCompactEnabled === false || s.autoCompact === false)
+      off = true;
+  } catch {
+  }
+  return { pct, off };
+}
+
+// src/io/tick.ts
+var GIT_TTL = 2500;
+function persistTick(data, CWD, PCT, COST, DURATION_MS) {
+  let gitMemo = {};
+  let kickRefresh = false;
+  let SPARK2 = [], COMPACTIONS = 0, ETA_SAMPLES = [], BELL = "";
+  try {
+    const sk = sessionKey(data);
+    const st2 = readState(sk);
+    let gitFresh = false;
+    if (st2.git && st2.git.cwd === CWD) {
+      gitMemo = { ...st2.git.data };
+      gitFresh = cfg.nowMs - st2.git.ts < GIT_TTL;
+    }
+    if (CWD && !gitFresh && cfg.nowMs - (st2.lastGitRefresh || 0) > GIT_TTL) {
+      kickRefresh = true;
+      st2.lastGitRefresh = cfg.nowMs;
+    }
+    if (cfg.bell) {
+      const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
+      if (lvl > (st2.bellLevel ?? 0))
+        BELL = "\x07";
+      st2.bellLevel = lvl;
+    }
+    const prev = st2.spark.length ? st2.spark[st2.spark.length - 1] : -1;
+    if (prev >= 0 && PCT !== prev)
+      cfg.event = true;
+    if (prev >= 0 && PCT <= prev - 25)
+      st2.compactions += 1;
+    pushSpark(st2, PCT);
+    st2.etaSamples = (st2.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
+    const bucket = idiv(DURATION_MS, HISTORY_BUCKET_MS);
+    if (cfg.burn && COST > 0 && bucket > (st2.histBucket ?? -1)) {
+      st2.histBucket = bucket;
+      appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+    }
+    writeState(sk, st2);
+    SPARK2 = st2.spark.slice();
+    COMPACTIONS = st2.compactions;
+    ETA_SAMPLES = st2.etaSamples;
+  } catch {
+  }
+  return { gitMemo, kickRefresh, SPARK: SPARK2, COMPACTIONS, ETA_SAMPLES, BELL };
+}
+
+// src/segments/path.ts
+var os6 = __toESM(require("os"));
 function displayPath(cwd) {
   if (!cwd)
     return cwd;
@@ -1703,7 +1501,7 @@ function displayPath(cwd) {
   }
   if (cfg.path === "full")
     return p;
-  const home = os5.homedir();
+  const home = os6.homedir();
   if (home && (p === home || p.startsWith(home + "/")))
     p = "~" + p.slice(home.length);
   const parts = p.split("/").filter(Boolean);
@@ -1752,6 +1550,278 @@ function buildPet(COST, DIRTY, PCT) {
   return `${st("pet", faces[lvl], { role })} `;
 }
 
+// src/bar.ts
+var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
+var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
+var SHADE = "\u2591\u2592\u2593\u2588".split("");
+var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
+var MORSE = { C: "-.-.", L: ".-..", A: ".-", U: "..-", D: "-..", E: "." };
+var MORSE_SEQ = (() => {
+  const out = [];
+  const push = (on, n) => {
+    for (let i = 0; i < n; i++)
+      out.push(on);
+  };
+  const word = "CLAUDE".split("");
+  word.forEach((ch, li) => {
+    const code = MORSE[ch] || "";
+    code.split("").forEach((sym, si) => {
+      push(true, sym === "-" ? 3 : 1);
+      if (si < code.length - 1)
+        push(false, 1);
+    });
+    push(false, li < word.length - 1 ? 3 : 7);
+  });
+  return out;
+})();
+function scaleCells(pct, width) {
+  const p = Math.max(0, Math.min(100, pct));
+  if (cfg.barScale === "log" || cfg.barScale === "compact")
+    return Math.round(width * (p / 100) * (p / 100));
+  return idiv(p * width, 100);
+}
+function drawBar(width, filled, marker, phaseMs = 0) {
+  const { shimmer: shimmer2, speed, glow, waveHue, barStyle, nowMs: nowMs2, baseFrame, colorMode } = cfg;
+  const t = nowMs2 + phaseMs;
+  let span = filled;
+  if (span < 1)
+    span = 1;
+  let posc = 0, hglob = 0;
+  const wrap = span * 100;
+  const tri = (x) => {
+    const m = mod(Math.round(x), 200);
+    return m < 100 ? m : 200 - m;
+  };
+  if (shimmer2 === "sweep" || shimmer2 === "comet" || shimmer2 === "wave") {
+    posc = mod(idiv(t * speed, 10), wrap);
+    if (cfg.easing) {
+      const f = posc / wrap;
+      let e = f;
+      if (cfg.easing === "ease")
+        e = f * f * (3 - 2 * f);
+      else if (cfg.easing === "bounce") {
+        const g = 1 - f;
+        e = 1 - g * g * Math.abs(Math.cos(g * 6));
+      } else if (cfg.easing === "elastic")
+        e = Math.max(0, Math.min(1, f + 0.12 * Math.sin(f * 12)));
+      posc = mod(Math.round(e * wrap), wrap);
+    }
+  } else if (shimmer2 === "scan") {
+    let cyclec = span * 200;
+    if (cyclec < 1)
+      cyclec = 1;
+    posc = mod(idiv(t * speed, 10), cyclec);
+    if (posc >= span * 100)
+      posc = span * 200 - posc;
+  } else if (shimmer2 === "breathe") {
+    let trib = mod(t, 2600);
+    if (trib >= 1300)
+      trib = 2600 - trib;
+    hglob = idiv(waveHue * trib, 1300);
+  }
+  const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
+  const px = (sx) => {
+    if (shimmer2 === "disco")
+      return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
+    let posp = idiv(sx, width);
+    if (posp > 100)
+      posp = 100;
+    if (posp < 0)
+      posp = 0;
+    let hoff = 0;
+    const torus = () => {
+      const d = Math.abs(sx - posc);
+      return Math.min(d, wrap - d);
+    };
+    switch (shimmer2) {
+      case "sweep": {
+        const dc = torus();
+        if (dc < glow)
+          hoff = idiv(waveHue * (glow - dc) * (glow - dc), glow * glow);
+        break;
+      }
+      case "wave": {
+        const dc = torus();
+        if (dc < 450)
+          hoff = idiv(waveHue * (450 - dc), 450);
+        break;
+      }
+      case "comet": {
+        const lead = mod(posc - sx, wrap);
+        if (lead < 420)
+          hoff = idiv(waveHue * (420 - lead), 420);
+        if (torus() < 70)
+          hoff = waveHue;
+        break;
+      }
+      case "scan": {
+        const dc = Math.abs(sx - posc);
+        if (dc < 140)
+          hoff = idiv(waveHue * (140 - dc), 140);
+        break;
+      }
+      case "breathe":
+        hoff = hglob;
+        break;
+      case "drift":
+      case "aurora":
+        hoff = idiv(waveHue * tri(idiv(sx, 8) + idiv(t * speed, 25)), 100);
+        break;
+      case "plasma":
+        hoff = idiv(waveHue * (tri(idiv(sx, 6) + idiv(t, 30)) + tri(idiv(sx, 11) - idiv(t, 45))), 200);
+        break;
+      case "glitch": {
+        const bk = idiv(t, 220);
+        if (hashI(sx * 13 + bk) % 100 < 12)
+          hoff = hashI(sx + bk) % 2 ? waveHue * 3 : -waveHue * 2;
+        break;
+      }
+    }
+    let base;
+    if (TH.cmap) {
+      const c = cmapSample(TH.cmap, posp);
+      base = hoff ? shiftHue(c, hoff) : c;
+    } else {
+      const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
+      const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
+      base = hsv(bh + hoff, TH.sat, vv);
+    }
+    let bf = 100;
+    if (shimmer2 === "lumin")
+      bf = 55 + idiv(45 * tri(idiv(t, 12)), 100);
+    else if (shimmer2 === "heartbeat") {
+      const m = mod(t, 1400);
+      const bump = (c, w) => {
+        const d = Math.abs(m - c);
+        return d < w ? w - d : 0;
+      };
+      bf = 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150);
+    } else if (shimmer2 === "twinkle")
+      bf = hashI(sx * 29 + idiv(t, 180)) % 100 < 14 ? 165 : 75;
+    else if (shimmer2 === "storm") {
+      const flash = mod(idiv(t * speed, 8), wrap);
+      const d = Math.abs(sx - flash);
+      const dd = Math.min(d, wrap - d);
+      bf = dd < 120 ? 150 : 68;
+      if (hashI(idiv(t, 400)) % 100 < 8)
+        bf = 185;
+    } else if (shimmer2 === "morse")
+      bf = MORSE_SEQ[idiv(t, 160) % MORSE_SEQ.length] ? 100 : 22;
+    else if (shimmer2 === "flash")
+      bf = cfg.event ? 175 : 100;
+    else if (shimmer2 === "ripple")
+      bf = cfg.event ? Math.abs(sx - filled * 100) < 250 ? 175 : 88 : 88;
+    if (bf !== 100)
+      base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
+    return base;
+  };
+  const fg = (sx) => {
+    const [r, g, b] = px(sx);
+    return tc(r, g, b);
+  };
+  let out = "";
+  for (let i = 0; i < width; i++) {
+    if (marker >= 0 && i === marker) {
+      out += `${WHITE}\u2503${R}`;
+      continue;
+    }
+    const isFill = i < filled;
+    if (barStyle === "pacman") {
+      if (isFill && i === filled - 1)
+        out += `${ESC}[1m${fg(i * 100 + 50)}C${R}`;
+      else if (isFill)
+        out += `${fg(i * 100 + 50)}=${R}`;
+      else
+        out += `${ROLES.muted}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "snake") {
+      if (isFill)
+        out += i === snakeHead ? `${ESC}[1m${fg(i * 100 + 50)}@${R}` : `${fg(i * 100 + 50)}~${R}`;
+      else
+        out += `${ROLES.muted}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "matrix") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}\u2588${R}`;
+      else
+        out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
+      continue;
+    }
+    if (barStyle === "braille") {
+      out += isFill ? `${fg(i * 100 + 50)}\u28FF${R}` : `${ROLES.muted}\u2804${R}`;
+      continue;
+    }
+    if (barStyle === "battery") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2588${R}` : `${ROLES.muted}\u2591${R}`;
+      continue;
+    }
+    if (barStyle === "thermo") {
+      out += isFill ? `${fg(i * 100 + 50)}\u25B0${R}` : `${ROLES.muted}\u25B1${R}`;
+      continue;
+    }
+    if (barStyle === "shade") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
+      else
+        out += `${ROLES.muted}\u2591${R}`;
+      continue;
+    }
+    if (barStyle === "lines" || barStyle === "minimal") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2501${R}` : `${ROLES.muted}\u2500${R}`;
+      continue;
+    }
+    if (barStyle === "rule") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${i % 5 === 0 ? "\u253C" : "\u2500"}${R}`;
+      else
+        out += `${ROLES.muted}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
+      continue;
+    }
+    if (barStyle === "equalizer" || barStyle === "waveform") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs2, 140)) % 8]}${R}`;
+      else
+        out += `${ROLES.muted}\u2581${R}`;
+      continue;
+    }
+    if (barStyle === "dna") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${(i + idiv(nowMs2, 200)) % 2 ? "X" : "x"}${R}`;
+      else
+        out += `${ROLES.muted}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "train") {
+      if (isFill && i === filled - 1)
+        out += `${ESC}[1m${fg(i * 100 + 50)}O${R}`;
+      else if (isFill)
+        out += `${fg(i * 100 + 50)}=${R}`;
+      else
+        out += `${ROLES.muted}-${R}`;
+      continue;
+    }
+    if (isFill && shimmer2 === "disco") {
+      const [r, g, b] = px(i * 100 + 50);
+      out += `${tc(r, g, b)}\u2588${R}`;
+      continue;
+    }
+    if (isFill) {
+      const left = px(i * 100 + 25);
+      const right = px(i * 100 + 75);
+      if (colorMode === "mono")
+        out += `${BOLD}\u2588${R}`;
+      else if (colorMode === "16")
+        out += `${tc(left[0], left[1], left[2])}\u2588${R}`;
+      else
+        out += `${fgbg(left, right)}\u258C${R}`;
+    } else
+      out += `${ROLES.muted}\u2591${R}`;
+  }
+  return out;
+}
+
 // src/segments/usage.ts
 function buildUsage(rl) {
   const NOW = cfg.baseFrame;
@@ -1779,28 +1849,305 @@ function buildUsage(rl) {
   return `${rlSeg("5h", fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg("7d", sd.used_percentage, sd.resets_at, 3e3)}`;
 }
 
-// src/io/settings.ts
-var fs7 = __toESM(require("fs"));
-var os6 = __toESM(require("os"));
-function readAccountName() {
-  try {
-    const cj = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude.json`, "utf8"));
-    return cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
-  } catch {
-    return "";
+// src/segments/model.ts
+function buildModel(MODEL_ID, MODEL_NAME, MAX_TOK) {
+  const idl = MODEL_ID.toLowerCase();
+  let TIER = "Sonnet", modelRole = "accent";
+  if (idl.includes("haiku")) {
+    TIER = "Haiku";
+    modelRole = "info";
+  } else if (idl.includes("opus")) {
+    TIER = "Opus";
+    modelRole = "gold";
   }
+  const vm = idl.match(/(opus|sonnet|haiku)-(\d+)-(\d+)/);
+  const MODEL_VER = vm ? `${vm[2]}.${vm[3]}` : "";
+  const display = st("model.tier", MODEL_VER ? `${TIER} ${MODEL_VER}` : MODEL_NAME, { role: modelRole });
+  const oneM = MAX_TOK >= 9e5 ? st("model.badge1m", "1M") : "";
+  let crest = "";
+  if (cfg.crest) {
+    const g = TIER === "Opus" ? "\u2605" : TIER === "Haiku" ? "\u25B2" : "\u25C6";
+    crest = st("crest", g, { role: modelRole }) + " ";
+  }
+  return { display, oneM, crest };
 }
-function readAutocompact() {
-  let pct = "", off = false;
+function buildEffort(EFFORT, THINKING) {
+  let effortRole = "fg", effortWeight = "normal", effortText = "";
+  switch (EFFORT) {
+    case "low":
+      effortWeight = "dim";
+      effortText = "low";
+      break;
+    case "medium":
+      effortWeight = "dim";
+      effortText = "med";
+      break;
+    case "high":
+      effortText = "high";
+      break;
+    case "xhigh":
+      effortRole = "warn";
+      effortText = "xhigh";
+      break;
+    case "max":
+      effortRole = "bad";
+      effortWeight = "bold";
+      effortText = "MAX";
+      break;
+  }
+  const word = effortText ? st("effort", effortText, { role: effortRole, weight: effortWeight }) : "";
+  const thinking = THINKING ? st("thinking", "thinking", { role: effortRole, weight: "dim" }) : "";
+  return { word, thinking };
+}
+
+// src/segments/lead.ts
+function buildLead(data) {
+  const FAST = data.fast_mode ? st("lead.fast", txt("\u26A1")) : st("lead.fast", txt("\u25AB"), { role: "muted" });
+  let VIM = "";
+  const vmode = data.vim && data.vim.mode || "";
+  if (vmode) {
+    const u = vmode.toUpperCase();
+    const role = u.startsWith("INS") ? "ok" : u.startsWith("VIS") ? "warn" : "accent";
+    VIM = ` ${st("lead.vim", u[0] || "?", { role })}`;
+  }
+  return `${FAST}${VIM}`;
+}
+
+// src/segments/clock.ts
+function clockColour() {
+  if (!cfg.daynight)
+    return ROLES.muted;
+  const h = new Date(cfg.clockMs).getHours();
+  if (h < 5 || h >= 22)
+    return tc(90, 110, 170);
+  if (h < 8)
+    return tc(150, 170, 210);
+  if (h < 17)
+    return tc(230, 225, 180);
+  if (h < 20)
+    return tc(235, 165, 90);
+  return tc(150, 130, 180);
+}
+var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function buildClock() {
+  let moon = "";
+  if (cfg.moon) {
+    const days = cfg.nowMs / 864e5 - 10961.26;
+    const phase = (days / 29.530589 % 1 + 1) % 1;
+    const g = ["\u25CF", "\u25D0", "\u25CB", "\u25D1"][Math.round(phase * 4) % 4];
+    moon = `${st("moon", g)} `;
+  }
+  const dt = new Date(cfg.clockMs);
+  const p2 = (n) => String(n).padStart(2, "0");
+  const clock = `${clockColour()}${DAYS[dt.getDay()]} ${p2(dt.getDate())} ${MONTHS[dt.getMonth()]}  ${p2(dt.getHours())}:${p2(dt.getMinutes())}:${p2(dt.getSeconds())}${R}`;
+  return { clock, moon };
+}
+
+// src/segments/context.ts
+var BAR_WIDTH = 28;
+function buildContext(PCT, compactPctRaw, compactOff, SPARK2, ETA_SAMPLES, COMPACTIONS) {
+  let compactLabel, compactPctVal;
+  if (compactOff) {
+    compactLabel = "";
+    compactPctVal = -1;
+  } else if (compactPctRaw) {
+    compactLabel = st("ctx.compactLabel", ` |${compactPctRaw}%`);
+    compactPctVal = parseInt(compactPctRaw, 10);
+  } else {
+    compactLabel = st("ctx.compactLabel", " |95%");
+    compactPctVal = 95;
+  }
+  const FILLED = scaleCells(PCT, BAR_WIDTH);
+  const MARKER_POS = compactOff ? -1 : scaleCells(compactPctVal, BAR_WIDTH);
+  const bar = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
+  const pctSeg = st("ctx.pct", `${PCT}%`, { pct: PCT });
+  let trend = "";
+  if (cfg.trend) {
+    const parts = [];
+    const spark = sparkline(SPARK2);
+    if (spark)
+      parts.push(st("trend.spark", spark));
+    if (!compactOff && compactPctVal > 0) {
+      const eta = etaMinutes(ETA_SAMPLES, compactPctVal, PCT);
+      if (eta >= 0)
+        parts.push(st("trend.eta", `~${fmtCountdown(eta * 60)}`, { pct: PCT }));
+    }
+    if (COMPACTIONS > 0)
+      parts.push(st("trend.compactions", `\u21BA${COMPACTIONS}`));
+    trend = parts.join(" ");
+  }
+  const weather = cfg.weather ? st("ctx.weather", weatherWord(PCT, compactOff ? 0 : compactPctVal), { pct: PCT }) : "";
+  return { bar, pctSeg, trend, weather, compactLabel };
+}
+
+// src/segments/tokens.ts
+function buildTokens(cu) {
+  if (cu == null)
+    return "";
+  const CU_READ = cu.cache_read_input_tokens || 0;
+  const CU_WRITE = cu.cache_creation_input_tokens || 0;
+  const CU_INPUT = cu.input_tokens || 0;
+  const CU_OUT = cu.output_tokens || 0;
+  const total = CU_INPUT + CU_WRITE + CU_READ;
+  let HIT_SEG = "";
+  if (total > 0 && CU_READ > 0) {
+    const hit = idiv(CU_READ * 100, total);
+    HIT_SEG = st("tokens.hit", `\u2726${hit}%`, { weight: hit >= 70 ? "bold" : hit >= 40 ? "normal" : "dim" });
+  }
+  const readSeg = CU_READ > 0 ? ` ${st("tokens.read", `\u2726${fmtK(CU_READ)}`)}` : "";
+  const writeSeg = CU_WRITE > 0 ? ` ${st("tokens.write", `+${fmtK(CU_WRITE)}w`)}` : "";
+  const inSeg = CU_INPUT > 0 ? ` ${st("tokens.in", `${txt("\u2193")}${fmtK(CU_INPUT)}`)}` : "";
+  const outSeg = CU_OUT > 0 ? ` ${st("tokens.out", `${txt("\u2191")}${fmtK(CU_OUT)}`)}` : "";
+  return HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
+}
+
+// src/segments/cost.ts
+function buildCost(COST, DURATION_MS) {
+  const COST_FMT = Number(COST).toFixed(3);
+  const costNum = parseFloat(COST_FMT);
+  const costRole = costNum >= 0.5 ? "bad" : costNum >= 0.1 ? "warn" : "ok";
+  const COST_FLAIR = cfg.costFlair ? (costNum >= 1 ? "!$" : costNum >= 0.5 ? "$$" : costNum >= 0.1 ? "$" : "\xB7") + " " : "";
+  let seg, barPrefix;
+  if (COST_FMT === "0.000") {
+    seg = st("cost.amount", "$0", { role: "muted" });
+    barPrefix = `${ROLES.muted}\u2205 ${R}`;
+  } else {
+    const price = `${COST_FLAIR}$${COST_FMT}`;
+    seg = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : st("cost.amount", price, { role: costRole });
+    barPrefix = "";
+  }
+  if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
+    const ratePerHr = COST / (DURATION_MS / 36e5);
+    seg += ` ${st("cost.rate", `$${ratePerHr.toFixed(2)}/hr`)}`;
+    try {
+      const rates = readHistory().filter((h) => h.dur >= BURN_BASELINE_MIN_MS && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
+      if (rates.length >= 5) {
+        const med = median(rates);
+        if (med > 0) {
+          const ratio = ratePerHr / med;
+          const rRole = ratio >= 1.5 ? "bad" : ratio >= 1.1 ? "warn" : "muted";
+          seg += ` ${st("cost.ratio", `${ratio.toFixed(1)}x`, { role: rRole })}`;
+        }
+      }
+    } catch {
+    }
+  }
+  return { seg, barPrefix };
+}
+function buildAge(DURATION_MS) {
+  const DUR_S = idiv(DURATION_MS, 1e3);
+  let ageRole, AGE_LABEL;
+  if (DUR_S >= 7200) {
+    ageRole = "bad";
+    AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`;
+  } else if (DUR_S >= 3600) {
+    ageRole = "warn";
+    AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`;
+  } else if (DUR_S >= 60) {
+    ageRole = "ok";
+    AGE_LABEL = `${idiv(DUR_S, 60)}m`;
+  } else {
+    ageRole = "muted";
+    AGE_LABEL = `${DUR_S}s`;
+  }
+  return cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : st("age", AGE_LABEL, { role: ageRole });
+}
+
+// src/segments/git.ts
+function buildGitSeg(G, ADDED, REMOVED, hideEmail) {
+  const GIT_TODAY = G.today > 0 ? ` ${st("git.today", `${txt("\u2713")}${G.today}`)}` : "";
+  let GIT_AB = "";
+  {
+    let s = "";
+    if (G.ahead)
+      s += st("git.ahead", `${txt("\u2191")}${G.ahead}`);
+    if (G.behind)
+      s += st("git.behind", `${txt("\u2193")}${G.behind}`);
+    if (s)
+      GIT_AB = `  ${s}`;
+  }
+  let GIT_AGE = "";
+  if (G.ageSecs >= 0) {
+    const secs = G.ageSecs;
+    const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m` : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
+    GIT_AGE = `  ${st("git.age", `\xB7${a}`)}`;
+  }
+  const GIT_UNTRACKED = G.untracked > 0 ? `  ${st("git.untracked", `?${G.untracked}`)}` : "";
+  const GIT_STASH = G.stash > 0 ? ` ${st("git.stash", `s:${G.stash}`)}` : "";
+  const BRANCH_MOOD = G.mood ? `${st("git.mood", `[${G.mood}]`)} ` : "";
+  const riskRole = G.riskLevel === "high" ? "bad" : G.riskLevel === "med" ? "warn" : "ok";
+  const GIT_RISK = G.riskLevel ? `  ${st("git.risk", `risk:${G.riskLevel}`, { role: riskRole })}` : "";
+  let GIT_SEG = "";
+  if (G.branch) {
+    GIT_SEG += `  ${BRANCH_MOOD}${st("git.branch", `${cfg.nerdfont ? "" : "\u2387"} ${G.branchLabel}`)}`;
+    if (G.state)
+      GIT_SEG += ` ${st("git.state", `${G.state}!`)}`;
+    GIT_SEG += GIT_TODAY;
+  }
+  GIT_SEG += GIT_AB + GIT_AGE;
+  if (G.gitId && !hideEmail)
+    GIT_SEG += `  ${st("git.email", G.gitId)}`;
+  if (ADDED > 0 || REMOVED > 0)
+    GIT_SEG += `  ${st("git.added", `+${ADDED}`)}/${st("git.removed", `-${REMOVED}`)}`;
+  if (G.dirty > 0)
+    GIT_SEG += `  ${st("git.dirty", `~${G.dirty}`)}`;
+  if (G.staged > 0)
+    GIT_SEG += ` ${st("git.staged", `\u25CF${G.staged}`)}`;
+  GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
+  return GIT_SEG;
+}
+
+// src/segments/custom.ts
+var import_child_process4 = require("child_process");
+function buildCustom(data) {
+  if (!cfg.customSegment)
+    return "";
   try {
-    const s = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude/settings.json`, "utf8"));
-    if (s.env && s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
-      pct = String(s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
-    if (s.autoCompactEnabled === false || s.autoCompact === false)
-      off = true;
+    const out = (0, import_child_process4.execFileSync)(process.execPath, [cfg.customSegment], {
+      input: JSON.stringify(data),
+      encoding: "utf8",
+      timeout: 250,
+      stdio: ["pipe", "pipe", "ignore"],
+      windowsHide: true
+    });
+    const first = (out.split("\n")[0] || "").slice(0, 240);
+    if (first)
+      return `  ${first}`;
   } catch {
   }
-  return { pct, off };
+  return "";
+}
+
+// src/segments/lastfile.ts
+var fs8 = __toESM(require("fs"));
+function buildLastFile(TRANSCRIPT) {
+  let LAST_FILE = "";
+  try {
+    if (TRANSCRIPT && fs8.existsSync(TRANSCRIPT)) {
+      const lines = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
+      const re = /write|edit|read|str_replace|create/i;
+      for (const line of lines) {
+        let ev;
+        try {
+          ev = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (!ev || ev.type !== "assistant" || !ev.message || !Array.isArray(ev.message.content))
+          continue;
+        for (const c of ev.message.content) {
+          if (c && c.type === "tool_use" && typeof c.name === "string" && re.test(c.name)) {
+            const p = c.input && (c.input.path || c.input.file_path) || "";
+            if (p)
+              LAST_FILE = p.split(/[\\/]/).pop();
+          }
+        }
+      }
+    }
+  } catch {
+  }
+  return LAST_FILE ? ` ${st("file", `\u203A ${LAST_FILE}`)}` : "";
 }
 
 // src/render/recolor.ts
@@ -1883,293 +2230,24 @@ function build() {
   const TRANSCRIPT = data.transcript_path || "";
   const EFFORT = data.effort && data.effort.level || "";
   const THINKING = !!(data.thinking && data.thinking.enabled);
-  const cu = cw.current_usage;
-  const CU_READ = cu && cu.cache_read_input_tokens || 0;
-  const CU_WRITE = cu && cu.cache_creation_input_tokens || 0;
-  const CU_INPUT = cu && cu.input_tokens || 0;
-  const CU_OUT = cu && cu.output_tokens || 0;
   const rl = data.rate_limits;
-  const GIT_TTL = 2500;
-  let gitMemo = {};
-  let kickRefresh = false;
+  const { gitMemo, kickRefresh, SPARK: SPARK2, COMPACTIONS, ETA_SAMPLES, BELL } = persistTick(data, CWD, PCT, COST, DURATION_MS);
   const gc = (args) => gitMemo[args.join(" ")] ?? "";
-  let SPARK2 = [], COMPACTIONS = 0, ETA_SAMPLES = [], BELL = "";
-  try {
-    const sk = sessionKey(data);
-    const st2 = readState(sk);
-    let gitFresh = false;
-    if (st2.git && st2.git.cwd === CWD) {
-      gitMemo = { ...st2.git.data };
-      gitFresh = cfg.nowMs - st2.git.ts < GIT_TTL;
-    }
-    if (CWD && !gitFresh && cfg.nowMs - (st2.lastGitRefresh || 0) > GIT_TTL) {
-      kickRefresh = true;
-      st2.lastGitRefresh = cfg.nowMs;
-    }
-    if (cfg.bell) {
-      const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
-      if (lvl > (st2.bellLevel ?? 0))
-        BELL = "\x07";
-      st2.bellLevel = lvl;
-    }
-    const prev = st2.spark.length ? st2.spark[st2.spark.length - 1] : -1;
-    if (prev >= 0 && PCT !== prev)
-      cfg.event = true;
-    if (prev >= 0 && PCT <= prev - 25)
-      st2.compactions += 1;
-    pushSpark(st2, PCT);
-    st2.etaSamples = (st2.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
-    const bucket = idiv(DURATION_MS, HISTORY_BUCKET_MS);
-    if (cfg.burn && COST > 0 && bucket > (st2.histBucket ?? -1)) {
-      st2.histBucket = bucket;
-      appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
-    }
-    writeState(sk, st2);
-    SPARK2 = st2.spark.slice();
-    COMPACTIONS = st2.compactions;
-    ETA_SAMPLES = st2.etaSamples;
-  } catch {
-  }
-  let CUSTOM_SEG = "";
-  if (cfg.customSegment) {
-    try {
-      const out = (0, import_child_process4.execFileSync)(process.execPath, [cfg.customSegment], {
-        input: JSON.stringify(data),
-        encoding: "utf8",
-        timeout: 250,
-        stdio: ["pipe", "pipe", "ignore"],
-        windowsHide: true
-      });
-      const first = (out.split("\n")[0] || "").slice(0, 240);
-      if (first)
-        CUSTOM_SEG = `  ${first}`;
-    } catch {
-    }
-  }
-  const idl = MODEL_ID.toLowerCase();
-  let TIER = "Sonnet", modelRole = "accent";
-  if (idl.includes("haiku")) {
-    TIER = "Haiku";
-    modelRole = "info";
-  } else if (idl.includes("opus")) {
-    TIER = "Opus";
-    modelRole = "gold";
-  }
-  const vm = idl.match(/(opus|sonnet|haiku)-(\d+)-(\d+)/);
-  const MODEL_VER = vm ? `${vm[2]}.${vm[3]}` : "";
-  const MODEL_DISPLAY = st("model.tier", MODEL_VER ? `${TIER} ${MODEL_VER}` : MODEL_NAME, { role: modelRole });
-  const ONEM = MAX_TOK >= 9e5 ? st("model.badge1m", "1M") : "";
-  let CREST = "";
-  if (cfg.crest) {
-    const g = TIER === "Opus" ? "\u2605" : TIER === "Haiku" ? "\u25B2" : "\u25C6";
-    CREST = st("crest", g, { role: modelRole }) + " ";
-  }
-  let effortRole = "fg", effortWeight = "normal", effortText = "";
-  switch (EFFORT) {
-    case "low":
-      effortWeight = "dim";
-      effortText = "low";
-      break;
-    case "medium":
-      effortWeight = "dim";
-      effortText = "med";
-      break;
-    case "high":
-      effortText = "high";
-      break;
-    case "xhigh":
-      effortRole = "warn";
-      effortText = "xhigh";
-      break;
-    case "max":
-      effortRole = "bad";
-      effortWeight = "bold";
-      effortText = "MAX";
-      break;
-  }
-  const EFFORT_WORD = effortText ? st("effort", effortText, { role: effortRole, weight: effortWeight }) : "";
-  const THINKING_WORD = THINKING ? st("thinking", "thinking", { role: effortRole, weight: "dim" }) : "";
-  const FAST = data.fast_mode ? st("lead.fast", txt("\u26A1")) : st("lead.fast", txt("\u25AB"), { role: "muted" });
-  let VIM = "";
-  const vmode = data.vim && data.vim.mode || "";
-  if (vmode) {
-    const u = vmode.toUpperCase();
-    const role = u.startsWith("INS") ? "ok" : u.startsWith("VIS") ? "warn" : "accent";
-    VIM = ` ${st("lead.vim", u[0] || "?", { role })}`;
-  }
-  const LEAD = `${FAST}${VIM}`;
-  let MOON = "";
-  if (cfg.moon) {
-    const days = cfg.nowMs / 864e5 - 10961.26;
-    const phase = (days / 29.530589 % 1 + 1) % 1;
-    const g = ["\u25CF", "\u25D0", "\u25CB", "\u25D1"][Math.round(phase * 4) % 4];
-    MOON = `${st("moon", g)} `;
-  }
-  const clockColour = () => {
-    if (!cfg.daynight)
-      return ROLES.muted;
-    const h = new Date(cfg.clockMs).getHours();
-    if (h < 5 || h >= 22)
-      return tc(90, 110, 170);
-    if (h < 8)
-      return tc(150, 170, 210);
-    if (h < 17)
-      return tc(230, 225, 180);
-    if (h < 20)
-      return tc(235, 165, 90);
-    return tc(150, 130, 180);
-  };
+  const CUSTOM_SEG = buildCustom(data);
+  const { display: MODEL_DISPLAY, oneM: ONEM, crest: CREST } = buildModel(MODEL_ID, MODEL_NAME, MAX_TOK);
+  const { word: EFFORT_WORD, thinking: THINKING_WORD } = buildEffort(EFFORT, THINKING);
+  const LEAD = buildLead(data);
+  const { clock: CLOCK_SEG, moon: MOON } = buildClock();
   const DIR_SEG = st("dir", `${cfg.nerdfont ? "\uF07B " : ""}${displayPath(CWD)}`);
   const G = readGit(CWD, gc);
-  const BRANCH = G.branch, BRANCH_LABEL = G.branchLabel, DIRTY = G.dirty, STAGED = G.staged;
-  const GIT_ID = G.gitId, GIT_STATE = G.state;
-  const GIT_TODAY = G.today > 0 ? ` ${st("git.today", `${txt("\u2713")}${G.today}`)}` : "";
-  let GIT_AB = "";
-  {
-    let s = "";
-    if (G.ahead)
-      s += st("git.ahead", `${txt("\u2191")}${G.ahead}`);
-    if (G.behind)
-      s += st("git.behind", `${txt("\u2193")}${G.behind}`);
-    if (s)
-      GIT_AB = `  ${s}`;
-  }
-  let GIT_AGE = "";
-  if (G.ageSecs >= 0) {
-    const secs = G.ageSecs;
-    const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m` : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
-    GIT_AGE = `  ${st("git.age", `\xB7${a}`)}`;
-  }
-  const GIT_UNTRACKED = G.untracked > 0 ? `  ${st("git.untracked", `?${G.untracked}`)}` : "";
-  const GIT_STASH = G.stash > 0 ? ` ${st("git.stash", `s:${G.stash}`)}` : "";
-  const BRANCH_MOOD = G.mood ? `${st("git.mood", `[${G.mood}]`)} ` : "";
-  const riskRole = G.riskLevel === "high" ? "bad" : G.riskLevel === "med" ? "warn" : "ok";
-  const GIT_RISK = G.riskLevel ? `  ${st("git.risk", `risk:${G.riskLevel}`, { role: riskRole })}` : "";
-  const PET = buildPet(COST, DIRTY, PCT);
+  const PET = buildPet(COST, G.dirty, PCT);
   const CLAUDE_USER = readAccountName();
-  let LAST_FILE = "";
-  try {
-    if (TRANSCRIPT && fs8.existsSync(TRANSCRIPT)) {
-      const lines2 = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
-      const re = /write|edit|read|str_replace|create/i;
-      for (const line of lines2) {
-        let ev;
-        try {
-          ev = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        if (!ev || ev.type !== "assistant" || !ev.message || !Array.isArray(ev.message.content))
-          continue;
-        for (const c of ev.message.content) {
-          if (c && c.type === "tool_use" && typeof c.name === "string" && re.test(c.name)) {
-            const p = c.input && (c.input.path || c.input.file_path) || "";
-            if (p)
-              LAST_FILE = p.split(/[\\/]/).pop();
-          }
-        }
-      }
-    }
-  } catch {
-  }
-  const FILE_SEG = LAST_FILE ? ` ${st("file", `\u203A ${LAST_FILE}`)}` : "";
+  const FILE_SEG = buildLastFile(TRANSCRIPT);
   const { pct: COMPACT_PCT, off: COMPACT_OFF } = readAutocompact();
-  let COMPACT_LABEL, COMPACT_PCT_VAL;
-  if (COMPACT_OFF) {
-    COMPACT_LABEL = "";
-    COMPACT_PCT_VAL = -1;
-  } else if (COMPACT_PCT) {
-    COMPACT_LABEL = st("ctx.compactLabel", ` |${COMPACT_PCT}%`);
-    COMPACT_PCT_VAL = parseInt(COMPACT_PCT, 10);
-  } else {
-    COMPACT_LABEL = st("ctx.compactLabel", " |95%");
-    COMPACT_PCT_VAL = 95;
-  }
-  const BAR_WIDTH = 28;
-  const FILLED = scaleCells(PCT, BAR_WIDTH);
-  const MARKER_POS = COMPACT_OFF ? -1 : scaleCells(COMPACT_PCT_VAL, BAR_WIDTH);
-  const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
-  const PCT_SEG = st("ctx.pct", `${PCT}%`, { pct: PCT });
-  let TREND_SEG = "";
-  if (cfg.trend) {
-    const parts = [];
-    const spark = sparkline(SPARK2);
-    if (spark)
-      parts.push(st("trend.spark", spark));
-    if (!COMPACT_OFF && COMPACT_PCT_VAL > 0) {
-      const eta = etaMinutes(ETA_SAMPLES, COMPACT_PCT_VAL, PCT);
-      if (eta >= 0)
-        parts.push(st("trend.eta", `~${fmtCountdown(eta * 60)}`, { pct: PCT }));
-    }
-    if (COMPACTIONS > 0)
-      parts.push(st("trend.compactions", `\u21BA${COMPACTIONS}`));
-    TREND_SEG = parts.join(" ");
-  }
-  const WEATHER_SEG = cfg.weather ? st("ctx.weather", weatherWord(PCT, COMPACT_OFF ? 0 : COMPACT_PCT_VAL), { pct: PCT }) : "";
-  let TURN_SEG = "";
-  if (cu != null) {
-    const total = CU_INPUT + CU_WRITE + CU_READ;
-    let HIT_SEG = "";
-    if (total > 0 && CU_READ > 0) {
-      const hit = idiv(CU_READ * 100, total);
-      HIT_SEG = st("tokens.hit", `\u2726${hit}%`, { weight: hit >= 70 ? "bold" : hit >= 40 ? "normal" : "dim" });
-    }
-    const readSeg = CU_READ > 0 ? ` ${st("tokens.read", `\u2726${fmtK(CU_READ)}`)}` : "";
-    const writeSeg = CU_WRITE > 0 ? ` ${st("tokens.write", `+${fmtK(CU_WRITE)}w`)}` : "";
-    const inSeg = CU_INPUT > 0 ? ` ${st("tokens.in", `${txt("\u2193")}${fmtK(CU_INPUT)}`)}` : "";
-    const outSeg = CU_OUT > 0 ? ` ${st("tokens.out", `${txt("\u2191")}${fmtK(CU_OUT)}`)}` : "";
-    TURN_SEG = HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
-  }
-  const COST_FMT = Number(COST).toFixed(3);
-  const costNum = parseFloat(COST_FMT);
-  const costRole = costNum >= 0.5 ? "bad" : costNum >= 0.1 ? "warn" : "ok";
-  const COST_FLAIR = cfg.costFlair ? (costNum >= 1 ? "!$" : costNum >= 0.5 ? "$$" : costNum >= 0.1 ? "$" : "\xB7") + " " : "";
-  let COST_SEG, BAR_PREFIX;
-  if (COST_FMT === "0.000") {
-    COST_SEG = st("cost.amount", "$0", { role: "muted" });
-    BAR_PREFIX = `${ROLES.muted}\u2205 ${R}`;
-  } else {
-    const price = `${COST_FLAIR}$${COST_FMT}`;
-    COST_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : st("cost.amount", price, { role: costRole });
-    BAR_PREFIX = "";
-  }
-  if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
-    const ratePerHr = COST / (DURATION_MS / 36e5);
-    COST_SEG += ` ${st("cost.rate", `$${ratePerHr.toFixed(2)}/hr`)}`;
-    try {
-      const rates = readHistory().filter((h) => h.dur >= BURN_BASELINE_MIN_MS && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
-      if (rates.length >= 5) {
-        const med = median(rates);
-        if (med > 0) {
-          const ratio = ratePerHr / med;
-          const rRole = ratio >= 1.5 ? "bad" : ratio >= 1.1 ? "warn" : "muted";
-          COST_SEG += ` ${st("cost.ratio", `${ratio.toFixed(1)}x`, { role: rRole })}`;
-        }
-      }
-    } catch {
-    }
-  }
-  const DUR_S = idiv(DURATION_MS, 1e3);
-  let ageRole, AGE_LABEL;
-  if (DUR_S >= 7200) {
-    ageRole = "bad";
-    AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`;
-  } else if (DUR_S >= 3600) {
-    ageRole = "warn";
-    AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`;
-  } else if (DUR_S >= 60) {
-    ageRole = "ok";
-    AGE_LABEL = `${idiv(DUR_S, 60)}m`;
-  } else {
-    ageRole = "muted";
-    AGE_LABEL = `${DUR_S}s`;
-  }
-  const AGE_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : st("age", AGE_LABEL, { role: ageRole });
-  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const dt = new Date(cfg.clockMs);
-  const p2 = (n) => String(n).padStart(2, "0");
-  const CLOCK_SEG = `${clockColour()}${DAYS[dt.getDay()]} ${p2(dt.getDate())} ${MONTHS[dt.getMonth()]}  ${p2(dt.getHours())}:${p2(dt.getMinutes())}:${p2(dt.getSeconds())}${R}`;
+  const { bar: BAR, pctSeg: PCT_SEG, trend: TREND_SEG, weather: WEATHER_SEG, compactLabel: COMPACT_LABEL } = buildContext(PCT, COMPACT_PCT, COMPACT_OFF, SPARK2, ETA_SAMPLES, COMPACTIONS);
+  const TURN_SEG = buildTokens(cw.current_usage);
+  const { seg: COST_SEG, barPrefix: BAR_PREFIX } = buildCost(COST, DURATION_MS);
+  const AGE_SEG = buildAge(DURATION_MS);
   const USAGE_SEG = rl != null ? buildUsage(rl) : "";
   const HIDE = new Set(cfg.hide.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
   if (cfg.privacy) {
@@ -2186,6 +2264,7 @@ function build() {
     if (la > 0)
       SYS_SEG = `${st("sysinfo", `\u21AF${la.toFixed(2)}`)} `;
   }
+  const GIT_SEG = buildGitSeg(G, ADDED, REMOVED, HIDE.has("email"));
   const CTX_SIZE_K = fmtK(MAX_TOK);
   const BR_OPEN = st("bracket.delim", "["), BR_CLOSE = st("bracket.delim", "]");
   let BRACKET = `${sh("crest", CREST)}${sh("model", MODEL_DISPLAY)}`;
@@ -2206,23 +2285,6 @@ function build() {
   const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_FULL}${COMPACT_LABEL}${SEP}${CTX_STATS}`;
   const L2_RIGHT = sh("usage", USAGE_SEG);
   let L3_LEFT = `${sh("dir", DIR_SEG)}${sh("file", FILE_SEG)}`;
-  let GIT_SEG = "";
-  if (BRANCH) {
-    GIT_SEG += `  ${BRANCH_MOOD}${st("git.branch", `${cfg.nerdfont ? "" : "\u2387"} ${BRANCH_LABEL}`)}`;
-    if (GIT_STATE)
-      GIT_SEG += ` ${st("git.state", `${GIT_STATE}!`)}`;
-    GIT_SEG += GIT_TODAY;
-  }
-  GIT_SEG += GIT_AB + GIT_AGE;
-  if (GIT_ID && !HIDE.has("email"))
-    GIT_SEG += `  ${st("git.email", GIT_ID)}`;
-  if (ADDED > 0 || REMOVED > 0)
-    GIT_SEG += `  ${st("git.added", `+${ADDED}`)}/${st("git.removed", `-${REMOVED}`)}`;
-  if (DIRTY > 0)
-    GIT_SEG += `  ${st("git.dirty", `~${DIRTY}`)}`;
-  if (STAGED > 0)
-    GIT_SEG += ` ${st("git.staged", `\u25CF${STAGED}`)}`;
-  GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh("git", GIT_SEG) + sh("custom", CUSTOM_SEG);
   let L3_RIGHT = "";
   if (CLAUDE_USER)
@@ -2235,7 +2297,7 @@ function build() {
   lines = applyWashes(lines, rl, PCT);
   if (kickRefresh) {
     try {
-      const child = (0, import_child_process4.spawn)(process.execPath, [__filename, "--git-refresh"], {
+      const child = (0, import_child_process5.spawn)(process.execPath, [__filename, "--git-refresh"], {
         detached: true,
         windowsHide: true,
         stdio: ["pipe", "ignore", "ignore"],
