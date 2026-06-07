@@ -478,7 +478,7 @@ function build(): string {
   if (COST_FMT === '0.000') { COST_SEG = `${DIM}$0${R}`; BAR_PREFIX = `${DIM}∅ ${R}`; }
   else {
     const price = `${COST_FLAIR}$${COST_FMT}`;
-    COST_SEG = cfg.rainbowStats ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
+    COST_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
     BAR_PREFIX = '';
   }
   if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
@@ -505,7 +505,7 @@ function build(): string {
   else if (DUR_S >= 3600) { AGE_C = AMBER; AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`; }
   else if (DUR_S >= 60) { AGE_C = GREEN; AGE_LABEL = `${idiv(DUR_S, 60)}m`; }
   else { AGE_C = DIM; AGE_LABEL = `${DUR_S}s`; }
-  const AGE_SEG = cfg.rainbowStats ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
+  const AGE_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
 
   // ── clock ─────────────────────────────────────────────────────────────────
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -565,7 +565,10 @@ function build(): string {
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh('git', GIT_SEG) + sh('custom', CUSTOM_SEG);
   let L3_RIGHT = '';
-  if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${rainbow(CLAUDE_USER)}  `)}`;
+  // Accessible mode renders the name in plain bright white (rainbow is low-contrast
+  // and colour-only); otherwise it's the usual rainbow flourish.
+  const NAME_STR = cfg.accessible ? `${WHITE}${CLAUDE_USER}${R}` : rainbow(CLAUDE_USER);
+  if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${NAME_STR}  `)}`;
   L3_RIGHT += `${sh('cost', COST_SEG)}  ${sh('age', AGE_SEG)}`;
 
   // Layout: which lines to emit. Compact forms reuse the segments already built.

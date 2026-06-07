@@ -5,7 +5,34 @@
 // `cmap` (multi-stop RGB). `palRgb` is the accent palette; cmap themes may omit
 // it and get one auto-derived. `heat` additionally carries `palRaw` (literal SGR)
 // so its original truecolor output stays byte-for-byte identical.
-import type { ThemeData } from './types';
+import type { ThemeData, PaletteRGB, RGB } from './types';
+
+// ── accessibility (SL_ACCESSIBLE) ──────────────────────────────────────────────
+// A high-contrast palette + gauge ramps that follow WCAG/colour-blind guidance on
+// a dark terminal background (the statusline's target). Every accent here clears
+// the WCAG AAA 7:1 contrast ratio against a near-black bg (so the coloured numbers
+// they tint stay legible); pure red/blue are lightened to reach it. Text is pure
+// white (≈17:1). Meaning is never carried by colour alone — bars encode value by
+// length, +/- carry signs, "LOW" is a word — so colour is always redundant.
+export const A11Y_PAL: PaletteRGB = {
+  WHITE: [255, 255, 255],   // primary text, ~17:1
+  GREEN: [0, 255, 0],       // ~12.7:1
+  CYAN: [0, 255, 255],      // ~14:1
+  AMBER: [255, 255, 0],     // ~16:1 (pure yellow)
+  GOLD: [255, 225, 60],     // bright gold
+  BLUE: [120, 190, 255],    // lightened — pure blue is only ~2:1 on black
+  RED: [255, 120, 120],     // lightened — pure red is only ~4.7:1; this clears 7:1
+};
+// Gauge ramps (low→high) selected by SL_ACCESSIBLE_GAUGE; default is `cvd`.
+export const A11Y_GAUGES: Record<string, RGB[]> = {
+  // CVD-safe: the blue→yellow axis survives protan/deutan/tritan colour-blindness;
+  // luminance also rises low→high so it reads in greyscale.
+  cvd: [[100, 170, 255], [0, 230, 255], [255, 255, 0]],
+  // Familiar traffic-light, pushed to max luminance (red lightened to clear AAA).
+  traffic: [[0, 255, 0], [255, 255, 0], [255, 120, 120]],
+  // Pure luminance — unambiguous for every CVD type and on monochrome displays.
+  grayscale: [[160, 160, 160], [205, 205, 205], [255, 255, 255]],
+};
 
 export const THEMES_DATA: Record<string, ThemeData> = {
   // hue-ramp themes
@@ -85,12 +112,8 @@ export const THEMES_DATA: Record<string, ThemeData> = {
   // crisp silver normally; pairs with the danger wash (deep safelight red when
   // context/limits are critical — the darkroom convention). See SL_DANGER.
   'silver-halide': { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 },
-  // Accessibility palette (SL_ACCESSIBLE). Maximum-luminance primaries on the dark
-  // terminal bg, no blending (mix:0), and a stark green→yellow→red gauge — chosen
-  // for strong contrast and to degrade cleanly to the 16-colour primaries. Paired
-  // with motion off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
-  'high-contrast': {
-    cmap: [[0, 255, 0], [255, 255, 0], [255, 0, 0]], mix: 0,
-    palRgb: { RED: [255, 60, 60], GREEN: [0, 255, 0], AMBER: [255, 215, 0], BLUE: [90, 170, 255], CYAN: [0, 255, 255], WHITE: [255, 255, 255], GOLD: [255, 235, 60] },
-  },
+  // Accessibility palette (SL_ACCESSIBLE) — see A11Y_PAL below. Default gauge is
+  // the CVD-safe ramp; SL_ACCESSIBLE_GAUGE swaps it (themes.ts). Paired with motion
+  // off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
+  'high-contrast': { cmap: A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL },
 };

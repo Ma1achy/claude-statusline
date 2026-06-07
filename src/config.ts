@@ -122,6 +122,7 @@ export const cfg: Config = {
   path: penv('SL_PATH', 'auto'),
   sysinfo: pbool('SL_SYSINFO'),
   accessible: pbool('SL_ACCESSIBLE'),
+  accessibleGauge: penv('SL_ACCESSIBLE_GAUGE', 'cvd'),   // cvd | traffic | grayscale
   responsive: pbool('SL_RESPONSIVE'),
   gitRisk: pbool('SL_GIT_RISK'),
   danger: pbool('SL_DANGER'),

@@ -177,6 +177,8 @@ var cfg = {
   path: penv("SL_PATH", "auto"),
   sysinfo: pbool("SL_SYSINFO"),
   accessible: pbool("SL_ACCESSIBLE"),
+  accessibleGauge: penv("SL_ACCESSIBLE_GAUGE", "cvd"),
+  // cvd | traffic | grayscale
   responsive: pbool("SL_RESPONSIVE"),
   gitRisk: pbool("SL_GIT_RISK"),
   danger: pbool("SL_DANGER"),
@@ -390,6 +392,31 @@ var fs2 = __toESM(require("fs"));
 var os = __toESM(require("os"));
 
 // src/themes.data.ts
+var A11Y_PAL = {
+  WHITE: [255, 255, 255],
+  // primary text, ~17:1
+  GREEN: [0, 255, 0],
+  // ~12.7:1
+  CYAN: [0, 255, 255],
+  // ~14:1
+  AMBER: [255, 255, 0],
+  // ~16:1 (pure yellow)
+  GOLD: [255, 225, 60],
+  // bright gold
+  BLUE: [120, 190, 255],
+  // lightened — pure blue is only ~2:1 on black
+  RED: [255, 120, 120]
+  // lightened — pure red is only ~4.7:1; this clears 7:1
+};
+var A11Y_GAUGES = {
+  // CVD-safe: the blue→yellow axis survives protan/deutan/tritan colour-blindness;
+  // luminance also rises low→high so it reads in greyscale.
+  cvd: [[100, 170, 255], [0, 230, 255], [255, 255, 0]],
+  // Familiar traffic-light, pushed to max luminance (red lightened to clear AAA).
+  traffic: [[0, 255, 0], [255, 255, 0], [255, 120, 120]],
+  // Pure luminance — unambiguous for every CVD type and on monochrome displays.
+  grayscale: [[160, 160, 160], [205, 205, 205], [255, 255, 255]]
+};
 var THEMES_DATA = {
   // hue-ramp themes
   heat: {
@@ -472,15 +499,10 @@ var THEMES_DATA = {
   // crisp silver normally; pairs with the danger wash (deep safelight red when
   // context/limits are critical — the darkroom convention). See SL_DANGER.
   "silver-halide": { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 },
-  // Accessibility palette (SL_ACCESSIBLE). Maximum-luminance primaries on the dark
-  // terminal bg, no blending (mix:0), and a stark green→yellow→red gauge — chosen
-  // for strong contrast and to degrade cleanly to the 16-colour primaries. Paired
-  // with motion off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
-  "high-contrast": {
-    cmap: [[0, 255, 0], [255, 255, 0], [255, 0, 0]],
-    mix: 0,
-    palRgb: { RED: [255, 60, 60], GREEN: [0, 255, 0], AMBER: [255, 215, 0], BLUE: [90, 170, 255], CYAN: [0, 255, 255], WHITE: [255, 255, 255], GOLD: [255, 235, 60] }
-  }
+  // Accessibility palette (SL_ACCESSIBLE) — see A11Y_PAL below. Default gauge is
+  // the CVD-safe ramp; SL_ACCESSIBLE_GAUGE swaps it (themes.ts). Paired with motion
+  // off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
+  "high-contrast": { cmap: A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL }
 };
 
 // src/themes.ts
@@ -585,7 +607,8 @@ function loadCustom() {
   return null;
 }
 var CUSTOM = cfg.themeName === "custom" ? loadCustom() : null;
-var TH = cfg.accessible ? THEMES["high-contrast"] : CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
+var a11yTheme = () => buildTheme({ cmap: A11Y_GAUGES[cfg.accessibleGauge] || A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL });
+var TH = cfg.accessible ? a11yTheme() : CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
 var PAL = cfg.colorMode === "mono" ? EMPTY_PAL : TH.pal || deriveCmapPal(TH.cmap);
 var { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
 var RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
@@ -1709,7 +1732,7 @@ function build() {
     BAR_PREFIX = `${DIM}\u2205 ${R}`;
   } else {
     const price = `${COST_FLAIR}$${COST_FMT}`;
-    COST_SEG = cfg.rainbowStats ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
+    COST_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
     BAR_PREFIX = "";
   }
   if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
@@ -1743,7 +1766,7 @@ function build() {
     AGE_C = DIM;
     AGE_LABEL = `${DUR_S}s`;
   }
-  const AGE_SEG = cfg.rainbowStats ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
+  const AGE_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const dt = new Date(cfg.clockMs);
@@ -1803,8 +1826,9 @@ function build() {
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh("git", GIT_SEG) + sh("custom", CUSTOM_SEG);
   let L3_RIGHT = "";
+  const NAME_STR = cfg.accessible ? `${WHITE}${CLAUDE_USER}${R}` : rainbow(CLAUDE_USER);
   if (CLAUDE_USER)
-    L3_RIGHT = `${sh("name", `${rainbow(CLAUDE_USER)}  `)}`;
+    L3_RIGHT = `${sh("name", `${NAME_STR}  `)}`;
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
   const J = justified;
   let lines;
