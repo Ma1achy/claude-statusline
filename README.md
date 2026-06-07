@@ -117,7 +117,10 @@ safelight wash when context gets critical.
 <p align="center"><img src="assets/demo-reactive.gif" width="100%" /></p>
 
 **Roll your own** — `"theme": "custom"` with an inline `customTheme` (a cmap or palette), or point
-`themeFile` at a JSON theme, or hand it a `base16` palette string.
+`themeFile` at a JSON theme, or hand it a `base16` palette string. Themes can also restyle individual
+elements (here `cyberpunk` gives the clock an accent and bolds the cost):
+
+<p align="center"><img src="assets/demo-custom-theme.gif" width="100%" /></p>
 
 ### Bars, scale & motion
 
@@ -160,6 +163,15 @@ Flip any of these on (all default off):
 | `bell` | ring the terminal bell once when context crosses a band |
 | `nerdfont` | use Nerd Font glyphs |
 
+Each opt-in extra, shown on its own:
+
+<p align="center"><img src="assets/demo-spotlight.gif" width="100%" /></p>
+
+`gitExtra` / `gitRisk` surface your repo at a glance — clean, uncommitted edits, staged, untracked,
+stash, ahead/behind upstream, detached HEAD, and a rough risk tag:
+
+<p align="center"><img src="assets/demo-git.gif" width="100%" /></p>
+
 <p align="center"><img src="assets/demo-pets.gif" width="100%" /></p>
 <p align="center"><img src="assets/demo-trend.gif" width="100%" /></p>
 
@@ -175,6 +187,8 @@ script), `tmuxPassthrough`.
 This is the fun part. Every element — `git.branch`, `cost.amount`, `clock`, `name`, `model.tier`,
 `bar.empty`, `usage.pct`, … (~55 of them) — flows through one styling engine, so you can override any
 of them in `elements`:
+
+<p align="center"><img src="assets/demo-typography.gif" width="100%" /></p>
 
 ```json
 {
@@ -251,21 +265,27 @@ node statusline.js --migrate    # legacy SL_* env → JSON config (stdout)
 
 ## Development
 
-TypeScript in `src/` (one module per concern: `style`, `elements`, `themes`, `bar`, `ansi`, `config`,
-…), bundled by esbuild into a single zero-dependency CommonJS `statusline.js` — so the runtime is just
-`node statusline.js`.
+TypeScript in `src/`, organised by concern: `build.ts` orchestrates a render; `segments/` builds each
+piece (model, git, cost, clock, …), `io/` handles stdin / git-cache / state, `render/` does layout and
+the whole-line washes, `anim/` holds the shimmer strategies, over leaf utilities (`style`, `themes`,
+`bar`, `ansi`, `color`, `config`, …). esbuild bundles it all into a single zero-dependency CommonJS
+`statusline.js` — so the runtime is just `node statusline.js`.
 
 ```bash
 npm run build        # bundle src → statusline.js
 npm run typecheck    # tsc --noEmit
-npm test             # build, then run the golden + behaviour tests
+npm run lint         # eslint
+npm run test:unit    # fast unit tests, straight from src/ via tsx (no bundle)
+npm test             # unit, then build + golden/behaviour tests
 npm run goldens      # rebuild and refresh golden snapshots after an intentional change
 npm run preview      # build and render the gallery
 npm run render       # regenerate the demo GIFs (needs Python + Pillow)
 ```
 
-Tests run against the **built** artifact and compare to committed golden snapshots in `test/golden/`,
-across colour modes, themes, layouts, and the styling engine.
+Two test layers: pure functions have direct unit tests in `test/unit/` (run via tsx), and the built
+artifact is compared to committed golden snapshots in `test/golden/` across colour modes, themes,
+layouts, and the styling engine. CI runs typecheck + lint + both suites on Node 18 & 20, and checks the
+committed bundle matches a fresh build.
 
 <details>
 <summary>How the bar is drawn</summary>
