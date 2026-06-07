@@ -36,7 +36,10 @@ function buildTheme(d: ThemeData): Theme {
   else if (d.palRgb) pal = palFromRgb(d.palRgb);
   else if (d.palRaw) pal = d.palRaw;
   // else: cmap theme with no explicit palette → leave undefined, derived below.
-  return { hueHi: d.hueHi, hueLo: d.hueLo, sat: d.sat, valLo: d.valLo, valHi: d.valHi, cmap: d.cmap, mix: d.mix, pal };
+  return {
+    hueHi: d.hueHi, hueLo: d.hueLo, sat: d.sat, valLo: d.valLo, valHi: d.valHi, cmap: d.cmap, mix: d.mix, pal,
+    elements: d.elements, glyphs: d.glyphs, labels: d.labels,
+  };
 }
 
 export const THEMES: Record<string, Theme> = {};
@@ -127,8 +130,19 @@ function deriveMuted(): string {
   const m = fgRgb().map((v) => Math.max(72, Math.round(v * 0.5))) as RGB;
   return tc(m[0], m[1], m[2]);
 }
+// A theme may pin explicit role colours (themes.data `roles`); they win over the
+// palette-derived ones (but not in mono, which has no colour, or accessible).
+function roleOverrides(): Partial<Record<Role, string>> {
+  if (cfg.accessible || cfg.colorMode === 'mono') return {};
+  const d = THEMES_DATA[cfg.themeName];
+  if (!d || !d.roles) return {};
+  const o: Partial<Record<Role, string>> = {};
+  for (const k of Object.keys(d.roles) as Role[]) { const c = d.roles[k]; if (c) o[k] = tc(c[0], c[1], c[2]); }
+  return o;
+}
 export const ROLES: Record<Role, string> = {
   fg: WHITE, muted: deriveMuted(), accent: CYAN, ok: GREEN, warn: AMBER, bad: RED, info: BLUE, gold: GOLD,
+  ...roleOverrides(),
 };
 TH.roles = ROLES;
 

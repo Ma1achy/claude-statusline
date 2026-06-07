@@ -42,6 +42,11 @@ export interface Theme {
   pal?: Palette;
   // resolved, colour-mode-aware escapes for the semantic roles (incl. derived muted)
   roles?: Record<Role, string>;
+  // per-element style overrides the theme bundles (merged over the built-in defaults)
+  elements?: Record<string, Style>;
+  // per-element glyph / label overrides (a theme can change icons or wording)
+  glyphs?: Record<string, string>;
+  labels?: Record<string, string>;
 }
 
 /** RGB accent palette — the data form (palettes-as-data, built into escapes at load). */
@@ -59,6 +64,12 @@ export interface ThemeData {
   mix: number | null;
   palRgb?: PaletteRGB;
   palRaw?: Palette;
+  // theme-v2 (all optional): explicit role colours, per-element style/glyph/label
+  // overrides — let a theme restyle individual elements or change icons/wording.
+  roles?: Partial<Record<Role, RGB>>;
+  elements?: Record<string, Style>;
+  glyphs?: Record<string, string>;
+  labels?: Record<string, string>;
 }
 
 export interface Config {

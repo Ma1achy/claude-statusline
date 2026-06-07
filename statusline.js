@@ -477,7 +477,13 @@ var THEMES_DATA = {
   "github-light": { cmap: [[9, 105, 218], [27, 124, 131], [26, 127, 55], [154, 103, 0], [207, 34, 46]], mix: 18, palRgb: { RED: [207, 34, 46], GREEN: [26, 127, 55], AMBER: [154, 103, 0], BLUE: [9, 105, 218], CYAN: [27, 124, 131], WHITE: [36, 41, 47], GOLD: [154, 103, 0] } },
   monokai: { cmap: [[102, 217, 239], [166, 226, 46], [230, 219, 116], [253, 151, 31], [249, 38, 114]], mix: 22, palRgb: { RED: [249, 38, 114], GREEN: [166, 226, 46], AMBER: [230, 219, 116], BLUE: [174, 129, 255], CYAN: [102, 217, 239], WHITE: [248, 248, 242], GOLD: [253, 151, 31] } },
   "monokai-pro": { cmap: [[120, 220, 232], [169, 220, 118], [255, 216, 102], [252, 152, 103], [255, 97, 136]], mix: 22, palRgb: { RED: [255, 97, 136], GREEN: [169, 220, 118], AMBER: [255, 216, 102], BLUE: [171, 157, 242], CYAN: [120, 220, 232], WHITE: [252, 252, 250], GOLD: [255, 216, 102] } },
-  cyberpunk: { cmap: [[0, 240, 255], [0, 255, 159], [243, 230, 0], [255, 0, 160]], mix: 0, palRgb: { RED: [255, 0, 160], GREEN: [0, 255, 159], AMBER: [243, 230, 0], BLUE: [0, 184, 255], CYAN: [0, 240, 255], WHITE: [240, 240, 240], GOLD: [243, 230, 0] } },
+  cyberpunk: {
+    cmap: [[0, 240, 255], [0, 255, 159], [243, 230, 0], [255, 0, 160]],
+    mix: 0,
+    palRgb: { RED: [255, 0, 160], GREEN: [0, 255, 159], AMBER: [243, 230, 0], BLUE: [0, 184, 255], CYAN: [0, 240, 255], WHITE: [240, 240, 240], GOLD: [243, 230, 0] },
+    // theme-v2 showcase: this theme restyles individual elements (proving the cascade)
+    elements: { clock: { fill: "accent" }, "cost.amount": { weight: "bold" } }
+  },
   // ── monochrome CRT phosphors (cmap-only → auto-derived accents) ──────────────
   phosphor: { cmap: [[40, 22, 0], [120, 70, 0], [200, 130, 0], [255, 176, 0], [255, 214, 130]], mix: 10 },
   "phosphor-green": { cmap: [[0, 30, 0], [0, 90, 0], [0, 160, 0], [0, 230, 40], [150, 255, 150]], mix: 10 },
@@ -538,7 +544,19 @@ function buildTheme(d) {
     pal = palFromRgb(d.palRgb);
   else if (d.palRaw)
     pal = d.palRaw;
-  return { hueHi: d.hueHi, hueLo: d.hueLo, sat: d.sat, valLo: d.valLo, valHi: d.valHi, cmap: d.cmap, mix: d.mix, pal };
+  return {
+    hueHi: d.hueHi,
+    hueLo: d.hueLo,
+    sat: d.sat,
+    valLo: d.valLo,
+    valHi: d.valHi,
+    cmap: d.cmap,
+    mix: d.mix,
+    pal,
+    elements: d.elements,
+    glyphs: d.glyphs,
+    labels: d.labels
+  };
 }
 var THEMES = {};
 for (const k of Object.keys(THEMES_DATA))
@@ -631,6 +649,20 @@ function deriveMuted() {
   const m = fgRgb().map((v) => Math.max(72, Math.round(v * 0.5)));
   return tc(m[0], m[1], m[2]);
 }
+function roleOverrides() {
+  if (cfg.accessible || cfg.colorMode === "mono")
+    return {};
+  const d = THEMES_DATA[cfg.themeName];
+  if (!d || !d.roles)
+    return {};
+  const o = {};
+  for (const k of Object.keys(d.roles)) {
+    const c = d.roles[k];
+    if (c)
+      o[k] = tc(c[0], c[1], c[2]);
+  }
+  return o;
+}
 var ROLES = {
   fg: WHITE,
   muted: deriveMuted(),
@@ -639,7 +671,8 @@ var ROLES = {
   warn: AMBER,
   bad: RED,
   info: BLUE,
-  gold: GOLD
+  gold: GOLD,
+  ...roleOverrides()
 };
 TH.roles = ROLES;
 var RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
@@ -1204,7 +1237,7 @@ var hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), p
 function st(id, text, opts = {}) {
   if (text === "")
     return "";
-  const d = ELEMENT_DEFAULTS[id] || {};
+  const d = { ...ELEMENT_DEFAULTS[id], ...TH.elements && TH.elements[id] };
   const fill = opts.role ?? d.fill ?? "fg";
   const weight = opts.weight ?? d.weight ?? "normal";
   const w = weight === "bold" ? BOLD : weight === "dim" ? DIM : "";
