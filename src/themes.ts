@@ -8,7 +8,7 @@ import { tc } from './ansi';
 import { hsv, cmapSample } from './color';
 import { cfg } from './config';
 import { idiv } from './util';
-import { THEMES_DATA } from './themes.data';
+import { THEMES_DATA, A11Y_PAL, A11Y_GAUGES } from './themes.data';
 import type { Theme, Palette, PaletteRGB, ThemeData, RGB } from './types';
 
 const EMPTY_PAL: Palette = { RED: '', GREEN: '', AMBER: '', BLUE: '', CYAN: '', WHITE: '', GOLD: '' };
@@ -90,10 +90,13 @@ function loadCustom(): Theme | null {
 }
 
 const CUSTOM = cfg.themeName === 'custom' ? loadCustom() : null;
-// SL_ACCESSIBLE forces the high-contrast theme over everything (incl. custom);
+// SL_ACCESSIBLE forces the high-contrast palette over everything (incl. custom);
 // accessibility should win regardless of the chosen theme. (Motion is also off.)
+// SL_ACCESSIBLE_GAUGE swaps the bar ramp; the accent palette is the same either way.
+const a11yTheme = (): Theme =>
+  buildTheme({ cmap: A11Y_GAUGES[cfg.accessibleGauge] || A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL });
 export const TH: Theme = cfg.accessible
-  ? THEMES['high-contrast']
+  ? a11yTheme()
   : (CUSTOM || THEMES[cfg.themeName] || THEMES.heat);
 export const PAL: Palette = cfg.colorMode === 'mono'
   ? EMPTY_PAL

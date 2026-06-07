@@ -268,7 +268,8 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_LIMITS` | Flag the 5h/7d usage bars: amber past `SL_LIMIT_WARN`, bold-red `LOW` past `SL_LIMIT_CRIT` |
 | `SL_SYSINFO` | Show the 1-minute load average `↯0.82` (no-op where unsupported) |
 | `SL_PRIVACY` | Hide email / account / cost / path — for screenshots and streams |
-| `SL_ACCESSIBLE` | High-contrast, motion off (pairs with `NO_COLOR` / `SL_COLOR_MODE=mono`) |
+| `SL_ACCESSIBLE` | High-contrast (WCAG-AAA accents, white text), motion off, no rainbow — wins over `SL_THEME` |
+| `SL_ACCESSIBLE_GAUGE` | Gauge ramp for accessible mode: `cvd` (default, colour-blind-safe) · `traffic` · `grayscale` |
 | `SL_RESPONSIVE` | Auto-pick the layout from the terminal width (avoids wrapping when narrow) |
 | `SL_TMUX_PASSTHROUGH` | Wrap output in the tmux DCS so truecolor survives tmux (needs `allow-passthrough on`) |
 
@@ -325,9 +326,17 @@ The [`NO_COLOR`](https://no-color.org/) convention is honoured: setting `NO_COLO
 
 <p align="center"><img src="assets/demo-color-modes.gif" width="100%" /></p>
 
-`SL_ACCESSIBLE=on` forces a high-contrast theme (max-luminance primaries, bright white text, a stark
-green→yellow→red gauge) and turns motion off — independent of the colour mode, and it wins over any
-`SL_THEME`. Pair it with `NO_COLOR` or `SL_COLOR_MODE=mono` for a calm, no-colour line.
+`SL_ACCESSIBLE=on` is a high-contrast mode built to accessibility guidelines (assuming a dark
+terminal): pure-white text and accents lightened to clear **WCAG AAA (7:1)** contrast, motion off, and
+no rainbow (it's low-contrast and colour-only). It wins over any `SL_THEME`. Meaning is never carried
+by colour alone — bars encode value by length, `+/-` carry signs, `LOW` is a word — so the gauge
+colour is always redundant. Pick the ramp with `SL_ACCESSIBLE_GAUGE`:
+
+| Gauge | Ramp | Notes |
+|-------|------|-------|
+| `cvd` *(default)* | blue → cyan → yellow | colour-blind-safe (blue/yellow axis survives protan/deutan/tritan); luminance also rises low→high |
+| `traffic` | green → amber → red | familiar semantics; red-green users rely on bar length |
+| `grayscale` | dim → bright | pure luminance — unambiguous for every CVD type and on mono displays |
 
 <p align="center"><img src="assets/demo-accessible.gif" width="100%" /></p>
 

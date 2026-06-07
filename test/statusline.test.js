@@ -440,6 +440,19 @@ test('privacy: dummy email rendered, no real address', () => {
   assert.ok(out.includes('malachy@email.com'), 'expected dummy email');
 });
 
+// 8b. Accessible (SL_ACCESSIBLE) — high-contrast palette: the name is a solid white
+// span (not a per-char rainbow), and SL_ACCESSIBLE_GAUGE swaps the bar ramp.
+test('accessible: solid white name + selectable gauge ramp', () => {
+  const cvd = run(fix, { SL_ACCESSIBLE: 'on' });
+  // name is one bright-white run, not the rainbow (which would interleave colour codes per char)
+  assert.match(cvd, /\x1b\[38;2;255;255;255mMalachy\x1b\[0m/, 'name should be solid white');
+  // default gauge is CVD-safe (blue low end); traffic swaps to green; they differ.
+  assert.ok(cvd.includes('38;2;100;170;255'), 'cvd gauge should start blue');
+  const traffic = run(fix, { SL_ACCESSIBLE: 'on', SL_ACCESSIBLE_GAUGE: 'traffic' });
+  assert.ok(traffic.includes('38;2;0;255;0'), 'traffic gauge should start green');
+  assert.notStrictEqual(cvd, traffic, 'gauge ramps should produce different output');
+});
+
 // 9. Last-file segment — resolved from a (large) transcript via the bounded tail
 // read. Guards both readTail (the real edit must survive past 256KB of filler) and
 // the case-insensitive tool-name matcher (Claude names are capitalised: Edit/etc).
