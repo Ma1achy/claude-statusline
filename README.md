@@ -90,6 +90,21 @@ restyle **any element** individually.
 | `chaos` | disco, plasma, pet, the works |
 | `demo` | the kitchen-sink showcase |
 
+…and ten personas — opinionated, complete looks:
+
+| Persona | Vibe |
+|--------|------|
+| `stillness` | mono, breathing, nothing else |
+| `operator` | mono + scan, burn rate + cost flair + git |
+| `observatory` | tokyonight + comet, moon, day/night, crest |
+| `cabin` | gruvbox + breathe, pet, moon, day/night |
+| `hacker` | matrix theme & bar + scan, crest, git, burn |
+| `warroom` | heat + sweep, burn + git + cost flair + crest |
+| `lofi` | rosé pine + wave, pet, moon, day/night |
+| `outrun` | synthwave + wave, rainbow stats |
+| `wraith` | mono + snake bar + comet, moon, cost flair — alive but barely there |
+| `arcade` | dracula + pac-man bar, pet, cost flair, rainbow stats |
+
 ### Themes
 
 `"theme": "gruvbox"`. There are ~80. A theme recolours the whole line.
