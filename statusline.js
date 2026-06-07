@@ -614,18 +614,20 @@ var { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
 function fgRgb() {
   if (cfg.accessible)
     return A11Y_PAL.WHITE;
-  const d = THEMES_DATA[cfg.themeName];
-  if (d && d.palRgb)
+  const d = THEMES_DATA[cfg.themeName] || THEMES_DATA.heat;
+  if (d.palRgb)
     return d.palRgb.WHITE;
-  if (d && d.palRaw)
+  if (d.palRaw)
     return [229, 229, 229];
-  if (d && d.cmap)
+  if (d.cmap)
     return [228, 228, 228];
   return [220, 222, 230];
 }
 function deriveMuted() {
   if (cfg.colorMode === "mono")
     return DIM;
+  if (cfg.accessible)
+    return tc(150, 170, 210);
   const m = fgRgb().map((v) => Math.max(72, Math.round(v * 0.5)));
   return tc(m[0], m[1], m[2]);
 }
@@ -841,14 +843,14 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       else if (isFill)
         out += `${fg(i * 100 + 50)}=${R}`;
       else
-        out += `${DIM}\xB7${R}`;
+        out += `${ROLES.muted}\xB7${R}`;
       continue;
     }
     if (barStyle === "snake") {
       if (isFill)
         out += i === snakeHead ? `${ESC}[1m${fg(i * 100 + 50)}@${R}` : `${fg(i * 100 + 50)}~${R}`;
       else
-        out += `${DIM}\xB7${R}`;
+        out += `${ROLES.muted}\xB7${R}`;
       continue;
     }
     if (barStyle === "matrix") {
@@ -859,47 +861,47 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       continue;
     }
     if (barStyle === "braille") {
-      out += isFill ? `${fg(i * 100 + 50)}\u28FF${R}` : `${DIM}\u2804${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}\u28FF${R}` : `${ROLES.muted}\u2804${R}`;
       continue;
     }
     if (barStyle === "battery") {
-      out += isFill ? `${fg(i * 100 + 50)}\u2588${R}` : `${DIM}\u2591${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}\u2588${R}` : `${ROLES.muted}\u2591${R}`;
       continue;
     }
     if (barStyle === "thermo") {
-      out += isFill ? `${fg(i * 100 + 50)}\u25B0${R}` : `${DIM}\u25B1${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}\u25B0${R}` : `${ROLES.muted}\u25B1${R}`;
       continue;
     }
     if (barStyle === "shade") {
       if (isFill)
         out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
       else
-        out += `${DIM}\u2591${R}`;
+        out += `${ROLES.muted}\u2591${R}`;
       continue;
     }
     if (barStyle === "lines" || barStyle === "minimal") {
-      out += isFill ? `${fg(i * 100 + 50)}\u2501${R}` : `${DIM}\u2500${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}\u2501${R}` : `${ROLES.muted}\u2500${R}`;
       continue;
     }
     if (barStyle === "rule") {
       if (isFill)
         out += `${fg(i * 100 + 50)}${i % 5 === 0 ? "\u253C" : "\u2500"}${R}`;
       else
-        out += `${DIM}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
+        out += `${ROLES.muted}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
       continue;
     }
     if (barStyle === "equalizer" || barStyle === "waveform") {
       if (isFill)
         out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs2, 140)) % 8]}${R}`;
       else
-        out += `${DIM}\u2581${R}`;
+        out += `${ROLES.muted}\u2581${R}`;
       continue;
     }
     if (barStyle === "dna") {
       if (isFill)
         out += `${fg(i * 100 + 50)}${(i + idiv(nowMs2, 200)) % 2 ? "X" : "x"}${R}`;
       else
-        out += `${DIM}\xB7${R}`;
+        out += `${ROLES.muted}\xB7${R}`;
       continue;
     }
     if (barStyle === "train") {
@@ -908,7 +910,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       else if (isFill)
         out += `${fg(i * 100 + 50)}=${R}`;
       else
-        out += `${DIM}-${R}`;
+        out += `${ROLES.muted}-${R}`;
       continue;
     }
     if (isFill && shimmer2 === "disco") {
@@ -926,7 +928,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       else
         out += `${fgbg(left, right)}\u258C${R}`;
     } else
-      out += `${DIM}\u2591${R}`;
+      out += `${ROLES.muted}\u2591${R}`;
   }
   return out;
 }
@@ -1137,6 +1139,86 @@ function weatherWord(pct, target) {
   if (pct >= 40)
     return "breezy";
   return "clear";
+}
+
+// src/elements.ts
+var ELEMENT_DEFAULTS = {
+  "lead.fast": { fill: "gold" },
+  "lead.vim": { fill: "accent" },
+  "pet": { fill: "ok" },
+  "bracket.delim": { fill: "muted" },
+  "crest": { fill: "gold" },
+  "model.tier": { fill: "accent" },
+  "model.version": { fill: "accent" },
+  "model.badge1m": { fill: "muted" },
+  "effort": { fill: "fg" },
+  "thinking": { fill: "muted" },
+  "moon": { fill: "muted" },
+  "clock": { fill: "muted" },
+  "sysinfo": { fill: "muted" },
+  "bar.empty": { fill: "muted" },
+  "ctx.pct": { fill: "gradient" },
+  "ctx.weather": { fill: "gradient" },
+  "ctx.size": { fill: "muted" },
+  "ctx.compactLabel": { fill: "muted" },
+  "trend.spark": { fill: "muted" },
+  "trend.eta": { fill: "gradient" },
+  "trend.compactions": { fill: "muted" },
+  "tokens.hit": { fill: "ok" },
+  "tokens.read": { fill: "ok" },
+  "tokens.write": { fill: "warn" },
+  "tokens.in": { fill: "muted" },
+  "tokens.out": { fill: "muted" },
+  "usage.label": { fill: "muted" },
+  "usage.pct": { fill: "gradient" },
+  "usage.warn": { fill: "bad", weight: "bold" },
+  "usage.countdown": { fill: "muted" },
+  "dir": { fill: "muted" },
+  "file": { fill: "muted" },
+  "git.branch": { fill: "accent" },
+  "git.mood": { fill: "muted" },
+  "git.state": { fill: "bad", weight: "bold" },
+  "git.today": { fill: "ok" },
+  "git.ahead": { fill: "ok" },
+  "git.behind": { fill: "bad" },
+  "git.age": { fill: "muted" },
+  "git.email": { fill: "muted" },
+  "git.added": { fill: "ok" },
+  "git.removed": { fill: "bad" },
+  "git.dirty": { fill: "warn" },
+  "git.staged": { fill: "ok" },
+  "git.untracked": { fill: "warn" },
+  "git.stash": { fill: "muted" },
+  "git.risk": { fill: "ok" },
+  "name": { fill: "rainbow" },
+  "cost.amount": { fill: "ok" },
+  "cost.flair": { fill: "ok" },
+  "cost.rate": { fill: "muted" },
+  "cost.ratio": { fill: "muted" },
+  "age": { fill: "ok" },
+  "separator": { fill: "muted" }
+};
+
+// src/style.ts
+var hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function st(id, text, opts = {}) {
+  if (text === "")
+    return "";
+  const d = ELEMENT_DEFAULTS[id] || {};
+  const fill = opts.role ?? d.fill ?? "fg";
+  const weight = opts.weight ?? d.weight ?? "normal";
+  const w = weight === "bold" ? BOLD : weight === "dim" ? DIM : "";
+  if (fill === "rainbow")
+    return `${w}${rainbow(text)}`;
+  let colour;
+  if (fill === "gradient")
+    colour = gradientColor(opts.pct ?? 0);
+  else if (fill[0] === "#") {
+    const [r, g, b] = hexRgb(fill);
+    colour = tc(r, g, b);
+  } else
+    colour = TH.roles && TH.roles[fill] || "";
+  return `${w}${colour}${text}${R}`;
 }
 
 // src/cli.ts
@@ -1414,9 +1496,9 @@ function refreshGitCache(data) {
   try {
     const sk = sessionKey(data);
     readGit(CWD, gc);
-    const st = readState(sk);
-    st.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
-    writeState(sk, st);
+    const st2 = readState(sk);
+    st2.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
+    writeState(sk, st2);
   } catch {
   }
 }
@@ -1446,12 +1528,8 @@ function buildPet(COST, DIRTY, PCT) {
       lvl = COST >= 0.5 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;
   }
   const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
-  const col = ["", "", "", "", ""];
-  col[0] = GREEN;
-  col[2] = AMBER;
-  col[3] = RED;
-  col[4] = GOLD;
-  return `${col[lvl]}${faces[lvl]}${R} `;
+  const role = ["ok", "fg", "warn", "bad", "gold"][lvl];
+  return `${st("pet", faces[lvl], { role })} `;
 }
 function buildUsage(rl) {
   const NOW = cfg.baseFrame;
@@ -1460,22 +1538,20 @@ function buildUsage(rl) {
     if (pct > 100)
       pct = 100;
     const bar = drawBar(10, scaleCells(pct, 10), -1, phase);
-    let pc = gradientColor(pct);
-    let warn = "";
-    if (cfg.limits) {
-      if (pct >= cfg.limitCrit) {
-        pc = `${BOLD}${RED}`;
-        warn = ` ${BOLD}${RED}LOW${R}`;
-      } else if (pct >= cfg.limitWarn) {
-        pc = AMBER;
-      }
-    }
+    let pctStr, warn = "";
+    if (cfg.limits && pct >= cfg.limitCrit) {
+      pctStr = st("usage.pct", `${pct}%`, { role: "bad", weight: "bold" });
+      warn = ` ${st("usage.warn", "LOW")}`;
+    } else if (cfg.limits && pct >= cfg.limitWarn) {
+      pctStr = st("usage.pct", `${pct}%`, { role: "warn" });
+    } else
+      pctStr = st("usage.pct", `${pct}%`, { pct });
     let secsLeft = 0;
     const ra = typeof resetsAt === "number" ? resetsAt : parseInt(String(resetsAt), 10);
     if (Number.isFinite(ra) && ra > 0)
       secsLeft = ra - NOW;
-    const cd = secsLeft <= 0 ? `${DIM}now${R}` : `${DIM}${fmtCountdown(secsLeft)}${R}`;
-    return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R}${warn} ${cd}`;
+    const cd = st("usage.countdown", secsLeft <= 0 ? "now" : fmtCountdown(secsLeft));
+    return `${st("usage.label", label)} ${bar} ${pctStr}${warn} ${cd}`;
   };
   const fh = rl.five_hour || {}, sd = rl.seven_day || {};
   return `${rlSeg("5h", fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg("7d", sd.used_percentage, sd.resets_at, 3e3)}`;
@@ -1511,38 +1587,38 @@ function build() {
   let SPARK2 = [], COMPACTIONS = 0, ETA_SAMPLES = [], BELL = "";
   try {
     const sk = sessionKey(data);
-    const st = readState(sk);
+    const st2 = readState(sk);
     let gitFresh = false;
-    if (st.git && st.git.cwd === CWD) {
-      gitMemo = { ...st.git.data };
-      gitFresh = cfg.nowMs - st.git.ts < GIT_TTL;
+    if (st2.git && st2.git.cwd === CWD) {
+      gitMemo = { ...st2.git.data };
+      gitFresh = cfg.nowMs - st2.git.ts < GIT_TTL;
     }
-    if (CWD && !gitFresh && cfg.nowMs - (st.lastGitRefresh || 0) > GIT_TTL) {
+    if (CWD && !gitFresh && cfg.nowMs - (st2.lastGitRefresh || 0) > GIT_TTL) {
       kickRefresh = true;
-      st.lastGitRefresh = cfg.nowMs;
+      st2.lastGitRefresh = cfg.nowMs;
     }
     if (cfg.bell) {
       const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
-      if (lvl > (st.bellLevel ?? 0))
+      if (lvl > (st2.bellLevel ?? 0))
         BELL = "\x07";
-      st.bellLevel = lvl;
+      st2.bellLevel = lvl;
     }
-    const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+    const prev = st2.spark.length ? st2.spark[st2.spark.length - 1] : -1;
     if (prev >= 0 && PCT !== prev)
       cfg.event = true;
     if (prev >= 0 && PCT <= prev - 25)
-      st.compactions += 1;
-    pushSpark(st, PCT);
-    st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
+      st2.compactions += 1;
+    pushSpark(st2, PCT);
+    st2.etaSamples = (st2.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
     const bucket = idiv(DURATION_MS, HISTORY_BUCKET_MS);
-    if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
-      st.histBucket = bucket;
+    if (cfg.burn && COST > 0 && bucket > (st2.histBucket ?? -1)) {
+      st2.histBucket = bucket;
       appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
     }
-    writeState(sk, st);
-    SPARK2 = st.spark.slice();
-    COMPACTIONS = st.compactions;
-    ETA_SAMPLES = st.etaSamples;
+    writeState(sk, st2);
+    SPARK2 = st2.spark.slice();
+    COMPACTIONS = st2.compactions;
+    ETA_SAMPLES = st2.etaSamples;
   } catch {
   }
   let CUSTOM_SEG = "";
@@ -1562,58 +1638,55 @@ function build() {
     }
   }
   const idl = MODEL_ID.toLowerCase();
-  let TIER = "Sonnet", MODEL_COLOUR = CYAN;
+  let TIER = "Sonnet", modelRole = "accent";
   if (idl.includes("haiku")) {
     TIER = "Haiku";
-    MODEL_COLOUR = BLUE;
+    modelRole = "info";
   } else if (idl.includes("opus")) {
     TIER = "Opus";
-    MODEL_COLOUR = GOLD;
+    modelRole = "gold";
   }
   const vm = idl.match(/(opus|sonnet|haiku)-(\d+)-(\d+)/);
   const MODEL_VER = vm ? `${vm[2]}.${vm[3]}` : "";
-  const MODEL_DISPLAY = MODEL_VER ? `${MODEL_COLOUR}${TIER} ${MODEL_VER}${R}` : `${MODEL_COLOUR}${MODEL_NAME}${R}`;
-  const ONEM = MAX_TOK >= 9e5 ? `${DIM}1M${R}` : "";
+  const MODEL_DISPLAY = st("model.tier", MODEL_VER ? `${TIER} ${MODEL_VER}` : MODEL_NAME, { role: modelRole });
+  const ONEM = MAX_TOK >= 9e5 ? st("model.badge1m", "1M") : "";
   let CREST = "";
   if (cfg.crest) {
-    if (TIER === "Opus")
-      CREST = `${GOLD}\u2605${R} `;
-    else if (TIER === "Haiku")
-      CREST = `${BLUE}\u25B2${R} `;
-    else
-      CREST = `${CYAN}\u25C6${R} `;
+    const g = TIER === "Opus" ? "\u2605" : TIER === "Haiku" ? "\u25B2" : "\u25C6";
+    CREST = st("crest", g, { role: modelRole }) + " ";
   }
-  let EFFORT_C = "", EFFORT_WORD = "";
+  let effortRole = "fg", effortWeight = "normal", effortText = "";
   switch (EFFORT) {
     case "low":
-      EFFORT_C = WHITE;
-      EFFORT_WORD = `${DIM}low${R}`;
+      effortWeight = "dim";
+      effortText = "low";
       break;
     case "medium":
-      EFFORT_C = WHITE;
-      EFFORT_WORD = `${DIM}${WHITE}med${R}`;
+      effortWeight = "dim";
+      effortText = "med";
       break;
     case "high":
-      EFFORT_C = WHITE;
-      EFFORT_WORD = `${WHITE}high${R}`;
+      effortText = "high";
       break;
     case "xhigh":
-      EFFORT_C = AMBER;
-      EFFORT_WORD = `${AMBER}xhigh${R}`;
+      effortRole = "warn";
+      effortText = "xhigh";
       break;
     case "max":
-      EFFORT_C = RED;
-      EFFORT_WORD = `${BOLD}${RED}MAX${R}`;
+      effortRole = "bad";
+      effortWeight = "bold";
+      effortText = "MAX";
       break;
   }
-  const THINKING_WORD = THINKING ? `${DIM}${EFFORT_C}thinking${R}` : "";
-  const FAST = data.fast_mode ? `${GOLD}${txt("\u26A1")}${R}` : `${DIM}${txt("\u25AB")}${R}`;
+  const EFFORT_WORD = effortText ? st("effort", effortText, { role: effortRole, weight: effortWeight }) : "";
+  const THINKING_WORD = THINKING ? st("thinking", "thinking", { role: effortRole, weight: "dim" }) : "";
+  const FAST = data.fast_mode ? st("lead.fast", txt("\u26A1")) : st("lead.fast", txt("\u25AB"), { role: "muted" });
   let VIM = "";
   const vmode = data.vim && data.vim.mode || "";
   if (vmode) {
     const u = vmode.toUpperCase();
-    const col = u.startsWith("INS") ? GREEN : u.startsWith("VIS") ? AMBER : CYAN;
-    VIM = ` ${col}${u[0] || "?"}${R}`;
+    const role = u.startsWith("INS") ? "ok" : u.startsWith("VIS") ? "warn" : "accent";
+    VIM = ` ${st("lead.vim", u[0] || "?", { role })}`;
   }
   const LEAD = `${FAST}${VIM}`;
   let MOON = "";
@@ -1621,11 +1694,11 @@ function build() {
     const days = cfg.nowMs / 864e5 - 10961.26;
     const phase = (days / 29.530589 % 1 + 1) % 1;
     const g = ["\u25CF", "\u25D0", "\u25CB", "\u25D1"][Math.round(phase * 4) % 4];
-    MOON = `${DIM}${g}${R} `;
+    MOON = `${st("moon", g)} `;
   }
   const clockColour = () => {
     if (!cfg.daynight)
-      return DIM;
+      return ROLES.muted;
     const h = new Date(cfg.clockMs).getHours();
     if (h < 5 || h >= 22)
       return tc(90, 110, 170);
@@ -1637,18 +1710,18 @@ function build() {
       return tc(235, 165, 90);
     return tc(150, 130, 180);
   };
-  const DIR_SEG = `${DIM}${cfg.nerdfont ? "\uF07B " : ""}${displayPath(CWD)}${R}`;
+  const DIR_SEG = st("dir", `${cfg.nerdfont ? "\uF07B " : ""}${displayPath(CWD)}`);
   const G = readGit(CWD, gc);
   const BRANCH = G.branch, BRANCH_LABEL = G.branchLabel, DIRTY = G.dirty, STAGED = G.staged;
   const GIT_ID = G.gitId, GIT_STATE = G.state;
-  const GIT_TODAY = G.today > 0 ? ` ${GREEN}${txt("\u2713")}${G.today}${R}` : "";
+  const GIT_TODAY = G.today > 0 ? ` ${st("git.today", `${txt("\u2713")}${G.today}`)}` : "";
   let GIT_AB = "";
   {
     let s = "";
     if (G.ahead)
-      s += `${GREEN}${txt("\u2191")}${G.ahead}${R}`;
+      s += st("git.ahead", `${txt("\u2191")}${G.ahead}`);
     if (G.behind)
-      s += `${RED}${txt("\u2193")}${G.behind}${R}`;
+      s += st("git.behind", `${txt("\u2193")}${G.behind}`);
     if (s)
       GIT_AB = `  ${s}`;
   }
@@ -1656,12 +1729,13 @@ function build() {
   if (G.ageSecs >= 0) {
     const secs = G.ageSecs;
     const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m` : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
-    GIT_AGE = `  ${DIM}\xB7${a}${R}`;
+    GIT_AGE = `  ${st("git.age", `\xB7${a}`)}`;
   }
-  const GIT_UNTRACKED = G.untracked > 0 ? `  ${AMBER}?${G.untracked}${R}` : "";
-  const GIT_STASH = G.stash > 0 ? ` ${DIM}s:${G.stash}${R}` : "";
-  const BRANCH_MOOD = G.mood ? `${DIM}[${G.mood}]${R} ` : "";
-  const GIT_RISK = G.riskLevel ? `  ${G.riskLevel === "high" ? RED : G.riskLevel === "med" ? AMBER : GREEN}risk:${G.riskLevel}${R}` : "";
+  const GIT_UNTRACKED = G.untracked > 0 ? `  ${st("git.untracked", `?${G.untracked}`)}` : "";
+  const GIT_STASH = G.stash > 0 ? ` ${st("git.stash", `s:${G.stash}`)}` : "";
+  const BRANCH_MOOD = G.mood ? `${st("git.mood", `[${G.mood}]`)} ` : "";
+  const riskRole = G.riskLevel === "high" ? "bad" : G.riskLevel === "med" ? "warn" : "ok";
+  const GIT_RISK = G.riskLevel ? `  ${st("git.risk", `risk:${G.riskLevel}`, { role: riskRole })}` : "";
   const PET = buildPet(COST, DIRTY, PCT);
   let CLAUDE_USER = "";
   try {
@@ -1694,13 +1768,13 @@ function build() {
     }
   } catch {
   }
-  const FILE_SEG = LAST_FILE ? ` ${DIM}\u203A ${LAST_FILE}${R}` : "";
+  const FILE_SEG = LAST_FILE ? ` ${st("file", `\u203A ${LAST_FILE}`)}` : "";
   let COMPACT_PCT = "", COMPACT_OFF = false;
   try {
-    const st = JSON.parse(fs4.readFileSync(`${os3.homedir()}/.claude/settings.json`, "utf8"));
-    if (st.env && st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
-      COMPACT_PCT = String(st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
-    if (st.autoCompactEnabled === false || st.autoCompact === false)
+    const st2 = JSON.parse(fs4.readFileSync(`${os3.homedir()}/.claude/settings.json`, "utf8"));
+    if (st2.env && st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
+      COMPACT_PCT = String(st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
+    if (st2.autoCompactEnabled === false || st2.autoCompact === false)
       COMPACT_OFF = true;
   } catch {
   }
@@ -1709,93 +1783,92 @@ function build() {
     COMPACT_LABEL = "";
     COMPACT_PCT_VAL = -1;
   } else if (COMPACT_PCT) {
-    COMPACT_LABEL = `${DIM} |${COMPACT_PCT}%${R}`;
+    COMPACT_LABEL = st("ctx.compactLabel", ` |${COMPACT_PCT}%`);
     COMPACT_PCT_VAL = parseInt(COMPACT_PCT, 10);
   } else {
-    COMPACT_LABEL = `${DIM} |95%${R}`;
+    COMPACT_LABEL = st("ctx.compactLabel", " |95%");
     COMPACT_PCT_VAL = 95;
   }
   const BAR_WIDTH = 28;
   const FILLED = scaleCells(PCT, BAR_WIDTH);
   const MARKER_POS = COMPACT_OFF ? -1 : scaleCells(COMPACT_PCT_VAL, BAR_WIDTH);
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
-  const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;
+  const PCT_SEG = st("ctx.pct", `${PCT}%`, { pct: PCT });
   let TREND_SEG = "";
   if (cfg.trend) {
     const parts = [];
     const spark = sparkline(SPARK2);
     if (spark)
-      parts.push(`${DIM}${spark}${R}`);
+      parts.push(st("trend.spark", spark));
     if (!COMPACT_OFF && COMPACT_PCT_VAL > 0) {
       const eta = etaMinutes(ETA_SAMPLES, COMPACT_PCT_VAL, PCT);
       if (eta >= 0)
-        parts.push(`${gradientColor(PCT)}~${fmtCountdown(eta * 60)}${R}`);
+        parts.push(st("trend.eta", `~${fmtCountdown(eta * 60)}`, { pct: PCT }));
     }
     if (COMPACTIONS > 0)
-      parts.push(`${DIM}\u21BA${COMPACTIONS}${R}`);
+      parts.push(st("trend.compactions", `\u21BA${COMPACTIONS}`));
     TREND_SEG = parts.join(" ");
   }
-  const WEATHER_SEG = cfg.weather ? `${gradientColor(PCT)}${weatherWord(PCT, COMPACT_OFF ? 0 : COMPACT_PCT_VAL)}${R}` : "";
+  const WEATHER_SEG = cfg.weather ? st("ctx.weather", weatherWord(PCT, COMPACT_OFF ? 0 : COMPACT_PCT_VAL), { pct: PCT }) : "";
   let TURN_SEG = "";
   if (cu != null) {
     const total = CU_INPUT + CU_WRITE + CU_READ;
     let HIT_SEG = "";
     if (total > 0 && CU_READ > 0) {
       const hit = idiv(CU_READ * 100, total);
-      const hc = hit >= 70 ? `${BOLD}${GREEN}` : hit >= 40 ? GREEN : `${DIM}${GREEN}`;
-      HIT_SEG = `${hc}\u2726${hit}%${R}`;
+      HIT_SEG = st("tokens.hit", `\u2726${hit}%`, { weight: hit >= 70 ? "bold" : hit >= 40 ? "normal" : "dim" });
     }
-    const readSeg = CU_READ > 0 ? ` ${GREEN}\u2726${fmtK(CU_READ)}${R}` : "";
-    const writeSeg = CU_WRITE > 0 ? ` ${AMBER}+${fmtK(CU_WRITE)}w${R}` : "";
-    const inSeg = CU_INPUT > 0 ? ` ${DIM}${txt("\u2193")}${fmtK(CU_INPUT)}${R}` : "";
-    const outSeg = CU_OUT > 0 ? ` ${DIM}${txt("\u2191")}${fmtK(CU_OUT)}${R}` : "";
+    const readSeg = CU_READ > 0 ? ` ${st("tokens.read", `\u2726${fmtK(CU_READ)}`)}` : "";
+    const writeSeg = CU_WRITE > 0 ? ` ${st("tokens.write", `+${fmtK(CU_WRITE)}w`)}` : "";
+    const inSeg = CU_INPUT > 0 ? ` ${st("tokens.in", `${txt("\u2193")}${fmtK(CU_INPUT)}`)}` : "";
+    const outSeg = CU_OUT > 0 ? ` ${st("tokens.out", `${txt("\u2191")}${fmtK(CU_OUT)}`)}` : "";
     TURN_SEG = HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
   }
   const COST_FMT = Number(COST).toFixed(3);
   const costNum = parseFloat(COST_FMT);
-  const COST_COLOUR = costNum >= 0.5 ? RED : costNum >= 0.1 ? AMBER : GREEN;
+  const costRole = costNum >= 0.5 ? "bad" : costNum >= 0.1 ? "warn" : "ok";
   const COST_FLAIR = cfg.costFlair ? (costNum >= 1 ? "!$" : costNum >= 0.5 ? "$$" : costNum >= 0.1 ? "$" : "\xB7") + " " : "";
   let COST_SEG, BAR_PREFIX;
   if (COST_FMT === "0.000") {
-    COST_SEG = `${DIM}$0${R}`;
-    BAR_PREFIX = `${DIM}\u2205 ${R}`;
+    COST_SEG = st("cost.amount", "$0", { role: "muted" });
+    BAR_PREFIX = `${ROLES.muted}\u2205 ${R}`;
   } else {
     const price = `${COST_FLAIR}$${COST_FMT}`;
-    COST_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
+    COST_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : st("cost.amount", price, { role: costRole });
     BAR_PREFIX = "";
   }
   if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
     const ratePerHr = COST / (DURATION_MS / 36e5);
-    COST_SEG += ` ${DIM}$${ratePerHr.toFixed(2)}/hr${R}`;
+    COST_SEG += ` ${st("cost.rate", `$${ratePerHr.toFixed(2)}/hr`)}`;
     try {
       const rates = readHistory().filter((h) => h.dur >= BURN_BASELINE_MIN_MS && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
       if (rates.length >= 5) {
         const med = median(rates);
         if (med > 0) {
           const ratio = ratePerHr / med;
-          const rc = ratio >= 1.5 ? RED : ratio >= 1.1 ? AMBER : DIM;
-          COST_SEG += ` ${rc}${ratio.toFixed(1)}x${R}`;
+          const rRole = ratio >= 1.5 ? "bad" : ratio >= 1.1 ? "warn" : "muted";
+          COST_SEG += ` ${st("cost.ratio", `${ratio.toFixed(1)}x`, { role: rRole })}`;
         }
       }
     } catch {
     }
   }
   const DUR_S = idiv(DURATION_MS, 1e3);
-  let AGE_C, AGE_LABEL;
+  let ageRole, AGE_LABEL;
   if (DUR_S >= 7200) {
-    AGE_C = RED;
+    ageRole = "bad";
     AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`;
   } else if (DUR_S >= 3600) {
-    AGE_C = AMBER;
+    ageRole = "warn";
     AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`;
   } else if (DUR_S >= 60) {
-    AGE_C = GREEN;
+    ageRole = "ok";
     AGE_LABEL = `${idiv(DUR_S, 60)}m`;
   } else {
-    AGE_C = DIM;
+    ageRole = "muted";
     AGE_LABEL = `${DUR_S}s`;
   }
-  const AGE_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
+  const AGE_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : st("age", AGE_LABEL, { role: ageRole });
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const dt = new Date(cfg.clockMs);
@@ -1810,14 +1883,15 @@ function build() {
       HIDE.add(alias[t] || t);
   }
   const sh = (name, val) => HIDE.has(name) ? "" : val;
-  const SEP = cfg.separator ? ` ${DIM}${cfg.separator}${R} ` : "  ";
+  const SEP = cfg.separator ? ` ${st("separator", cfg.separator)} ` : "  ";
   let SYS_SEG = "";
   if (cfg.sysinfo) {
     const la = os3.loadavg()[0];
     if (la > 0)
-      SYS_SEG = `${DIM}\u21AF${la.toFixed(2)}${R} `;
+      SYS_SEG = `${st("sysinfo", `\u21AF${la.toFixed(2)}`)} `;
   }
   const CTX_SIZE_K = fmtK(MAX_TOK);
+  const BR_OPEN = st("bracket.delim", "["), BR_CLOSE = st("bracket.delim", "]");
   let BRACKET = `${sh("crest", CREST)}${sh("model", MODEL_DISPLAY)}`;
   if (ONEM)
     BRACKET += ` ${ONEM}`;
@@ -1825,10 +1899,10 @@ function build() {
     BRACKET += ` ${sh("effort", EFFORT_WORD)}`;
   if (THINKING_WORD)
     BRACKET += ` ${sh("thinking", THINKING_WORD)}`;
-  const L1_LEFT = `${LEAD} ${sh("pet", PET)}${DIM}[${R}${BRACKET}${DIM}]${R}`;
+  const L1_LEFT = `${LEAD} ${sh("pet", PET)}${BR_OPEN}${BRACKET}${BR_CLOSE}`;
   const L1_RIGHT = `${sh("sysinfo", SYS_SEG)}${sh("moon", MOON)}${sh("clock", CLOCK_SEG)}`;
   const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${sh("weather", WEATHER_SEG)}` : PCT_SEG;
-  let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
+  let CTX_STATS = st("ctx.size", CTX_SIZE_K);
   if (TURN_SEG)
     CTX_STATS += ` ${sh("tokens", TURN_SEG)}`;
   if (TREND_SEG)
@@ -1838,24 +1912,24 @@ function build() {
   let L3_LEFT = `${sh("dir", DIR_SEG)}${sh("file", FILE_SEG)}`;
   let GIT_SEG = "";
   if (BRANCH) {
-    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}${cfg.nerdfont ? "" : "\u2387"} ${BRANCH_LABEL}${R}`;
+    GIT_SEG += `  ${BRANCH_MOOD}${st("git.branch", `${cfg.nerdfont ? "" : "\u2387"} ${BRANCH_LABEL}`)}`;
     if (GIT_STATE)
-      GIT_SEG += ` ${BOLD}${RED}${GIT_STATE}!${R}`;
+      GIT_SEG += ` ${st("git.state", `${GIT_STATE}!`)}`;
     GIT_SEG += GIT_TODAY;
   }
   GIT_SEG += GIT_AB + GIT_AGE;
   if (GIT_ID && !HIDE.has("email"))
-    GIT_SEG += `  ${DIM}${GIT_ID}${R}`;
+    GIT_SEG += `  ${st("git.email", GIT_ID)}`;
   if (ADDED > 0 || REMOVED > 0)
-    GIT_SEG += `  ${GREEN}+${ADDED}${R}/${RED}-${REMOVED}${R}`;
+    GIT_SEG += `  ${st("git.added", `+${ADDED}`)}/${st("git.removed", `-${REMOVED}`)}`;
   if (DIRTY > 0)
-    GIT_SEG += `  ${AMBER}~${DIRTY}${R}`;
+    GIT_SEG += `  ${st("git.dirty", `~${DIRTY}`)}`;
   if (STAGED > 0)
-    GIT_SEG += ` ${GREEN}\u25CF${STAGED}${R}`;
+    GIT_SEG += ` ${st("git.staged", `\u25CF${STAGED}`)}`;
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh("git", GIT_SEG) + sh("custom", CUSTOM_SEG);
   let L3_RIGHT = "";
-  const NAME_STR = cfg.accessible ? `${WHITE}${CLAUDE_USER}${R}` : rainbow(CLAUDE_USER);
+  const NAME_STR = st("name", CLAUDE_USER, cfg.accessible ? { role: "fg" } : {});
   if (CLAUDE_USER)
     L3_RIGHT = `${sh("name", `${NAME_STR}  `)}`;
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;

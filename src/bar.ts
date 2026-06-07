@@ -1,8 +1,8 @@
 // Animated % bar. All styles rotate HUE at a moving crest; they differ only in
 // how the crest travels. Cells are drawn per SL_BAR_STYLE. The colour at each
 // sub-pixel comes from the active theme (hue-ramp or colormap).
-import { ESC, R, DIM, BOLD, tc, fgbg, dimFg } from './ansi';
-import { WHITE } from './themes';
+import { ESC, R, BOLD, tc, fgbg, dimFg } from './ansi';
+import { WHITE, ROLES } from './themes';
 import { TH } from './themes';
 import { cfg } from './config';
 import { hsv, cmapSample, shiftHue } from './color';
@@ -153,12 +153,12 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
     if (barStyle === 'pacman') {
       if (isFill && i === filled - 1) out += `${ESC}[1m${fg(i * 100 + 50)}C${R}`;
       else if (isFill) out += `${fg(i * 100 + 50)}=${R}`;
-      else out += `${DIM}·${R}`;
+      else out += `${ROLES.muted}·${R}`;
       continue;
     }
     if (barStyle === 'snake') {
       if (isFill) out += i === snakeHead ? `${ESC}[1m${fg(i * 100 + 50)}@${R}` : `${fg(i * 100 + 50)}~${R}`;
-      else out += `${DIM}·${R}`;
+      else out += `${ROLES.muted}·${R}`;
       continue;
     }
     if (barStyle === 'matrix') {
@@ -167,45 +167,45 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
       continue;
     }
     if (barStyle === 'braille') {
-      out += isFill ? `${fg(i * 100 + 50)}⣿${R}` : `${DIM}⠄${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}⣿${R}` : `${ROLES.muted}⠄${R}`;
       continue;
     }
     if (barStyle === 'battery') {
-      out += isFill ? `${fg(i * 100 + 50)}█${R}` : `${DIM}░${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}█${R}` : `${ROLES.muted}░${R}`;
       continue;
     }
     if (barStyle === 'thermo') {
-      out += isFill ? `${fg(i * 100 + 50)}▰${R}` : `${DIM}▱${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}▰${R}` : `${ROLES.muted}▱${R}`;
       continue;
     }
     if (barStyle === 'shade') {
       if (isFill) out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
-      else out += `${DIM}░${R}`;
+      else out += `${ROLES.muted}░${R}`;
       continue;
     }
     if (barStyle === 'lines' || barStyle === 'minimal') {
-      out += isFill ? `${fg(i * 100 + 50)}━${R}` : `${DIM}─${R}`;
+      out += isFill ? `${fg(i * 100 + 50)}━${R}` : `${ROLES.muted}─${R}`;
       continue;
     }
     if (barStyle === 'rule') {
       if (isFill) out += `${fg(i * 100 + 50)}${i % 5 === 0 ? '┼' : '─'}${R}`;
-      else out += `${DIM}${i % 5 === 0 ? '┊' : '┄'}${R}`;
+      else out += `${ROLES.muted}${i % 5 === 0 ? '┊' : '┄'}${R}`;
       continue;
     }
     if (barStyle === 'equalizer' || barStyle === 'waveform') {
       if (isFill) out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs, 140)) % 8]}${R}`;
-      else out += `${DIM}▁${R}`;
+      else out += `${ROLES.muted}▁${R}`;
       continue;
     }
     if (barStyle === 'dna') {
       if (isFill) out += `${fg(i * 100 + 50)}${(i + idiv(nowMs, 200)) % 2 ? 'X' : 'x'}${R}`;
-      else out += `${DIM}·${R}`;
+      else out += `${ROLES.muted}·${R}`;
       continue;
     }
     if (barStyle === 'train') {
       if (isFill && i === filled - 1) out += `${ESC}[1m${fg(i * 100 + 50)}O${R}`;
       else if (isFill) out += `${fg(i * 100 + 50)}=${R}`;
-      else out += `${DIM}-${R}`;
+      else out += `${ROLES.muted}-${R}`;
       continue;
     }
     // disco: solid blocks (the whole line is re-rainbowed in a post-process pass)
@@ -223,7 +223,7 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
       if (colorMode === 'mono') out += `${BOLD}█${R}`;
       else if (colorMode === '16') out += `${tc(left[0], left[1], left[2])}█${R}`;
       else out += `${fgbg(left, right)}▌${R}`;
-    } else out += `${DIM}░${R}`;
+    } else out += `${ROLES.muted}░${R}`;
   }
   return out;
 }

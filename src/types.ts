@@ -14,6 +14,23 @@ export interface Palette {
  *  consistently. `muted` replaces the old theme-independent `DIM`. */
 export type Role = 'fg' | 'muted' | 'accent' | 'ok' | 'warn' | 'bad' | 'info' | 'gold';
 
+/** Per-element animation. Discrete/event-driven so it reads at ≤1 repaint/sec. */
+export interface AnimSpec { kind: 'none' | 'wave' | 'rainbow' | 'gradient-cycle' | 'pulse' | 'breathe'; speed?: number; }
+
+/** How one element is styled. `fill` is a role name, a `#rrggbb`, `gradient`
+ *  (value-driven along the theme), or `rainbow`. All fields optional; the resolver
+ *  cascades built-in default ← theme ← accessibility profile ← user config. */
+export interface Style {
+  fill?: string;                 // Role | '#rrggbb' | 'gradient' | 'rainbow'
+  weight?: 'normal' | 'bold' | 'dim';
+  attrs?: Array<'italic' | 'underline'>;
+  case?: 'none' | 'upper' | 'lower' | 'title';
+  font?: 'none' | 'bold' | 'italic' | 'script' | 'smallcaps';   // opt-in pseudo-font
+  anim?: AnimSpec;
+  glyph?: string;
+  label?: string;
+}
+
 export interface Theme {
   // hue-ramp themes
   hueHi?: number; hueLo?: number; sat?: number; valLo?: number; valHi?: number;

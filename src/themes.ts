@@ -111,14 +111,19 @@ export const { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
 // the theme. In mono there's no colour to dim → fall back to the SGR dim attribute.
 function fgRgb(): RGB {
   if (cfg.accessible) return A11Y_PAL.WHITE;
-  const d = THEMES_DATA[cfg.themeName];
-  if (d && d.palRgb) return d.palRgb.WHITE;
-  if (d && d.palRaw) return [229, 229, 229];
-  if (d && d.cmap) return [228, 228, 228];
-  return [220, 222, 230];                 // custom / unknown
+  // Mirror TH's fallback: an unknown / failed-custom theme resolves to heat, so its
+  // muted must too (else a malformed custom theme wouldn't be byte-identical to heat).
+  const d = THEMES_DATA[cfg.themeName] || THEMES_DATA.heat;
+  if (d.palRgb) return d.palRgb.WHITE;
+  if (d.palRaw) return [229, 229, 229];
+  if (d.cmap) return [228, 228, 228];
+  return [220, 222, 230];
 }
 function deriveMuted(): string {
   if (cfg.colorMode === 'mono') return DIM;
+  // Accessibility never dims into low contrast: muted stays a bright, AAA-clearing
+  // secondary (light blue-grey) instead of a pulled-down foreground.
+  if (cfg.accessible) return tc(150, 170, 210);
   const m = fgRgb().map((v) => Math.max(72, Math.round(v * 0.5))) as RGB;
   return tc(m[0], m[1], m[2]);
 }
