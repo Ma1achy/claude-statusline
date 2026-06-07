@@ -196,7 +196,7 @@ def make_gif(home, repo, name, frames, duration):
             subprocess.run(["node", SL, "--git-refresh"], input=json.dumps(sample), env=env, capture_output=True, text=True)
         out = subprocess.run(["node", SL], input=json.dumps(sample), env=env, capture_output=True, text=True).stdout
         lines = out.rstrip("\n").split("\n")
-        rendered.append((lines[:3], cap))
+        rendered.append((lines[:6], cap))   # up to 6: 4-line layouts + warning/info lines
     W = max(width_of(ls) for ls, _ in rendered)
     nrows = max(len(ls) for ls, _ in rendered)
     imgs = [render(ls, cap, W, nrows).convert("P", palette=Image.ADAPTIVE, colors=256) for ls, cap in rendered]
@@ -208,7 +208,8 @@ def make_gif(home, repo, name, frames, duration):
 def main():
     # Optional target: all (default) | default | loaded | themes | colormaps | bars |
     #   shimmer | fx | disco | presets | layouts | colors | trend | pets | reactive |
-    #   scale | accessible | typography | git | spotlight | customtheme
+    #   scale | accessible | typography | git | spotlight | customtheme |
+    #   personas | layouts2 | frames | warning
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     want = lambda *names: target == "all" or target in names
     base, home, repo = setup_fixture()
@@ -241,7 +242,7 @@ def main():
         if want("bars"):
             make_gif(home, repo, "demo-bar-styles.gif",
                      [({"SL_BAR_STYLE": b, "SL_SHIMMER": "sweep", "_pct": 62}, BASE_MS + k * 1000, f"SL_BAR_STYLE={b}")
-                      for b in ["blocks", "pacman", "snake", "matrix", "braille", "battery", "thermo", "shade", "lines", "rule", "equalizer", "dna", "train"] for k in range(4)], 340)
+                      for b in ["blocks", "pacman", "snake", "matrix", "braille", "battery", "thermo", "shade", "lines", "rule", "equalizer", "dna", "train", "waveform", "retro", "arrows"] for k in range(4)], 340)
         if want("shimmer"):
             make_gif(home, repo, "demo-shimmer.gif",
                      [({"SL_SHIMMER": s, "_pct": 66}, BASE_MS + k * 1000, f"SL_SHIMMER={s}")
@@ -249,7 +250,7 @@ def main():
         if want("fx"):
             make_gif(home, repo, "demo-shimmer-fx.gif",
                      [({"SL_SHIMMER": s, "SL_RAINBOW_STATS": "on", "_pct": 66}, BASE_MS + k * 900, f"SL_SHIMMER={s}")
-                      for s in ["drift", "plasma", "lumin", "heartbeat", "twinkle", "storm", "glitch", "morse"] for k in range(5)], 300)
+                      for s in ["drift", "plasma", "lumin", "heartbeat", "twinkle", "storm", "glitch", "morse", "tide", "smoulder", "lightning"] for k in range(5)], 300)
         if want("presets"):
             make_gif(home, repo, "demo-presets.gif",
                      [({"SL_PRESET": p, "_pct": 58}, BASE_MS + k * 700, f"SL_PRESET={p}")
@@ -417,6 +418,32 @@ def main():
             frames += [({**cb, "SL_THEME": "cyberpunk", "_cost": 0.55}, BASE_MS + k * 600,
                         "themes restyle elements (cyberpunk: accent clock, bold cost)") for k in range(5)]
             make_gif(home, repo, "demo-custom-theme.gif", frames, 360)
+
+        # ── persona presets ──────────────────────────────────────────────────────
+        if want("personas"):
+            make_gif(home, repo, "demo-personas.gif",
+                     [({"SL_PRESET": p, "_pct": 58, "_cost": 0.55, "_sid": p}, BASE_MS + k * 700, f"preset: {p}")
+                      for p in ["operator", "observatory", "cabin", "hacker", "warroom", "lofi", "outrun", "wraith", "arcade"]
+                      for k in range(4)], 360)
+
+        # ── new layout variants ──────────────────────────────────────────────────
+        if want("layouts2"):
+            lb = {"SL_CREST": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on", "SL_SHIMMER": "wave", "_pct": 58}
+            make_gif(home, repo, "demo-layouts2.gif",
+                     [({**lb, "SL_LAYOUT": ly}, BASE_MS + k * 700, f"SL_LAYOUT={ly}")
+                      for ly in ["inverse", "merged", "bicolumn", "barfirst", "header", "split"] for k in range(4)], 380)
+
+        # ── frames + the warning line ─────────────────────────────────────────────
+        if want("frames"):
+            fb = {"SL_CREST": "on", "SL_GIT_EXTRA": "on", "SL_SHIMMER": "wave", "_pct": 58}
+            make_gif(home, repo, "demo-frames.gif",
+                     [({**fb, "SL_FRAME": f}, BASE_MS + k * 700, f"SL_FRAME={f}")
+                      for f in ["rule", "box"] for k in range(4)], 460)
+        if want("warning"):
+            # sweep context across the threshold so the ⚠ line appears and clears.
+            make_gif(home, repo, "demo-warning.gif",
+                     [({"SL_WARNING_LINE": "on", "SL_GIT_EXTRA": "on", "_pct": p, "_cost": 1.2, "_sid": "warn"},
+                       BASE_MS, f"context {p}%") for p in [58, 72, 84, 96, 84, 72]], 520)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print("done")

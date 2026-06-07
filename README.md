@@ -105,6 +105,8 @@ restyle **any element** individually.
 | `wraith` | mono + snake bar + comet, moon, cost flair — alive but barely there |
 | `arcade` | dracula + pac-man bar, pet, cost flair, rainbow stats |
 
+<p align="center"><img src="assets/demo-personas.gif" width="100%" /></p>
+
 ### Themes
 
 `"theme": "gruvbox"`. There are ~80. A theme recolours the whole line.
@@ -115,8 +117,13 @@ Hue-ramp & designer: `heat` · `synthwave` · `matrix` · `pastel` · `mono` · 
 `gruvbox` · `tokyonight` · `rosepine` · `catppuccin-{latte,frappe,macchiato,mocha}` ·
 `solarized-{dark,light}` · `kanagawa` · `everforest` · `onedark` · `ayu-{dark,mirage,light}` ·
 `github-{dark,light}` · `monokai{,-pro}` · `cyberpunk` · `phosphor{,-green,-white}` · `verdigris` ·
-`sumi-e` · `stealth` · `zen` · `void` · `gothic` · `oceanic` · identity flags
-(`pride` · `trans` · `bi` · `ace` · `nonbinary`).
+`sumi-e` · `stealth` · `zen` · `void` · `gothic` · `oceanic` · `amber-crt` · `noir` · `vaporwave` ·
+`blueprint` · `ember` · `paperwhite` · `neon-tokyo` · `sepia` · `arctic` · `terminal-green` · `dusk` ·
+`oxocarbon` · identity flags (`pride` · `trans` · `bi` · `ace` · `nonbinary`).
+
+Most of these aren't just a palette — they use the styling engine to set a *voice*: `matrix` and
+`phosphor` go ALL-CAPS, `gothic` is small-caps with `LOW`→`DOOM`, `synthwave`/`void` script the name,
+`stealth` dims everything, `sumi-e` lowercases. See **Style any element yourself** below.
 
 **Scientific colour maps** (perceptually-uniform, several colour-blind-safe):
 
@@ -140,7 +147,8 @@ elements (here `cyberpunk` gives the clock an accent and bolds the cost):
 ### Bars, scale & motion
 
 `"barStyle": "braille"` — `blocks` · `pacman` · `snake` · `matrix` · `braille` · `battery` · `thermo`
-· `shade` · `lines` · `rule` · `equalizer` · `dna` · `train`.
+· `shade` · `lines` · `rule` · `equalizer` · `dna` · `train` · `waveform` (frozen oscilloscope) ·
+`retro` (`#`/`-`, mono-friendly) · `arrows` (`→`/`·` pipeline).
 
 <p align="center"><img src="assets/demo-bar-styles.gif" width="100%" /></p>
 
@@ -150,7 +158,8 @@ elements (here `cyberpunk` gives the clock an accent and bolds the cost):
 
 `"shimmer": "wave"` animates the bar crest — `sweep` · `wave` · `comet` · `breathe` · `scan`, plus the
 fancy ones: `drift` · `plasma` · `lumin` · `heartbeat` · `twinkle` · `storm` · `glitch` · `morse` ·
-`flash` (on % change) · `ripple` (on update). And `disco`, which is a joke mode. Use responsibly.
+`flash` (on % change) · `ripple` (on update) · `tide` (layered waves) · `smoulder` (fading embers) ·
+`lightning` (rare streak). And `disco`, which is a joke mode. Use responsibly.
 
 <p align="center"><img src="assets/demo-shimmer.gif" width="100%" /></p>
 <p align="center"><img src="assets/demo-shimmer-fx.gif" width="100%" /></p>
@@ -177,6 +186,10 @@ Flip any of these on (all default off):
 | `sysinfo` | 1-minute load average |
 | `bell` | ring the terminal bell once when context crosses a band |
 | `nerdfont` | use Nerd Font glyphs |
+| `warningLine` | a conditional ⚠ line that appears only when context/cost/limit crosses a threshold |
+| `activityLine` | the last tool + target from the transcript (`↳ edit bar.ts`) |
+| `conversationLine` | the last turn's token split + session total |
+| `adaptive` | layout follows context fill — compact when low, dashboard when high, auto-⚠ at critical |
 
 Each opt-in extra, shown on its own:
 
@@ -190,12 +203,25 @@ stash, ahead/behind upstream, detached HEAD, and a rough risk tag:
 <p align="center"><img src="assets/demo-pets.gif" width="100%" /></p>
 <p align="center"><img src="assets/demo-trend.gif" width="100%" /></p>
 
-Layout & housekeeping: `"layout"` (`3line` · `2line` · `1line` · `tiny`), `responsive` (pick layout by
-width), `hide` (drop named segments), `separator`, `path` (`auto` truncates deep paths), `privacy`
+Layout & housekeeping: `"layout"` (`3line` · `2line` · `1line` · `tiny` · `inverse` · `merged` ·
+`bicolumn` · `barfirst` · `header` · `split` dashboard), `responsive` (pick layout by width),
+`frame` (`rule` between lines, or a `box` border), `hide` (drop named segments), `separator`,
+`path` (`auto` truncates deep paths), `privacy`
 (hide email/account/cost/path for screenshots), `projectAliases`, `customSegment` (run your own
 script), `tmuxPassthrough`.
 
 <p align="center"><img src="assets/demo-layouts.gif" width="100%" /></p>
+
+…plus richer shapes — `inverse`, `merged`, `bicolumn`, `barfirst`, `header`, and the four-line `split`
+dashboard:
+
+<p align="center"><img src="assets/demo-layouts2.gif" width="100%" /></p>
+
+`frame` wraps the whole thing in a `rule` between lines or a `box` border; `warningLine` adds a ⚠ line
+only when context/cost/a limit goes critical (and `adaptive` does it for you):
+
+<p align="center"><img src="assets/demo-frames.gif" width="100%" /></p>
+<p align="center"><img src="assets/demo-warning.gif" width="100%" /></p>
 
 ### Style any element yourself
 
