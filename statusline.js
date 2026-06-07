@@ -24,8 +24,8 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 ));
 
 // src/index.ts
-var fs7 = __toESM(require("fs"));
-var os6 = __toESM(require("os"));
+var fs8 = __toESM(require("fs"));
+var os7 = __toESM(require("os"));
 var import_child_process4 = require("child_process");
 
 // src/ansi.ts
@@ -293,6 +293,10 @@ function justified(left, right) {
   return left + " ".repeat(pad) + right;
 }
 
+// src/themes.ts
+var fs2 = __toESM(require("fs"));
+var os2 = __toESM(require("os"));
+
 // src/color.ts
 function hsv(h, s, v) {
   h = mod(h, 360);
@@ -393,10 +397,6 @@ function hueRgb(h, mix) {
   }
   return [r + idiv((255 - r) * mix, 100), g + idiv((255 - g) * mix, 100), b + idiv((255 - b) * mix, 100)];
 }
-
-// src/themes.ts
-var fs2 = __toESM(require("fs"));
-var os2 = __toESM(require("os"));
 
 // src/themes.data.ts
 var A11Y_PAL = {
@@ -1779,6 +1779,91 @@ function buildUsage(rl) {
   return `${rlSeg("5h", fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg("7d", sd.used_percentage, sd.resets_at, 3e3)}`;
 }
 
+// src/io/settings.ts
+var fs7 = __toESM(require("fs"));
+var os6 = __toESM(require("os"));
+function readAccountName() {
+  try {
+    const cj = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude.json`, "utf8"));
+    return cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
+  } catch {
+    return "";
+  }
+}
+function readAutocompact() {
+  let pct = "", off = false;
+  try {
+    const s = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude/settings.json`, "utf8"));
+    if (s.env && s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
+      pct = String(s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
+    if (s.autoCompactEnabled === false || s.autoCompact === false)
+      off = true;
+  } catch {
+  }
+  return { pct, off };
+}
+
+// src/render/recolor.ts
+function recolor(line, colour) {
+  const glyphs = [];
+  for (const ch of Array.from(stripAnsi(line))) {
+    const code = ch.codePointAt(0) || 0;
+    if (code >= 65024 && code <= 65039 && glyphs.length)
+      glyphs[glyphs.length - 1] += ch;
+    else
+      glyphs.push(ch);
+  }
+  let out = "", col = 0;
+  for (const g of glyphs) {
+    if (g === " ") {
+      out += " ";
+      col++;
+      continue;
+    }
+    out += `${colour(col)}${g}${R}`;
+    col++;
+  }
+  return out;
+}
+function applyWashes(lines, rl, PCT) {
+  let dangerActive = false;
+  if (cfg.danger || cfg.themeName === "silver-halide") {
+    const fh = rl && rl.five_hour && rl.five_hour.used_percentage || 0;
+    const sd = rl && rl.seven_day && rl.seven_day.used_percentage || 0;
+    dangerActive = PCT >= 90 || fh >= cfg.limitCrit || sd >= cfg.limitCrit;
+  }
+  if (cfg.shimmer === "disco") {
+    return lines.map((l) => recolor(l, (col) => {
+      const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
+      return tc(r, g, b);
+    }));
+  } else if (dangerActive) {
+    const pulse = Math.abs(idiv(cfg.nowMs, 200) % 60 - 30);
+    return lines.map((l) => recolor(l, (col) => tc(150 + pulse + col % 3 * 12, 18, 18)));
+  }
+  return lines;
+}
+
+// src/render/layout.ts
+function assembleLayout(p, sh) {
+  const J2 = justified;
+  let layout = cfg.layout;
+  if (cfg.responsive) {
+    const c = termCols();
+    layout = c < 70 ? "tiny" : c < 100 ? "1line" : c < 140 ? "2line" : "3line";
+  }
+  switch (layout) {
+    case "tiny":
+      return [J2(`${p.BAR} ${p.PCT_SEG}`, sh("cost", p.COST_SEG))];
+    case "1line":
+      return [J2(`${p.LEAD} ${p.BAR}  ${p.PCT_FULL}  ${p.BRACKET}`, p.L3_RIGHT)];
+    case "2line":
+      return [J2(p.L1_LEFT, p.L1_RIGHT), J2(p.L2_LEFT, p.L3_RIGHT)];
+    default:
+      return [J2(p.L1_LEFT, p.L1_RIGHT), J2(p.L2_LEFT, p.L2_RIGHT), J2(p.L3_LEFT, p.L3_RIGHT)];
+  }
+}
+
 // src/index.ts
 function build() {
   const data = readInput();
@@ -1961,15 +2046,10 @@ function build() {
   const riskRole = G.riskLevel === "high" ? "bad" : G.riskLevel === "med" ? "warn" : "ok";
   const GIT_RISK = G.riskLevel ? `  ${st("git.risk", `risk:${G.riskLevel}`, { role: riskRole })}` : "";
   const PET = buildPet(COST, DIRTY, PCT);
-  let CLAUDE_USER = "";
-  try {
-    const cj = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude.json`, "utf8"));
-    CLAUDE_USER = cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
-  } catch {
-  }
+  const CLAUDE_USER = readAccountName();
   let LAST_FILE = "";
   try {
-    if (TRANSCRIPT && fs7.existsSync(TRANSCRIPT)) {
+    if (TRANSCRIPT && fs8.existsSync(TRANSCRIPT)) {
       const lines2 = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
       const re = /write|edit|read|str_replace|create/i;
       for (const line of lines2) {
@@ -1993,15 +2073,7 @@ function build() {
   } catch {
   }
   const FILE_SEG = LAST_FILE ? ` ${st("file", `\u203A ${LAST_FILE}`)}` : "";
-  let COMPACT_PCT = "", COMPACT_OFF = false;
-  try {
-    const st2 = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude/settings.json`, "utf8"));
-    if (st2.env && st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
-      COMPACT_PCT = String(st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
-    if (st2.autoCompactEnabled === false || st2.autoCompact === false)
-      COMPACT_OFF = true;
-  } catch {
-  }
+  const { pct: COMPACT_PCT, off: COMPACT_OFF } = readAutocompact();
   let COMPACT_LABEL, COMPACT_PCT_VAL;
   if (COMPACT_OFF) {
     COMPACT_LABEL = "";
@@ -2110,7 +2182,7 @@ function build() {
   const SEP = cfg.separator ? ` ${st("separator", cfg.separator)} ` : "  ";
   let SYS_SEG = "";
   if (cfg.sysinfo) {
-    const la = os6.loadavg()[0];
+    const la = os7.loadavg()[0];
     if (la > 0)
       SYS_SEG = `${st("sysinfo", `\u21AF${la.toFixed(2)}`)} `;
   }
@@ -2156,62 +2228,11 @@ function build() {
   if (CLAUDE_USER)
     L3_RIGHT = `${sh("name", `${st("name", CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
-  const J2 = justified;
-  let lines;
-  let layout = cfg.layout;
-  if (cfg.responsive) {
-    const c = termCols();
-    layout = c < 70 ? "tiny" : c < 100 ? "1line" : c < 140 ? "2line" : "3line";
-  }
-  switch (layout) {
-    case "tiny":
-      lines = [J2(`${BAR} ${PCT_SEG}`, sh("cost", COST_SEG))];
-      break;
-    case "1line":
-      lines = [J2(`${LEAD} ${BAR}  ${PCT_FULL}  ${BRACKET}`, L3_RIGHT)];
-      break;
-    case "2line":
-      lines = [J2(L1_LEFT, L1_RIGHT), J2(L2_LEFT, L3_RIGHT)];
-      break;
-    default:
-      lines = [J2(L1_LEFT, L1_RIGHT), J2(L2_LEFT, L2_RIGHT), J2(L3_LEFT, L3_RIGHT)];
-  }
-  const recolor = (line, colour) => {
-    const glyphs = [];
-    for (const ch of Array.from(stripAnsi(line))) {
-      const code = ch.codePointAt(0) || 0;
-      if (code >= 65024 && code <= 65039 && glyphs.length)
-        glyphs[glyphs.length - 1] += ch;
-      else
-        glyphs.push(ch);
-    }
-    let out = "", col = 0;
-    for (const g of glyphs) {
-      if (g === " ") {
-        out += " ";
-        col++;
-        continue;
-      }
-      out += `${colour(col)}${g}${R}`;
-      col++;
-    }
-    return out;
-  };
-  let dangerActive = false;
-  if (cfg.danger || cfg.themeName === "silver-halide") {
-    const fh = rl && rl.five_hour && rl.five_hour.used_percentage || 0;
-    const sd = rl && rl.seven_day && rl.seven_day.used_percentage || 0;
-    dangerActive = PCT >= 90 || fh >= cfg.limitCrit || sd >= cfg.limitCrit;
-  }
-  if (cfg.shimmer === "disco") {
-    lines = lines.map((l) => recolor(l, (col) => {
-      const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0);
-      return tc(r, g, b);
-    }));
-  } else if (dangerActive) {
-    const pulse = Math.abs(idiv(cfg.nowMs, 200) % 60 - 30);
-    lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + col % 3 * 12, 18, 18)));
-  }
+  let lines = assembleLayout(
+    { LEAD, BAR, PCT_SEG, PCT_FULL, BRACKET, COST_SEG, L1_LEFT, L1_RIGHT, L2_LEFT, L2_RIGHT, L3_LEFT, L3_RIGHT },
+    sh
+  );
+  lines = applyWashes(lines, rl, PCT);
   if (kickRefresh) {
     try {
       const child = (0, import_child_process4.spawn)(process.execPath, [__filename, "--git-refresh"], {

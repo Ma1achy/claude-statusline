@@ -3,8 +3,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import { execFileSync, spawn } from 'child_process';
-import { R, DIM, justified, stripAnsi, txt, tc, termCols } from './ansi';
-import { hueRgb } from './color';
+import { R, DIM, txt, tc } from './ansi';
 import { ROLES } from './themes';
 import { drawBar, scaleCells } from './bar';
 import { rainbow } from './rainbow';
@@ -21,6 +20,9 @@ import { readGit, refreshGitCache } from './io/gitcache';
 import { displayPath } from './segments/path';
 import { buildPet } from './segments/pet';
 import { buildUsage } from './segments/usage';
+import { readAccountName, readAutocompact } from './io/settings';
+import { applyWashes } from './render/recolor';
+import { assembleLayout } from './render/layout';
 import type { Role } from './types';
 
 function build(): string {
@@ -207,11 +209,7 @@ function build(): string {
   const PET = buildPet(COST, DIRTY, PCT);
 
   // ── Claude account name ─────────────────────────────────────────────────────
-  let CLAUDE_USER = '';
-  try {
-    const cj = JSON.parse(fs.readFileSync(`${os.homedir()}/.claude.json`, 'utf8'));
-    CLAUDE_USER = (cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress)) || '';
-  } catch { /* ignore */ }
+  const CLAUDE_USER = readAccountName();
 
   // ── last file touched (from transcript) ─────────────────────────────────────
   let LAST_FILE = '';
@@ -237,12 +235,7 @@ function build(): string {
   // ── autocompact threshold (from settings.json) ──────────────────────────────
   // The marker + label only appear when autocompact is ENABLED. autoCompactEnabled
   // is the current key (older builds used autoCompact); default is on if absent.
-  let COMPACT_PCT = '', COMPACT_OFF = false;
-  try {
-    const st = JSON.parse(fs.readFileSync(`${os.homedir()}/.claude/settings.json`, 'utf8'));
-    if (st.env && st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE) COMPACT_PCT = String(st.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
-    if (st.autoCompactEnabled === false || st.autoCompact === false) COMPACT_OFF = true;
-  } catch { /* ignore */ }
+  const { pct: COMPACT_PCT, off: COMPACT_OFF } = readAutocompact();
   let COMPACT_LABEL: string, COMPACT_PCT_VAL: number;
   if (COMPACT_OFF) { COMPACT_LABEL = ''; COMPACT_PCT_VAL = -1; }            // disabled → no marker, no label
   else if (COMPACT_PCT) { COMPACT_LABEL = st('ctx.compactLabel', ` |${COMPACT_PCT}%`); COMPACT_PCT_VAL = parseInt(COMPACT_PCT, 10); }
@@ -392,58 +385,14 @@ function build(): string {
   if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${st('name', CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh('cost', COST_SEG)}  ${sh('age', AGE_SEG)}`;
 
-  // Layout: which lines to emit. Compact forms reuse the segments already built.
-  // SL_RESPONSIVE picks a layout from the terminal width to avoid wrapping.
-  const J = justified;
-  let lines: string[];
-  let layout = cfg.layout;
-  if (cfg.responsive) { const c = termCols(); layout = c < 70 ? 'tiny' : c < 100 ? '1line' : c < 140 ? '2line' : '3line'; }
-  switch (layout) {
-    case 'tiny':
-      lines = [J(`${BAR} ${PCT_SEG}`, sh('cost', COST_SEG))];
-      break;
-    case '1line':
-      lines = [J(`${LEAD} ${BAR}  ${PCT_FULL}  ${BRACKET}`, L3_RIGHT)];
-      break;
-    case '2line':
-      lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L3_RIGHT)];
-      break;
-    default:   // 3line
-      lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L2_RIGHT), J(L3_LEFT, L3_RIGHT)];
-  }
+  // Layout: which lines to emit (assembleLayout handles SL_LAYOUT / SL_RESPONSIVE).
+  let lines = assembleLayout(
+    { LEAD, BAR, PCT_SEG, PCT_FULL, BRACKET, COST_SEG, L1_LEFT, L1_RIGHT, L2_LEFT, L2_RIGHT, L3_LEFT, L3_RIGHT },
+    sh,
+  );
 
-  // Whole-line recolour: group each glyph with any trailing variation selector,
-  // then recolour every visible unit via colour(col). Used by disco and the
-  // danger safelight wash so all coloured elements move together.
-  const recolor = (line: string, colour: (col: number) => string): string => {
-    const glyphs: string[] = [];
-    for (const ch of Array.from(stripAnsi(line))) {
-      const code = ch.codePointAt(0) || 0;
-      if (code >= 0xfe00 && code <= 0xfe0f && glyphs.length) glyphs[glyphs.length - 1] += ch;
-      else glyphs.push(ch);
-    }
-    let out = '', col = 0;
-    for (const g of glyphs) {
-      if (g === ' ') { out += ' '; col++; continue; }
-      out += `${colour(col)}${g}${R}`;
-      col++;
-    }
-    return out;
-  };
-  // Danger state (SL_DANGER, or the silver-halide theme): a deep safelight-red
-  // wash once context or a usage limit is critical — "you can still work, carefully".
-  let dangerActive = false;
-  if (cfg.danger || cfg.themeName === 'silver-halide') {
-    const fh = (rl && rl.five_hour && rl.five_hour.used_percentage) || 0;
-    const sd = (rl && rl.seven_day && rl.seven_day.used_percentage) || 0;
-    dangerActive = PCT >= 90 || fh >= cfg.limitCrit || sd >= cfg.limitCrit;
-  }
-  if (cfg.shimmer === 'disco') {
-    lines = lines.map((l) => recolor(l, (col) => { const [r, g, b] = hueRgb(col * 14 + idiv(cfg.nowMs, 6), 0); return tc(r, g, b); }));
-  } else if (dangerActive) {
-    const pulse = Math.abs((idiv(cfg.nowMs, 200) % 60) - 30);   // 0..30, slow throb
-    lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + (col % 3) * 12, 18, 18)));
-  }
+  // Whole-line washes (disco rainbow / danger safelight) override per-element fills.
+  lines = applyWashes(lines, rl, PCT);
 
   // Fire-and-forget the git-cache refresher: a detached child re-runs this binary
   // with --git-refresh, execs git off the hot path, and writes the cache for the
