@@ -54,6 +54,30 @@ test('warningLine surfaces only when a threshold is crossed', () => {
   assert.ok(stripAnsi(lines[3]).includes('⚠') && stripAnsi(lines[3]).includes('context 88%'), 'warning text missing');
 });
 
+// 2d. Info lines — opt-in conditional extra lines.
+test('conversationLine appends the last-turn token breakdown', () => {
+  const lines = run(fix, { SL_CONVERSATION_LINE: 'on' }).split('\n').filter(Boolean);
+  assert.strictEqual(lines.length, 4, 'expected a 4th conversation line');
+  assert.ok(stripAnsi(lines[3]).includes('last turn') && stripAnsi(lines[3]).includes('tok'), 'token breakdown missing');
+});
+
+test('activityLine shows the most recent tool + target from the transcript', () => {
+  const os = require('os');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-act-'));
+  const home = path.join(base, 'home');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+  writeConfig(home, { SL_ACTIVITY_LINE: 'on' });
+  const tr = path.join(base, 't.jsonl');
+  fs.writeFileSync(tr, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } }) + '\n');
+  const out = stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ workspace: { current_dir: base }, transcript_path: tr, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1 } }),
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
+  }));
+  assert.match(out, /↳ bash npm/, 'activity line should show the last tool + target');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 // 3. Smoke — each opt-in toggle adds its expected marker without errors.
 test('toggles: pet / crest / git-extras / cost-flair appear when enabled', () => {
   const plain = stripAnsi(run(fix, {}));

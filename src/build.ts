@@ -24,6 +24,8 @@ import { buildGitSeg } from './segments/git';
 import { buildCustom } from './segments/custom';
 import { buildLastFile } from './segments/lastfile';
 import { buildWarning } from './segments/warning';
+import { buildActivity } from './segments/activity';
+import { buildConversation } from './segments/conversation';
 import { applyWashes } from './render/recolor';
 import { assembleLayout } from './render/layout';
 
@@ -137,6 +139,8 @@ export function build(): string {
     const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
     if (warn) lines.push(warn);
   }
+  if (cfg.activityLine) { const a = buildActivity(TRANSCRIPT); if (a) lines.push(a); }
+  if (cfg.conversationLine) { const c = buildConversation(cw.current_usage); if (c) lines.push(c); }
 
   // Fire-and-forget the git-cache refresher: a detached child re-runs this binary
   // with --git-refresh, execs git off the hot path, and writes the cache for the

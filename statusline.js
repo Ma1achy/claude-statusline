@@ -181,6 +181,8 @@ function loadConfig() {
     gitRisk: jbool("gitRisk"),
     danger: jbool("danger"),
     warningLine: jbool("warningLine"),
+    activityLine: jbool("activityLine"),
+    conversationLine: jbool("conversationLine"),
     petStyle: jstr("petStyle", "default"),
     petReactsTo: jstr("petReactsTo", ""),
     bell: jbool("bell"),
@@ -1464,7 +1466,9 @@ var ELEMENT_DEFAULTS = {
   "cost.ratio": { fill: "muted" },
   "age": { fill: "ok" },
   "separator": { fill: "muted" },
-  "warning": { fill: "bad", weight: "bold" }
+  "warning": { fill: "bad", weight: "bold" },
+  "activity": { fill: "muted" },
+  "conversation": { fill: "muted" }
 };
 
 // src/style.ts
@@ -2329,6 +2333,50 @@ function buildWarning(PCT, COST, rl, limitCrit) {
   return st("warning", `${glyphFor("warning", "\u26A0")} ${parts.join("  \xB7  ")}`);
 }
 
+// src/segments/activity.ts
+var fs9 = __toESM(require("fs"));
+function buildActivity(TRANSCRIPT) {
+  let tool = "", target = "";
+  try {
+    if (TRANSCRIPT && fs9.existsSync(TRANSCRIPT)) {
+      const lines = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
+      for (const line of lines) {
+        let ev;
+        try {
+          ev = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (!ev || ev.type !== "assistant" || !ev.message || !Array.isArray(ev.message.content))
+          continue;
+        for (const c of ev.message.content) {
+          if (c && c.type === "tool_use" && typeof c.name === "string") {
+            tool = c.name.toLowerCase();
+            const inp = c.input || {};
+            const p = inp.path || inp.file_path || "";
+            target = p ? String(p).split(/[\\/]/).pop() : typeof inp.command === "string" ? inp.command.split(/\s+/)[0] : "";
+          }
+        }
+      }
+    }
+  } catch {
+  }
+  if (!tool)
+    return "";
+  return st("activity", `${glyphFor("activity", "\u21B3")} ${target ? `${tool} ${target}` : tool}`);
+}
+
+// src/segments/conversation.ts
+function buildConversation(cu) {
+  if (cu == null)
+    return "";
+  const inT = cu.input_tokens || 0, outT = cu.output_tokens || 0;
+  const total = (cu.cache_read_input_tokens || 0) + (cu.cache_creation_input_tokens || 0) + inT + outT;
+  if (total === 0)
+    return "";
+  return st("conversation", `last turn  ${txt("\u2193")}${fmtK(inT)} ${txt("\u2191")}${fmtK(outT)}  \xB7  ${fmtK(total)} tok`);
+}
+
 // src/render/recolor.ts
 function recolor(line, colour) {
   const glyphs = [];
@@ -2480,6 +2528,16 @@ function build() {
     const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
     if (warn)
       lines.push(warn);
+  }
+  if (cfg.activityLine) {
+    const a = buildActivity(TRANSCRIPT);
+    if (a)
+      lines.push(a);
+  }
+  if (cfg.conversationLine) {
+    const c = buildConversation(cw.current_usage);
+    if (c)
+      lines.push(c);
   }
   if (kickRefresh) {
     try {

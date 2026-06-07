@@ -119,6 +119,8 @@ function loadConfig(): Config {
     gitRisk: jbool('gitRisk'),
     danger: jbool('danger'),
     warningLine: jbool('warningLine'),
+    activityLine: jbool('activityLine'),
+    conversationLine: jbool('conversationLine'),
     petStyle: jstr('petStyle', 'default'),
     petReactsTo: jstr('petReactsTo', ''),
     bell: jbool('bell'),
