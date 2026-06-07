@@ -1719,6 +1719,10 @@ var HUE_SHIMMERS = {
     if (hashI(sx * 13 + bk) % 100 < 12)
       return hashI(sx + bk) % 2 ? c.waveHue * 3 : -c.waveHue * 2;
     return 0;
+  },
+  // two layered waves (one fast, one slow, opposite drift) → an interference tide.
+  tide(sx, c) {
+    return idiv(c.waveHue * (c.tri(idiv(sx, 7) + idiv(c.t * c.speed, 30)) + c.tri(idiv(sx, 14) - idiv(c.t, 55))), 200);
   }
 };
 HUE_SHIMMERS.aurora = HUE_SHIMMERS.drift;
@@ -1755,8 +1759,25 @@ var BRIGHT_SHIMMERS = {
   // bright pulse the tick the % changes
   ripple(sx, c) {
     return c.event ? Math.abs(sx - c.filled * 100) < 250 ? 175 : 88 : 88;
-  }
+  },
   // ring at the fill edge on update
+  // embers: occasional bright flickers in the fill that fade over the next bucket.
+  smoulder(sx, c) {
+    const bk = idiv(c.t, 240);
+    if (hashI(sx * 7 + bk) % 100 < 8)
+      return 165;
+    if (hashI(sx * 7 + bk - 1) % 100 < 8)
+      return 116;
+    return 78;
+  },
+  // mostly static, then a fast bright streak fires across the whole bar (~every 9s).
+  lightning(sx, c) {
+    const phase = mod(c.t, 9e3);
+    if (phase >= 240)
+      return 100;
+    const pos = idiv(phase * c.wrap, 240);
+    return Math.abs(sx - pos) < 120 ? 210 : 100;
+  }
 };
 
 // src/bar.ts
