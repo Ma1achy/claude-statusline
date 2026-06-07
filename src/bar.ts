@@ -132,9 +132,24 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
       else out += `${ROLES.muted}${i % 5 === 0 ? '┊' : '┄'}${R}`;
       continue;
     }
-    if (barStyle === 'equalizer' || barStyle === 'waveform') {
+    if (barStyle === 'equalizer') {
       if (isFill) out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs, 140)) % 8]}${R}`;
       else out += `${ROLES.muted}▁${R}`;
+      continue;
+    }
+    if (barStyle === 'waveform') {
+      // a frozen oscilloscope: per-cell heights seeded by the fill (static, not animated).
+      if (isFill) out += `${fg(i * 100 + 50)}${EQ[hashI(i * 23 + filled) % 8]}${R}`;
+      else out += `${ROLES.muted}▁${R}`;
+      continue;
+    }
+    if (barStyle === 'retro') {
+      // solid ASCII, mono-friendly: '#' filled, '-' track.
+      out += isFill ? `${fg(i * 100 + 50)}#${R}` : `${ROLES.muted}-${R}`;
+      continue;
+    }
+    if (barStyle === 'arrows') {
+      out += isFill ? `${fg(i * 100 + 50)}→${R}` : `${ROLES.muted}·${R}`;
       continue;
     }
     if (barStyle === 'dna') {

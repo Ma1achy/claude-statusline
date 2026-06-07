@@ -1919,11 +1919,26 @@ function drawBar(width, filled, marker, phaseMs = 0) {
         out += `${ROLES.muted}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
       continue;
     }
-    if (barStyle === "equalizer" || barStyle === "waveform") {
+    if (barStyle === "equalizer") {
       if (isFill)
         out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 17 + idiv(nowMs, 140)) % 8]}${R}`;
       else
         out += `${ROLES.muted}\u2581${R}`;
+      continue;
+    }
+    if (barStyle === "waveform") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 23 + filled) % 8]}${R}`;
+      else
+        out += `${ROLES.muted}\u2581${R}`;
+      continue;
+    }
+    if (barStyle === "retro") {
+      out += isFill ? `${fg(i * 100 + 50)}#${R}` : `${ROLES.muted}-${R}`;
+      continue;
+    }
+    if (barStyle === "arrows") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2192${R}` : `${ROLES.muted}\xB7${R}`;
       continue;
     }
     if (barStyle === "dna") {

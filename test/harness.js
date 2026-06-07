@@ -132,7 +132,7 @@ const CASES = [
       'amber-crt', 'noir', 'vaporwave', 'blueprint', 'ember', 'paperwhite', 'neon-tokyo',
       'sepia', 'arctic', 'terminal-green', 'dusk', 'oxocarbon'].map((t) => [`theme-${t}`, { SL_THEME: t }]),
   ...['blocks', 'pacman', 'snake', 'matrix', 'braille', 'battery', 'thermo', 'shade',
-      'lines', 'rule', 'equalizer', 'dna', 'train'].map((b) => [`bar-${b}`, { SL_BAR_STYLE: b }]),
+      'lines', 'rule', 'equalizer', 'dna', 'train', 'waveform', 'retro', 'arrows'].map((b) => [`bar-${b}`, { SL_BAR_STYLE: b }]),
   ['bar-scale-log', { SL_BAR_SCALE: 'log' }],
   ...['256', '16', 'mono'].map((m) => [`color-${m}`, { SL_COLOR_MODE: m }]),
   ['weather', { SL_WEATHER: 'on' }],
