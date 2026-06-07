@@ -180,6 +180,7 @@ function loadConfig() {
     responsive: jbool("responsive"),
     gitRisk: jbool("gitRisk"),
     danger: jbool("danger"),
+    warningLine: jbool("warningLine"),
     petStyle: jstr("petStyle", "default"),
     petReactsTo: jstr("petReactsTo", ""),
     bell: jbool("bell"),
@@ -1462,7 +1463,8 @@ var ELEMENT_DEFAULTS = {
   "cost.rate": { fill: "muted" },
   "cost.ratio": { fill: "muted" },
   "age": { fill: "ok" },
-  "separator": { fill: "muted" }
+  "separator": { fill: "muted" },
+  "warning": { fill: "bad", weight: "bold" }
 };
 
 // src/style.ts
@@ -2309,6 +2311,24 @@ function buildLastFile(TRANSCRIPT) {
   return LAST_FILE ? ` ${st("file", `${glyphFor("file", "\u203A")} ${LAST_FILE}`)}` : "";
 }
 
+// src/segments/warning.ts
+function buildWarning(PCT, COST, rl, limitCrit) {
+  const parts = [];
+  if (PCT >= 80)
+    parts.push(`context ${PCT}%`);
+  if (COST > 1)
+    parts.push(`cost $${COST.toFixed(2)}`);
+  const fh = Math.floor(rl && rl.five_hour && rl.five_hour.used_percentage || 0);
+  const sd = Math.floor(rl && rl.seven_day && rl.seven_day.used_percentage || 0);
+  if (fh >= limitCrit)
+    parts.push(`5h limit ${fh}%`);
+  if (sd >= limitCrit)
+    parts.push(`7d limit ${sd}%`);
+  if (!parts.length)
+    return "";
+  return st("warning", `${glyphFor("warning", "\u26A0")} ${parts.join("  \xB7  ")}`);
+}
+
 // src/render/recolor.ts
 function recolor(line, colour) {
   const glyphs = [];
@@ -2456,6 +2476,11 @@ function build() {
     sh
   );
   lines = applyWashes(lines, rl, PCT);
+  if (cfg.warningLine) {
+    const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
+    if (warn)
+      lines.push(warn);
+  }
   if (kickRefresh) {
     try {
       const child = (0, import_child_process5.spawn)(process.execPath, [__filename, "--git-refresh"], {

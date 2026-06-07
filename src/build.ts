@@ -23,6 +23,7 @@ import { buildCost, buildAge } from './segments/cost';
 import { buildGitSeg } from './segments/git';
 import { buildCustom } from './segments/custom';
 import { buildLastFile } from './segments/lastfile';
+import { buildWarning } from './segments/warning';
 import { applyWashes } from './render/recolor';
 import { assembleLayout } from './render/layout';
 
@@ -129,6 +130,13 @@ export function build(): string {
 
   // Whole-line washes (disco rainbow / danger safelight) override per-element fills.
   lines = applyWashes(lines, rl, PCT);
+
+  // warningLine: append a conditional alert line (after the washes, so it keeps its
+  // own red styling) only when a threshold is crossed.
+  if (cfg.warningLine) {
+    const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
+    if (warn) lines.push(warn);
+  }
 
   // Fire-and-forget the git-cache refresher: a detached child re-runs this binary
   // with --git-refresh, execs git off the hot path, and writes the cache for the
