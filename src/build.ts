@@ -6,7 +6,7 @@ import { spawn } from 'child_process';
 import { fmtK } from './format';
 import { cfg, resolveBranchTheme } from './config';
 import { rebuildTheme } from './themes';
-import { st } from './style';
+import { st, glyphFor } from './style';
 import { readInput } from './io/input';
 import { readGit } from './io/gitcache';
 import { readAccountName, readAutocompact } from './io/settings';
@@ -65,7 +65,7 @@ export function build(): string {
   const { word: EFFORT_WORD, thinking: THINKING_WORD } = buildEffort(EFFORT, THINKING);
   const LEAD = buildLead(data);
   const { clock: CLOCK_SEG, moon: MOON } = buildClock();
-  const DIR_SEG = st('dir', `${cfg.nerdfont ? '\u{F07B} ' : ''}${displayPath(CWD)}`);
+  const DIR_SEG = st('dir', `${glyphFor('dir', cfg.nerdfont ? '\u{F07B} ' : '')}${displayPath(CWD)}`);
   const G = readGit(CWD, gc);
   const PET = buildPet(COST, G.dirty, PCT);
   const CLAUDE_USER = readAccountName();

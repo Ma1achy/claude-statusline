@@ -1,7 +1,7 @@
 // Last file touched, parsed from the transcript tail: the most recent file-bearing
 // tool call (Edit/Read/Write/...). Bounded read so a multi-MB transcript is cheap.
 import * as fs from 'fs';
-import { st } from '../style';
+import { st, glyphFor } from '../style';
 import { readTail } from '../io/input';
 import type { TranscriptEvent } from '../types';
 
@@ -27,5 +27,5 @@ export function buildLastFile(TRANSCRIPT: string): string {
       }
     }
   } catch { /* ignore */ }
-  return LAST_FILE ? ` ${st('file', `› ${LAST_FILE}`)}` : '';
+  return LAST_FILE ? ` ${st('file', `${glyphFor('file', '›')} ${LAST_FILE}`)}` : '';
 }

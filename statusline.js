@@ -1387,6 +1387,18 @@ var ELEMENT_DEFAULTS = {
 };
 
 // src/style.ts
+function resolveGlyph(id) {
+  return cfg.elements?.[id]?.glyph ?? cfg.glyphs?.[id] ?? TH.elements?.[id]?.glyph ?? TH.glyphs?.[id] ?? ELEMENT_DEFAULTS[id].glyph;
+}
+function resolveLabel(id) {
+  return cfg.elements?.[id]?.label ?? cfg.labels?.[id] ?? TH.elements?.[id]?.label ?? TH.labels?.[id] ?? ELEMENT_DEFAULTS[id].label;
+}
+function glyphFor(id, fallback) {
+  return resolveGlyph(id) ?? fallback;
+}
+function labelFor(id, fallback) {
+  return resolveLabel(id) ?? fallback;
+}
 var hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 function throb(speed) {
   const m = mod(idiv(cfg.nowMs * speed, 16), 100);
@@ -1861,7 +1873,7 @@ function buildUsage(rl) {
     let pctStr, warn = "";
     if (cfg.limits && pct >= cfg.limitCrit) {
       pctStr = st("usage.pct", `${pct}%`, { role: "bad", weight: "bold" });
-      warn = ` ${st("usage.warn", "LOW")}`;
+      warn = ` ${st("usage.warn", labelFor("usage.warn", "LOW"))}`;
     } else if (cfg.limits && pct >= cfg.limitWarn) {
       pctStr = st("usage.pct", `${pct}%`, { role: "warn" });
     } else
@@ -1999,10 +2011,10 @@ function buildContext(PCT, compactPctRaw, compactOff, SPARK2, ETA_SAMPLES, COMPA
     if (!compactOff && compactPctVal > 0) {
       const eta = etaMinutes(ETA_SAMPLES, compactPctVal, PCT);
       if (eta >= 0)
-        parts.push(st("trend.eta", `~${fmtCountdown(eta * 60)}`, { pct: PCT }));
+        parts.push(st("trend.eta", `${glyphFor("trend.eta", "~")}${fmtCountdown(eta * 60)}`, { pct: PCT }));
     }
     if (COMPACTIONS > 0)
-      parts.push(st("trend.compactions", `\u21BA${COMPACTIONS}`));
+      parts.push(st("trend.compactions", `${glyphFor("trend.compactions", "\u21BA")}${COMPACTIONS}`));
     trend = parts.join(" ");
   }
   const weather = cfg.weather ? st("ctx.weather", weatherWord(PCT, compactOff ? 0 : compactPctVal), { pct: PCT }) : "";
@@ -2021,12 +2033,12 @@ function buildTokens(cu) {
   let HIT_SEG = "";
   if (total > 0 && CU_READ > 0) {
     const hit = idiv(CU_READ * 100, total);
-    HIT_SEG = st("tokens.hit", `\u2726${hit}%`, { weight: hit >= 70 ? "bold" : hit >= 40 ? "normal" : "dim" });
+    HIT_SEG = st("tokens.hit", `${glyphFor("tokens.hit", "\u2726")}${hit}%`, { weight: hit >= 70 ? "bold" : hit >= 40 ? "normal" : "dim" });
   }
-  const readSeg = CU_READ > 0 ? ` ${st("tokens.read", `\u2726${fmtK(CU_READ)}`)}` : "";
-  const writeSeg = CU_WRITE > 0 ? ` ${st("tokens.write", `+${fmtK(CU_WRITE)}w`)}` : "";
-  const inSeg = CU_INPUT > 0 ? ` ${st("tokens.in", `${txt("\u2193")}${fmtK(CU_INPUT)}`)}` : "";
-  const outSeg = CU_OUT > 0 ? ` ${st("tokens.out", `${txt("\u2191")}${fmtK(CU_OUT)}`)}` : "";
+  const readSeg = CU_READ > 0 ? ` ${st("tokens.read", `${glyphFor("tokens.read", "\u2726")}${fmtK(CU_READ)}`)}` : "";
+  const writeSeg = CU_WRITE > 0 ? ` ${st("tokens.write", `${glyphFor("tokens.write", "+")}${fmtK(CU_WRITE)}w`)}` : "";
+  const inSeg = CU_INPUT > 0 ? ` ${st("tokens.in", `${txt(glyphFor("tokens.in", "\u2193"))}${fmtK(CU_INPUT)}`)}` : "";
+  const outSeg = CU_OUT > 0 ? ` ${st("tokens.out", `${txt(glyphFor("tokens.out", "\u2191"))}${fmtK(CU_OUT)}`)}` : "";
   return HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
 }
 
@@ -2084,14 +2096,14 @@ function buildAge(DURATION_MS) {
 
 // src/segments/git.ts
 function buildGitSeg(G, ADDED, REMOVED, hideEmail) {
-  const GIT_TODAY = G.today > 0 ? ` ${st("git.today", `${txt("\u2713")}${G.today}`)}` : "";
+  const GIT_TODAY = G.today > 0 ? ` ${st("git.today", `${txt(glyphFor("git.today", "\u2713"))}${G.today}`)}` : "";
   let GIT_AB = "";
   {
     let s = "";
     if (G.ahead)
-      s += st("git.ahead", `${txt("\u2191")}${G.ahead}`);
+      s += st("git.ahead", `${txt(glyphFor("git.ahead", "\u2191"))}${G.ahead}`);
     if (G.behind)
-      s += st("git.behind", `${txt("\u2193")}${G.behind}`);
+      s += st("git.behind", `${txt(glyphFor("git.behind", "\u2193"))}${G.behind}`);
     if (s)
       GIT_AB = `  ${s}`;
   }
@@ -2099,16 +2111,16 @@ function buildGitSeg(G, ADDED, REMOVED, hideEmail) {
   if (G.ageSecs >= 0) {
     const secs = G.ageSecs;
     const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m` : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
-    GIT_AGE = `  ${st("git.age", `\xB7${a}`)}`;
+    GIT_AGE = `  ${st("git.age", `${glyphFor("git.age", "\xB7")}${a}`)}`;
   }
-  const GIT_UNTRACKED = G.untracked > 0 ? `  ${st("git.untracked", `?${G.untracked}`)}` : "";
-  const GIT_STASH = G.stash > 0 ? ` ${st("git.stash", `s:${G.stash}`)}` : "";
+  const GIT_UNTRACKED = G.untracked > 0 ? `  ${st("git.untracked", `${glyphFor("git.untracked", "?")}${G.untracked}`)}` : "";
+  const GIT_STASH = G.stash > 0 ? ` ${st("git.stash", `${labelFor("git.stash", "s:")}${G.stash}`)}` : "";
   const BRANCH_MOOD = G.mood ? `${st("git.mood", `[${G.mood}]`)} ` : "";
   const riskRole = G.riskLevel === "high" ? "bad" : G.riskLevel === "med" ? "warn" : "ok";
-  const GIT_RISK = G.riskLevel ? `  ${st("git.risk", `risk:${G.riskLevel}`, { role: riskRole })}` : "";
+  const GIT_RISK = G.riskLevel ? `  ${st("git.risk", `${labelFor("git.risk", "risk:")}${G.riskLevel}`, { role: riskRole })}` : "";
   let GIT_SEG = "";
   if (G.branch) {
-    GIT_SEG += `  ${BRANCH_MOOD}${st("git.branch", `${cfg.nerdfont ? "" : "\u2387"} ${G.branchLabel}`)}`;
+    GIT_SEG += `  ${BRANCH_MOOD}${st("git.branch", `${glyphFor("git.branch", cfg.nerdfont ? "" : "\u2387")} ${G.branchLabel}`)}`;
     if (G.state)
       GIT_SEG += ` ${st("git.state", `${G.state}!`)}`;
     GIT_SEG += GIT_TODAY;
@@ -2117,11 +2129,11 @@ function buildGitSeg(G, ADDED, REMOVED, hideEmail) {
   if (G.gitId && !hideEmail)
     GIT_SEG += `  ${st("git.email", G.gitId)}`;
   if (ADDED > 0 || REMOVED > 0)
-    GIT_SEG += `  ${st("git.added", `+${ADDED}`)}/${st("git.removed", `-${REMOVED}`)}`;
+    GIT_SEG += `  ${st("git.added", `${glyphFor("git.added", "+")}${ADDED}`)}/${st("git.removed", `${glyphFor("git.removed", "-")}${REMOVED}`)}`;
   if (G.dirty > 0)
-    GIT_SEG += `  ${st("git.dirty", `~${G.dirty}`)}`;
+    GIT_SEG += `  ${st("git.dirty", `${glyphFor("git.dirty", "~")}${G.dirty}`)}`;
   if (G.staged > 0)
-    GIT_SEG += ` ${st("git.staged", `\u25CF${G.staged}`)}`;
+    GIT_SEG += ` ${st("git.staged", `${glyphFor("git.staged", "\u25CF")}${G.staged}`)}`;
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   return GIT_SEG;
 }
@@ -2179,7 +2191,7 @@ function buildLastFile(TRANSCRIPT) {
     }
   } catch {
   }
-  return LAST_FILE ? ` ${st("file", `\u203A ${LAST_FILE}`)}` : "";
+  return LAST_FILE ? ` ${st("file", `${glyphFor("file", "\u203A")} ${LAST_FILE}`)}` : "";
 }
 
 // src/render/recolor.ts
@@ -2272,7 +2284,7 @@ function build() {
   const { word: EFFORT_WORD, thinking: THINKING_WORD } = buildEffort(EFFORT, THINKING);
   const LEAD = buildLead(data);
   const { clock: CLOCK_SEG, moon: MOON } = buildClock();
-  const DIR_SEG = st("dir", `${cfg.nerdfont ? "\uF07B " : ""}${displayPath(CWD)}`);
+  const DIR_SEG = st("dir", `${glyphFor("dir", cfg.nerdfont ? "\uF07B " : "")}${displayPath(CWD)}`);
   const G = readGit(CWD, gc);
   const PET = buildPet(COST, G.dirty, PCT);
   const CLAUDE_USER = readAccountName();
