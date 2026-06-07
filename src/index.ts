@@ -4,9 +4,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
-import { ESC, R, DIM, BOLD, justified, stripAnsi, txt, tc, termCols } from './ansi';
+import { ESC, R, DIM, justified, stripAnsi, txt, tc, termCols } from './ansi';
 import { hueRgb } from './color';
-import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
+import { ROLES } from './themes';
 import { drawBar, scaleCells } from './bar';
 import { rainbow } from './rainbow';
 import { fmtK, fmtCountdown } from './format';
@@ -16,8 +16,9 @@ import { idiv } from './util';
 import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory,
   HISTORY_BUCKET_MS, BURN_BASELINE_MIN_MS, BURN_MIN_SESSION_MS } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
+import { st } from './style';
 import { runPreview, runDoctor, runReport } from './cli';
-import type { StatuslineInput, RateLimit } from './types';
+import type { StatuslineInput, RateLimit, Role } from './types';
 
 // Pet faces by style, ordered calm → stressed (5 levels). All ASCII, width-safe.
 const PET_FACES: Record<string, string[]> = {
@@ -172,9 +173,8 @@ function buildPet(COST: number, DIRTY: number, PCT: number): string {
     default: lvl = COST >= 0.50 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;   // original behaviour
   }
   const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
-  const col = ['', '', '', '', ''];
-  col[0] = GREEN; col[2] = AMBER; col[3] = RED; col[4] = GOLD;
-  return `${col[lvl]}${faces[lvl]}${R} `;
+  const role = (['ok', 'fg', 'warn', 'bad', 'gold'] as Role[])[lvl];
+  return `${st('pet', faces[lvl], { role })} `;
 }
 
 // Usage-limit gauges (the 5h / 7d bars on line 2). SL_LIMITS tints amber past the
@@ -184,17 +184,16 @@ function buildUsage(rl: { five_hour?: RateLimit; seven_day?: RateLimit }): strin
   const rlSeg = (label: string, pctIn: number | undefined, resetsAt: number | string | undefined, phase: number): string => {
     let pct = Math.floor(pctIn || 0); if (pct > 100) pct = 100;
     const bar = drawBar(10, scaleCells(pct, 10), -1, phase);
-    let pc = gradientColor(pct);   // lerps along the theme gradient
-    let warn = '';
-    if (cfg.limits) {
-      if (pct >= cfg.limitCrit) { pc = `${BOLD}${RED}`; warn = ` ${BOLD}${RED}LOW${R}`; }
-      else if (pct >= cfg.limitWarn) { pc = AMBER; }
-    }
+    let pctStr: string, warn = '';
+    // limit warnings (SL_LIMITS): warn role past warn, bold bad + LOW past crit; else gradient.
+    if (cfg.limits && pct >= cfg.limitCrit) { pctStr = st('usage.pct', `${pct}%`, { role: 'bad', weight: 'bold' }); warn = ` ${st('usage.warn', 'LOW')}`; }
+    else if (cfg.limits && pct >= cfg.limitWarn) { pctStr = st('usage.pct', `${pct}%`, { role: 'warn' }); }
+    else pctStr = st('usage.pct', `${pct}%`, { pct });
     let secsLeft = 0;
     const ra = typeof resetsAt === 'number' ? resetsAt : parseInt(String(resetsAt), 10);
     if (Number.isFinite(ra) && ra > 0) secsLeft = ra - NOW;
-    const cd = secsLeft <= 0 ? `${DIM}now${R}` : `${DIM}${fmtCountdown(secsLeft)}${R}`;
-    return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R}${warn} ${cd}`;
+    const cd = st('usage.countdown', secsLeft <= 0 ? 'now' : fmtCountdown(secsLeft));
+    return `${st('usage.label', label)} ${bar} ${pctStr}${warn} ${cd}`;
   };
   const fh = rl.five_hour || {}, sd = rl.seven_day || {};
   return `${rlSeg('5h', fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg('7d', sd.used_percentage, sd.resets_at, 3000)}`;
@@ -297,44 +296,44 @@ function build(): string {
 
   // ── model: tier + version ─────────────────────────────────────────────────
   const idl = MODEL_ID.toLowerCase();
-  let TIER = 'Sonnet', MODEL_COLOUR = CYAN;
-  if (idl.includes('haiku')) { TIER = 'Haiku'; MODEL_COLOUR = BLUE; }
-  else if (idl.includes('opus')) { TIER = 'Opus'; MODEL_COLOUR = GOLD; }
+  let TIER = 'Sonnet', modelRole: Role = 'accent';
+  if (idl.includes('haiku')) { TIER = 'Haiku'; modelRole = 'info'; }
+  else if (idl.includes('opus')) { TIER = 'Opus'; modelRole = 'gold'; }
   const vm = idl.match(/(opus|sonnet|haiku)-(\d+)-(\d+)/);
   const MODEL_VER = vm ? `${vm[2]}.${vm[3]}` : '';
-  const MODEL_DISPLAY = MODEL_VER ? `${MODEL_COLOUR}${TIER} ${MODEL_VER}${R}` : `${MODEL_COLOUR}${MODEL_NAME}${R}`;
-  const ONEM = MAX_TOK >= 900000 ? `${DIM}1M${R}` : '';
+  const MODEL_DISPLAY = st('model.tier', MODEL_VER ? `${TIER} ${MODEL_VER}` : MODEL_NAME, { role: modelRole });
+  const ONEM = MAX_TOK >= 900000 ? st('model.badge1m', '1M') : '';
 
   // ── crest (SL_CREST) ────────────────────────────────────────────────────────
   let CREST = '';
   if (cfg.crest) {
-    if (TIER === 'Opus') CREST = `${GOLD}★${R} `;
-    else if (TIER === 'Haiku') CREST = `${BLUE}▲${R} `;
-    else CREST = `${CYAN}◆${R} `;
+    const g = TIER === 'Opus' ? '★' : TIER === 'Haiku' ? '▲' : '◆';
+    CREST = st('crest', g, { role: modelRole }) + ' ';
   }
 
   // ── effort + thinking ─────────────────────────────────────────────────────
-  let EFFORT_C = '', EFFORT_WORD = '';
+  let effortRole: Role = 'fg', effortWeight: 'normal' | 'bold' | 'dim' = 'normal', effortText = '';
   switch (EFFORT) {
-    case 'low': EFFORT_C = WHITE; EFFORT_WORD = `${DIM}low${R}`; break;
-    case 'medium': EFFORT_C = WHITE; EFFORT_WORD = `${DIM}${WHITE}med${R}`; break;
-    case 'high': EFFORT_C = WHITE; EFFORT_WORD = `${WHITE}high${R}`; break;
-    case 'xhigh': EFFORT_C = AMBER; EFFORT_WORD = `${AMBER}xhigh${R}`; break;
-    case 'max': EFFORT_C = RED; EFFORT_WORD = `${BOLD}${RED}MAX${R}`; break;
+    case 'low': effortWeight = 'dim'; effortText = 'low'; break;
+    case 'medium': effortWeight = 'dim'; effortText = 'med'; break;
+    case 'high': effortText = 'high'; break;
+    case 'xhigh': effortRole = 'warn'; effortText = 'xhigh'; break;
+    case 'max': effortRole = 'bad'; effortWeight = 'bold'; effortText = 'MAX'; break;
   }
-  const THINKING_WORD = THINKING ? `${DIM}${EFFORT_C}thinking${R}` : '';
+  const EFFORT_WORD = effortText ? st('effort', effortText, { role: effortRole, weight: effortWeight }) : '';
+  const THINKING_WORD = THINKING ? st('thinking', 'thinking', { role: effortRole, weight: 'dim' }) : '';
 
   // ── fast/slow + vim mode ────────────────────────────────────────────────────
   // Claude Code does NOT expose the permission/auto-accept mode to statuslines
   // (no such field), so this slot shows what IS available: the /fast toggle
   // (gold ⚡ = fast, dim ▫ = slow) and the vim input mode when enabled.
-  const FAST = data.fast_mode ? `${GOLD}${txt('⚡')}${R}` : `${DIM}${txt('▫')}${R}`;   // ⚡ fast · ▫ slow
+  const FAST = data.fast_mode ? st('lead.fast', txt('⚡')) : st('lead.fast', txt('▫'), { role: 'muted' });
   let VIM = '';
   const vmode = (data.vim && data.vim.mode) || '';
   if (vmode) {
     const u = vmode.toUpperCase();
-    const col = u.startsWith('INS') ? GREEN : u.startsWith('VIS') ? AMBER : CYAN;
-    VIM = ` ${col}${u[0] || '?'}${R}`;
+    const role: Role = u.startsWith('INS') ? 'ok' : u.startsWith('VIS') ? 'warn' : 'accent';
+    VIM = ` ${st('lead.vim', u[0] || '?', { role })}`;
   }
   const LEAD = `${FAST}${VIM}`;
 
@@ -344,12 +343,12 @@ function build(): string {
     const days = cfg.nowMs / 86400000 - 10961.26;       // since 2000-01-06 new moon
     const phase = ((days / 29.530589) % 1 + 1) % 1;      // 0=new … 0.5=full
     const g = ['●', '◐', '○', '◑'][Math.round(phase * 4) % 4];
-    MOON = `${DIM}${g}${R} `;
+    MOON = `${st('moon', g)} `;
   }
 
   // ── day/night clock colour (SL_DAYNIGHT) ────────────────────────────────────
   const clockColour = (): string => {
-    if (!cfg.daynight) return DIM;
+    if (!cfg.daynight) return ROLES.muted;
     const h = new Date(cfg.clockMs).getHours();
     if (h < 5 || h >= 22) return tc(90, 110, 170);
     if (h < 8) return tc(150, 170, 210);
@@ -358,28 +357,27 @@ function build(): string {
     return tc(150, 130, 180);
   };
 
-  const DIR_SEG = `${DIM}${cfg.nerdfont ? ' ' : ''}${displayPath(CWD)}${R}`;
+  const DIR_SEG = st('dir', `${cfg.nerdfont ? ' ' : ''}${displayPath(CWD)}`);
 
   // ── git ─── facts gathered by readGit() (cache-backed); display built here ────
   const G = readGit(CWD, gc);
   const BRANCH = G.branch, BRANCH_LABEL = G.branchLabel, DIRTY = G.dirty, STAGED = G.staged;
   const GIT_ID = G.gitId, GIT_STATE = G.state;
-  const GIT_TODAY = G.today > 0 ? ` ${GREEN}${txt('✓')}${G.today}${R}` : '';
+  const GIT_TODAY = G.today > 0 ? ` ${st('git.today', `${txt('✓')}${G.today}`)}` : '';
   let GIT_AB = '';
-  { let s = ''; if (G.ahead) s += `${GREEN}${txt('↑')}${G.ahead}${R}`; if (G.behind) s += `${RED}${txt('↓')}${G.behind}${R}`; if (s) GIT_AB = `  ${s}`; }
+  { let s = ''; if (G.ahead) s += st('git.ahead', `${txt('↑')}${G.ahead}`); if (G.behind) s += st('git.behind', `${txt('↓')}${G.behind}`); if (s) GIT_AB = `  ${s}`; }
   let GIT_AGE = '';
   if (G.ageSecs >= 0) {
     const secs = G.ageSecs;
     const a = secs < 60 ? `${secs}s` : secs < 3600 ? `${idiv(secs, 60)}m`
       : secs < 86400 ? `${idiv(secs, 3600)}h` : `${idiv(secs, 86400)}d`;
-    GIT_AGE = `  ${DIM}·${a}${R}`;
+    GIT_AGE = `  ${st('git.age', `·${a}`)}`;
   }
-  const GIT_UNTRACKED = G.untracked > 0 ? `  ${AMBER}?${G.untracked}${R}` : '';
-  const GIT_STASH = G.stash > 0 ? ` ${DIM}s:${G.stash}${R}` : '';
-  const BRANCH_MOOD = G.mood ? `${DIM}[${G.mood}]${R} ` : '';
-  const GIT_RISK = G.riskLevel
-    ? `  ${G.riskLevel === 'high' ? RED : G.riskLevel === 'med' ? AMBER : GREEN}risk:${G.riskLevel}${R}`
-    : '';
+  const GIT_UNTRACKED = G.untracked > 0 ? `  ${st('git.untracked', `?${G.untracked}`)}` : '';
+  const GIT_STASH = G.stash > 0 ? ` ${st('git.stash', `s:${G.stash}`)}` : '';
+  const BRANCH_MOOD = G.mood ? `${st('git.mood', `[${G.mood}]`)} ` : '';
+  const riskRole: Role = G.riskLevel === 'high' ? 'bad' : G.riskLevel === 'med' ? 'warn' : 'ok';
+  const GIT_RISK = G.riskLevel ? `  ${st('git.risk', `risk:${G.riskLevel}`, { role: riskRole })}` : '';
 
   // ── pet (SL_PET) ────────────────────────────────────────────────────────────
   const PET = buildPet(COST, DIRTY, PCT);
@@ -410,7 +408,7 @@ function build(): string {
       }
     }
   } catch { /* ignore */ }
-  const FILE_SEG = LAST_FILE ? ` ${DIM}› ${LAST_FILE}${R}` : '';
+  const FILE_SEG = LAST_FILE ? ` ${st('file', `› ${LAST_FILE}`)}` : '';
 
   // ── autocompact threshold (from settings.json) ──────────────────────────────
   // The marker + label only appear when autocompact is ENABLED. autoCompactEnabled
@@ -423,15 +421,15 @@ function build(): string {
   } catch { /* ignore */ }
   let COMPACT_LABEL: string, COMPACT_PCT_VAL: number;
   if (COMPACT_OFF) { COMPACT_LABEL = ''; COMPACT_PCT_VAL = -1; }            // disabled → no marker, no label
-  else if (COMPACT_PCT) { COMPACT_LABEL = `${DIM} |${COMPACT_PCT}%${R}`; COMPACT_PCT_VAL = parseInt(COMPACT_PCT, 10); }
-  else { COMPACT_LABEL = `${DIM} |95%${R}`; COMPACT_PCT_VAL = 95; }
+  else if (COMPACT_PCT) { COMPACT_LABEL = st('ctx.compactLabel', ` |${COMPACT_PCT}%`); COMPACT_PCT_VAL = parseInt(COMPACT_PCT, 10); }
+  else { COMPACT_LABEL = st('ctx.compactLabel', ' |95%'); COMPACT_PCT_VAL = 95; }
 
   // ── context bar ─────────────────────────────────────────────────────────────
   const BAR_WIDTH = 28;
   const FILLED = scaleCells(PCT, BAR_WIDTH);
   const MARKER_POS = COMPACT_OFF ? -1 : scaleCells(COMPACT_PCT_VAL, BAR_WIDTH);
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
-  const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;   // lerps along the theme gradient
+  const PCT_SEG = st('ctx.pct', `${PCT}%`, { pct: PCT });   // gradient lerps along the theme
 
   // ── trend (SL_TREND): sparkline of recent context %, ETA to autocompact, ─────
   //    and a count of compactions detected this session ─────────────────────────
@@ -439,16 +437,16 @@ function build(): string {
   if (cfg.trend) {
     const parts: string[] = [];
     const spark = sparkline(SPARK);
-    if (spark) parts.push(`${DIM}${spark}${R}`);
+    if (spark) parts.push(st('trend.spark', spark));
     if (!COMPACT_OFF && COMPACT_PCT_VAL > 0) {
       const eta = etaMinutes(ETA_SAMPLES, COMPACT_PCT_VAL, PCT);
-      if (eta >= 0) parts.push(`${gradientColor(PCT)}~${fmtCountdown(eta * 60)}${R}`);
+      if (eta >= 0) parts.push(st('trend.eta', `~${fmtCountdown(eta * 60)}`, { pct: PCT }));
     }
-    if (COMPACTIONS > 0) parts.push(`${DIM}↺${COMPACTIONS}${R}`);
+    if (COMPACTIONS > 0) parts.push(st('trend.compactions', `↺${COMPACTIONS}`));
     TREND_SEG = parts.join(' ');
   }
   // ── weather (SL_WEATHER): a one-word reading of context pressure ─────────────
-  const WEATHER_SEG = cfg.weather ? `${gradientColor(PCT)}${weatherWord(PCT, COMPACT_OFF ? 0 : COMPACT_PCT_VAL)}${R}` : '';
+  const WEATHER_SEG = cfg.weather ? st('ctx.weather', weatherWord(PCT, COMPACT_OFF ? 0 : COMPACT_PCT_VAL), { pct: PCT }) : '';
 
   // ── per-turn token breakdown ────────────────────────────────────────────────
   let TURN_SEG = '';
@@ -457,33 +455,32 @@ function build(): string {
     let HIT_SEG = '';
     if (total > 0 && CU_READ > 0) {
       const hit = idiv(CU_READ * 100, total);
-      const hc = hit >= 70 ? `${BOLD}${GREEN}` : hit >= 40 ? GREEN : `${DIM}${GREEN}`;
-      HIT_SEG = `${hc}✦${hit}%${R}`;
+      HIT_SEG = st('tokens.hit', `✦${hit}%`, { weight: hit >= 70 ? 'bold' : hit >= 40 ? 'normal' : 'dim' });
     }
-    const readSeg = CU_READ > 0 ? ` ${GREEN}✦${fmtK(CU_READ)}${R}` : '';
-    const writeSeg = CU_WRITE > 0 ? ` ${AMBER}+${fmtK(CU_WRITE)}w${R}` : '';
-    const inSeg = CU_INPUT > 0 ? ` ${DIM}${txt('↓')}${fmtK(CU_INPUT)}${R}` : '';
-    const outSeg = CU_OUT > 0 ? ` ${DIM}${txt('↑')}${fmtK(CU_OUT)}${R}` : '';
+    const readSeg = CU_READ > 0 ? ` ${st('tokens.read', `✦${fmtK(CU_READ)}`)}` : '';
+    const writeSeg = CU_WRITE > 0 ? ` ${st('tokens.write', `+${fmtK(CU_WRITE)}w`)}` : '';
+    const inSeg = CU_INPUT > 0 ? ` ${st('tokens.in', `${txt('↓')}${fmtK(CU_INPUT)}`)}` : '';
+    const outSeg = CU_OUT > 0 ? ` ${st('tokens.out', `${txt('↑')}${fmtK(CU_OUT)}`)}` : '';
     TURN_SEG = HIT_SEG + readSeg + writeSeg + inSeg + outSeg;
   }
 
   // ── cost ────────────────────────────────────────────────────────────────────
   const COST_FMT = Number(COST).toFixed(3);
   const costNum = parseFloat(COST_FMT);
-  const COST_COLOUR = costNum >= 0.50 ? RED : costNum >= 0.10 ? AMBER : GREEN;
+  const costRole: Role = costNum >= 0.50 ? 'bad' : costNum >= 0.10 ? 'warn' : 'ok';
   const COST_FLAIR = cfg.costFlair
     ? (costNum >= 1 ? '!$' : costNum >= 0.50 ? '$$' : costNum >= 0.10 ? '$' : '·') + ' '
     : '';
   let COST_SEG: string, BAR_PREFIX: string;
-  if (COST_FMT === '0.000') { COST_SEG = `${DIM}$0${R}`; BAR_PREFIX = `${DIM}∅ ${R}`; }
+  if (COST_FMT === '0.000') { COST_SEG = st('cost.amount', '$0', { role: 'muted' }); BAR_PREFIX = `${ROLES.muted}∅ ${R}`; }
   else {
     const price = `${COST_FLAIR}$${COST_FMT}`;
-    COST_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
+    COST_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(price) : st('cost.amount', price, { role: costRole });
     BAR_PREFIX = '';
   }
   if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
     const ratePerHr = COST / (DURATION_MS / 3600000);
-    COST_SEG += ` ${DIM}$${ratePerHr.toFixed(2)}/hr${R}`;
+    COST_SEG += ` ${st('cost.rate', `$${ratePerHr.toFixed(2)}/hr`)}`;
     // cross-session baseline: how this session's burn compares to your own median.
     try {
       const rates = readHistory().filter((h) => h.dur >= BURN_BASELINE_MIN_MS && h.cost > 0).map((h) => h.cost / (h.dur / 3600000));
@@ -491,8 +488,8 @@ function build(): string {
         const med = median(rates);
         if (med > 0) {
           const ratio = ratePerHr / med;
-          const rc = ratio >= 1.5 ? RED : ratio >= 1.1 ? AMBER : DIM;
-          COST_SEG += ` ${rc}${ratio.toFixed(1)}x${R}`;
+          const rRole: Role = ratio >= 1.5 ? 'bad' : ratio >= 1.1 ? 'warn' : 'muted';
+          COST_SEG += ` ${st('cost.ratio', `${ratio.toFixed(1)}x`, { role: rRole })}`;
         }
       }
     } catch { /* baseline is best-effort */ }
@@ -500,12 +497,12 @@ function build(): string {
 
   // ── session age ─────────────────────────────────────────────────────────────
   const DUR_S = idiv(DURATION_MS, 1000);
-  let AGE_C: string, AGE_LABEL: string;
-  if (DUR_S >= 7200) { AGE_C = RED; AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`; }
-  else if (DUR_S >= 3600) { AGE_C = AMBER; AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`; }
-  else if (DUR_S >= 60) { AGE_C = GREEN; AGE_LABEL = `${idiv(DUR_S, 60)}m`; }
-  else { AGE_C = DIM; AGE_LABEL = `${DUR_S}s`; }
-  const AGE_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : `${AGE_C}${AGE_LABEL}${R}`;
+  let ageRole: Role, AGE_LABEL: string;
+  if (DUR_S >= 7200) { ageRole = 'bad'; AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`; }
+  else if (DUR_S >= 3600) { ageRole = 'warn'; AGE_LABEL = `${idiv(DUR_S, 3600)}h ${idiv(DUR_S % 3600, 60)}m`; }
+  else if (DUR_S >= 60) { ageRole = 'ok'; AGE_LABEL = `${idiv(DUR_S, 60)}m`; }
+  else { ageRole = 'muted'; AGE_LABEL = `${DUR_S}s`; }
+  const AGE_SEG = cfg.rainbowStats && !cfg.accessible ? rainbow(AGE_LABEL) : st('age', AGE_LABEL, { role: ageRole });
 
   // ── clock ─────────────────────────────────────────────────────────────────
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -528,23 +525,24 @@ function build(): string {
     for (const t of toks) HIDE.add(alias[t] || t);
   }
   const sh = (name: string, val: string): string => (HIDE.has(name) ? '' : val);
-  const SEP = cfg.separator ? ` ${DIM}${cfg.separator}${R} ` : '  ';
+  const SEP = cfg.separator ? ` ${st('separator', cfg.separator)} ` : '  ';
 
   // SL_SYSINFO: 1-minute load average (os.loadavg is 0 on unsupported platforms).
   let SYS_SEG = '';
-  if (cfg.sysinfo) { const la = os.loadavg()[0]; if (la > 0) SYS_SEG = `${DIM}↯${la.toFixed(2)}${R} `; }
+  if (cfg.sysinfo) { const la = os.loadavg()[0]; if (la > 0) SYS_SEG = `${st('sysinfo', `↯${la.toFixed(2)}`)} `; }
 
   const CTX_SIZE_K = fmtK(MAX_TOK);
+  const BR_OPEN = st('bracket.delim', '['), BR_CLOSE = st('bracket.delim', ']');
   let BRACKET = `${sh('crest', CREST)}${sh('model', MODEL_DISPLAY)}`;
   if (ONEM) BRACKET += ` ${ONEM}`;
   if (EFFORT_WORD) BRACKET += ` ${sh('effort', EFFORT_WORD)}`;
   if (THINKING_WORD) BRACKET += ` ${sh('thinking', THINKING_WORD)}`;
 
-  const L1_LEFT = `${LEAD} ${sh('pet', PET)}${DIM}[${R}${BRACKET}${DIM}]${R}`;
+  const L1_LEFT = `${LEAD} ${sh('pet', PET)}${BR_OPEN}${BRACKET}${BR_CLOSE}`;
   const L1_RIGHT = `${sh('sysinfo', SYS_SEG)}${sh('moon', MOON)}${sh('clock', CLOCK_SEG)}`;
 
   const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${sh('weather', WEATHER_SEG)}` : PCT_SEG;
-  let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
+  let CTX_STATS = st('ctx.size', CTX_SIZE_K);
   if (TURN_SEG) CTX_STATS += ` ${sh('tokens', TURN_SEG)}`;
   if (TREND_SEG) CTX_STATS += `${SEP}${sh('trend', TREND_SEG)}`;
   const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_FULL}${COMPACT_LABEL}${SEP}${CTX_STATS}`;
@@ -553,21 +551,21 @@ function build(): string {
   let L3_LEFT = `${sh('dir', DIR_SEG)}${sh('file', FILE_SEG)}`;
   let GIT_SEG = '';
   if (BRANCH) {
-    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}${cfg.nerdfont ? '' : '⎇'} ${BRANCH_LABEL}${R}`;
-    if (GIT_STATE) GIT_SEG += ` ${BOLD}${RED}${GIT_STATE}!${R}`;
+    GIT_SEG += `  ${BRANCH_MOOD}${st('git.branch', `${cfg.nerdfont ? '' : '⎇'} ${BRANCH_LABEL}`)}`;
+    if (GIT_STATE) GIT_SEG += ` ${st('git.state', `${GIT_STATE}!`)}`;
     GIT_SEG += GIT_TODAY;
   }
   GIT_SEG += GIT_AB + GIT_AGE;
-  if (GIT_ID && !HIDE.has('email')) GIT_SEG += `  ${DIM}${GIT_ID}${R}`;
-  if (ADDED > 0 || REMOVED > 0) GIT_SEG += `  ${GREEN}+${ADDED}${R}/${RED}-${REMOVED}${R}`;
-  if (DIRTY > 0) GIT_SEG += `  ${AMBER}~${DIRTY}${R}`;
-  if (STAGED > 0) GIT_SEG += ` ${GREEN}●${STAGED}${R}`;
+  if (GIT_ID && !HIDE.has('email')) GIT_SEG += `  ${st('git.email', GIT_ID)}`;
+  if (ADDED > 0 || REMOVED > 0) GIT_SEG += `  ${st('git.added', `+${ADDED}`)}/${st('git.removed', `-${REMOVED}`)}`;
+  if (DIRTY > 0) GIT_SEG += `  ${st('git.dirty', `~${DIRTY}`)}`;
+  if (STAGED > 0) GIT_SEG += ` ${st('git.staged', `●${STAGED}`)}`;
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh('git', GIT_SEG) + sh('custom', CUSTOM_SEG);
   let L3_RIGHT = '';
-  // Accessible mode renders the name in plain bright white (rainbow is low-contrast
-  // and colour-only); otherwise it's the usual rainbow flourish.
-  const NAME_STR = cfg.accessible ? `${WHITE}${CLAUDE_USER}${R}` : rainbow(CLAUDE_USER);
+  // The `name` element defaults to a rainbow fill; accessible mode overrides it to
+  // plain bright white (rainbow is low-contrast and colour-only).
+  const NAME_STR = st('name', CLAUDE_USER, cfg.accessible ? { role: 'fg' } : {});
   if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${NAME_STR}  `)}`;
   L3_RIGHT += `${sh('cost', COST_SEG)}  ${sh('age', AGE_SEG)}`;
 
