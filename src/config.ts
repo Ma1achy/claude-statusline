@@ -10,11 +10,6 @@ import { PRESETS } from './presets';
 import { gitOut } from './git';
 import type { Config, ColorMode, StatuslineInput, Style } from './types';
 
-// When config.autoTheme === 'branch' we read stdin here (to learn the cwd/branch
-// before the theme resolves). The parsed input is shared so index.ts doesn't read
-// stdin twice. Null unless branch-theming actually consumed it.
-export let preInput: StatuslineInput | null = null;
-
 // ── load + merge config: preset bundle < explicit file ────────────────────────
 function loadJson(): Record<string, any> {
   try {
@@ -73,23 +68,13 @@ function loadConfig(): Config {
   } else if (autoTheme === 'seasonal') {
     const m = new Date(clockMs).getMonth();
     themeName = m <= 1 || m === 11 ? 'void' : m <= 4 ? 'everforest' : m <= 7 ? 'oceanic' : 'verdigris';
-  } else if (autoTheme === 'branch') {
-    try {
-      if (!process.stdin.isTTY) {
-        preInput = JSON.parse(fs.readFileSync(0, 'utf8')) as StatuslineInput;
-        const cwd = (preInput && preInput.workspace && preInput.workspace.current_dir) || '';
-        const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-        const bt = jobj('branchThemes') || {};
-        if (/^(main|master)$/i.test(br)) themeName = bt.main || 'nord';
-        else if (/^(feat|feature)\//i.test(br)) themeName = bt.feat || 'everforest';
-        else if (/^hotfix\//i.test(br)) themeName = bt.hotfix || 'heat';
-        else if (/^(fix|bugfix)\//i.test(br)) themeName = bt.fix || 'gruvbox';
-        else if (/^(exp|experiment)\//i.test(br)) themeName = bt.exp || 'tokyonight';
-      }
-    } catch { /* ignore — fall back to config.theme */ }
   }
+  // autoTheme === 'branch' is resolved at render time (it execs git) — see
+  // resolveBranchTheme(), called from build(). Kept out of module load so importing
+  // config has no I/O side effect.
 
   const projAliases = jobj('projectAliases');
+  const branchThemes = jobj('branchThemes') as Record<string, string> | undefined;
 
   return {
     shimmer,
@@ -98,6 +83,8 @@ function loadConfig(): Config {
     waveHue: jint('waveHue', 32),
     easing: jstr('easing', ''),
     themeName,
+    autoTheme,
+    branchThemes,
     barStyle: jstr('barStyle', 'blocks'),
     barScale: jstr('barScale', 'linear'),
     rainbowMixRaw: typeof J.rainbowMix === 'number' ? J.rainbowMix : null,
@@ -155,6 +142,26 @@ export const cfg: Config = loadConfig();
 // (Themes/roles are computed once at load from `cfg`; theme-dependent code is
 // covered by the golden suite, so this resets config-driven behaviour only.)
 export function resetConfigForTest(): void {
-  preInput = null;
   Object.assign(cfg, loadConfig());
+}
+
+// Branch auto-theming (autoTheme: 'branch'): resolve the theme from the current
+// git branch at RENDER time (this execs git, so it must not run at import). Called
+// from build() with the already-read input; sets cfg.themeName and returns whether
+// it changed (so build() knows to rebuild the theme). No-op unless autoTheme:branch.
+export function resolveBranchTheme(input: StatuslineInput): boolean {
+  if (cfg.autoTheme !== 'branch') return false;
+  try {
+    const cwd = (input && input.workspace && input.workspace.current_dir) || '';
+    const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    const bt = cfg.branchThemes || {};
+    let name = '';
+    if (/^(main|master)$/i.test(br)) name = bt.main || 'nord';
+    else if (/^(feat|feature)\//i.test(br)) name = bt.feat || 'everforest';
+    else if (/^hotfix\//i.test(br)) name = bt.hotfix || 'heat';
+    else if (/^(fix|bugfix)\//i.test(br)) name = bt.fix || 'gruvbox';
+    else if (/^(exp|experiment)\//i.test(br)) name = bt.exp || 'tokyonight';
+    if (name) { cfg.themeName = name; return true; }
+  } catch { /* ignore — fall back to config.theme */ }
+  return false;
 }

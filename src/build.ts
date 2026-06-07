@@ -4,7 +4,8 @@
 import * as os from 'os';
 import { spawn } from 'child_process';
 import { fmtK } from './format';
-import { cfg } from './config';
+import { cfg, resolveBranchTheme } from './config';
+import { rebuildTheme } from './themes';
 import { st } from './style';
 import { readInput } from './io/input';
 import { readGit } from './io/gitcache';
@@ -27,6 +28,10 @@ import { assembleLayout } from './render/layout';
 
 export function build(): string {
   const data = readInput();
+
+  // Branch auto-theming resolves the theme from git at render time (not at import);
+  // rebuild the theme only when it actually changed cfg.themeName.
+  if (resolveBranchTheme(data)) rebuildTheme();
 
   // ── extract fields ──────────────────────────────────────────────────────────
   const ws = data.workspace || {};

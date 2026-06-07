@@ -67,7 +67,6 @@ function gitOut(cwd, args) {
 var countLines = (s) => s ? s.split("\n").filter((l) => l.length).length : 0;
 
 // src/config.ts
-var preInput = null;
 function loadJson() {
   try {
     const p = process.env.SL_CONFIG || `${os.homedir()}/.claude/statusline.json`;
@@ -122,28 +121,9 @@ function loadConfig() {
   } else if (autoTheme === "seasonal") {
     const m = new Date(clockMs).getMonth();
     themeName = m <= 1 || m === 11 ? "void" : m <= 4 ? "everforest" : m <= 7 ? "oceanic" : "verdigris";
-  } else if (autoTheme === "branch") {
-    try {
-      if (!process.stdin.isTTY) {
-        preInput = JSON.parse(fs.readFileSync(0, "utf8"));
-        const cwd = preInput && preInput.workspace && preInput.workspace.current_dir || "";
-        const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
-        const bt = jobj("branchThemes") || {};
-        if (/^(main|master)$/i.test(br))
-          themeName = bt.main || "nord";
-        else if (/^(feat|feature)\//i.test(br))
-          themeName = bt.feat || "everforest";
-        else if (/^hotfix\//i.test(br))
-          themeName = bt.hotfix || "heat";
-        else if (/^(fix|bugfix)\//i.test(br))
-          themeName = bt.fix || "gruvbox";
-        else if (/^(exp|experiment)\//i.test(br))
-          themeName = bt.exp || "tokyonight";
-      }
-    } catch {
-    }
   }
   const projAliases = jobj("projectAliases");
+  const branchThemes = jobj("branchThemes");
   return {
     shimmer,
     speed: jint("speed", 3),
@@ -151,6 +131,8 @@ function loadConfig() {
     waveHue: jint("waveHue", 32),
     easing: jstr("easing", ""),
     themeName,
+    autoTheme,
+    branchThemes,
     barStyle: jstr("barStyle", "blocks"),
     barScale: jstr("barScale", "linear"),
     rainbowMixRaw: typeof J.rainbowMix === "number" ? J.rainbowMix : null,
@@ -201,6 +183,32 @@ function loadConfig() {
   };
 }
 var cfg = loadConfig();
+function resolveBranchTheme(input) {
+  if (cfg.autoTheme !== "branch")
+    return false;
+  try {
+    const cwd = input && input.workspace && input.workspace.current_dir || "";
+    const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const bt = cfg.branchThemes || {};
+    let name = "";
+    if (/^(main|master)$/i.test(br))
+      name = bt.main || "nord";
+    else if (/^(feat|feature)\//i.test(br))
+      name = bt.feat || "everforest";
+    else if (/^hotfix\//i.test(br))
+      name = bt.hotfix || "heat";
+    else if (/^(fix|bugfix)\//i.test(br))
+      name = bt.fix || "gruvbox";
+    else if (/^(exp|experiment)\//i.test(br))
+      name = bt.exp || "tokyonight";
+    if (name) {
+      cfg.themeName = name;
+      return true;
+    }
+  } catch {
+  }
+  return false;
+}
 
 // src/ansi.ts
 var ESC = "\x1B";
@@ -790,8 +798,6 @@ function runReport() {
 // src/io/input.ts
 var fs4 = __toESM(require("fs"));
 function readInput() {
-  if (preInput)
-    return preInput;
   let input = "";
   try {
     input = fs4.readFileSync(0, "utf8");
@@ -1178,11 +1184,12 @@ function loadCustom() {
   }
   return null;
 }
-var CUSTOM = cfg.themeName === "custom" ? loadCustom() : null;
 var a11yTheme = () => buildTheme({ cmap: A11Y_GAUGES[cfg.accessibleGauge] || A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL });
-var TH = cfg.accessible ? a11yTheme() : CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
-var PAL = cfg.colorMode === "mono" ? EMPTY_PAL : TH.pal || deriveCmapPal(TH.cmap);
-var { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
+var TH;
+var PAL;
+var WHITE;
+var ROLES;
+var RAINBOW_MIX;
 function fgRgb() {
   if (cfg.accessible)
     return A11Y_PAL.WHITE;
@@ -1217,19 +1224,26 @@ function roleOverrides() {
   }
   return o;
 }
-var ROLES = {
-  fg: WHITE,
-  muted: deriveMuted(),
-  accent: CYAN,
-  ok: GREEN,
-  warn: AMBER,
-  bad: RED,
-  info: BLUE,
-  gold: GOLD,
-  ...roleOverrides()
-};
-TH.roles = ROLES;
-var RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
+function rebuildTheme() {
+  const CUSTOM = cfg.themeName === "custom" ? loadCustom() : null;
+  TH = cfg.accessible ? a11yTheme() : CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
+  PAL = cfg.colorMode === "mono" ? EMPTY_PAL : TH.pal || deriveCmapPal(TH.cmap);
+  WHITE = PAL.WHITE;
+  RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
+  ROLES = {
+    fg: PAL.WHITE,
+    muted: deriveMuted(),
+    accent: PAL.CYAN,
+    ok: PAL.GREEN,
+    warn: PAL.AMBER,
+    bad: PAL.RED,
+    info: PAL.BLUE,
+    gold: PAL.GOLD,
+    ...roleOverrides()
+  };
+  TH.roles = ROLES;
+}
+rebuildTheme();
 function gradientColor(posp) {
   posp = Math.max(0, Math.min(100, posp));
   let c;
@@ -2232,6 +2246,8 @@ function assembleLayout(p, sh) {
 // src/build.ts
 function build() {
   const data = readInput();
+  if (resolveBranchTheme(data))
+    rebuildTheme();
   const ws = data.workspace || {};
   const CWD = ws.current_dir || "";
   const model = data.model || {};

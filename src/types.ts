@@ -79,6 +79,10 @@ export interface Config {
   waveHue: number;
   easing: string;
   themeName: string;
+  // Branch auto-theming is resolved at render time (it execs git), not at import:
+  // these carry the inputs so resolveBranchTheme() can run from build().
+  autoTheme: string;
+  branchThemes?: Record<string, string>;
   barStyle: string;
   barScale: string;
   rainbowMixRaw: number | null;

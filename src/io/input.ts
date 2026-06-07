@@ -1,13 +1,10 @@
 // stdin + bounded file reads. Kept off the render path so the failure mode of a
 // huge/absent stdin or a multi-MB transcript is a safe "" rather than a slow tick.
 import * as fs from 'fs';
-import { preInput } from '../config';
 import type { StatuslineInput } from '../types';
 
-// Parse the Claude Code JSON from stdin (shared by the renderer and the git
-// refresher). Branch auto-theming may have already consumed stdin into preInput.
+// Parse the Claude Code JSON from stdin (shared by the renderer and the git refresher).
 export function readInput(): StatuslineInput {
-  if (preInput) return preInput;
   let input = '';
   try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
   try { return (JSON.parse(input) as StatuslineInput) || {}; } catch { return {}; }

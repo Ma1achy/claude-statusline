@@ -98,19 +98,21 @@ function loadCustom(): Theme | null {
   return null;
 }
 
-const CUSTOM = cfg.themeName === 'custom' ? loadCustom() : null;
 // SL_ACCESSIBLE forces the high-contrast palette over everything (incl. custom);
 // accessibility should win regardless of the chosen theme. (Motion is also off.)
 // SL_ACCESSIBLE_GAUGE swaps the bar ramp; the accent palette is the same either way.
 const a11yTheme = (): Theme =>
   buildTheme({ cmap: A11Y_GAUGES[cfg.accessibleGauge] || A11Y_GAUGES.cvd, mix: 0, palRgb: A11Y_PAL });
-export const TH: Theme = cfg.accessible
-  ? a11yTheme()
-  : (CUSTOM || THEMES[cfg.themeName] || THEMES.heat);
-export const PAL: Palette = cfg.colorMode === 'mono'
-  ? EMPTY_PAL
-  : (TH.pal || deriveCmapPal(TH.cmap as RGB[]));
-export const { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
+
+// Active theme + everything derived from it. Rebuilt from cfg by rebuildTheme()
+// (below): once at module load, and again at render time when branch auto-theming
+// changes cfg.themeName (build.ts). Consumers read these at call time, so esbuild's
+// live bindings deliver the rebuilt values.
+export let TH: Theme;
+export let PAL: Palette;
+export let WHITE: string;
+export let ROLES: Record<Role, string>;
+export let RAINBOW_MIX: number;
 
 // ── semantic roles ────────────────────────────────────────────────────────────
 // The styling engine (style.ts) targets these instead of literal colour names, so
@@ -146,14 +148,23 @@ function roleOverrides(): Partial<Record<Role, string>> {
   for (const k of Object.keys(d.roles) as Role[]) { const c = d.roles[k]; if (c) o[k] = tc(c[0], c[1], c[2]); }
   return o;
 }
-export const ROLES: Record<Role, string> = {
-  fg: WHITE, muted: deriveMuted(), accent: CYAN, ok: GREEN, warn: AMBER, bad: RED, info: BLUE, gold: GOLD,
-  ...roleOverrides(),
-};
-TH.roles = ROLES;
-
-// Explicit SL_RAINBOW_MIX wins; else the theme's mix; else 50.
-export const RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : (TH.mix != null ? TH.mix : 50);
+// Rebuild the active theme and its derived palette/roles/rainbow-mix from cfg.
+// Idempotent — called once at load, and again when branch auto-theming changes
+// cfg.themeName at render time (build.ts).
+export function rebuildTheme(): void {
+  const CUSTOM = cfg.themeName === 'custom' ? loadCustom() : null;
+  TH = cfg.accessible ? a11yTheme() : (CUSTOM || THEMES[cfg.themeName] || THEMES.heat);
+  PAL = cfg.colorMode === 'mono' ? EMPTY_PAL : (TH.pal || deriveCmapPal(TH.cmap as RGB[]));
+  WHITE = PAL.WHITE;
+  // Explicit SL_RAINBOW_MIX wins; else the theme's mix; else 50.
+  RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : (TH.mix != null ? TH.mix : 50);
+  ROLES = {
+    fg: PAL.WHITE, muted: deriveMuted(), accent: PAL.CYAN, ok: PAL.GREEN,
+    warn: PAL.AMBER, bad: PAL.RED, info: PAL.BLUE, gold: PAL.GOLD, ...roleOverrides(),
+  };
+  TH.roles = ROLES;
+}
+rebuildTheme();
 
 // Colour at fill position 0..100 along the active theme's gradient — same colour
 // the bar shows there. Used to tint percentage text so it lerps smoothly with the
