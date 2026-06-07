@@ -2114,6 +2114,8 @@ function buildGitSeg(G, ADDED, REMOVED, hideEmail) {
 
 // src/segments/custom.ts
 var import_child_process4 = require("child_process");
+var TIMEOUT_MS = 250;
+var MAX_LEN = 240;
 function buildCustom(data) {
   if (!cfg.customSegment)
     return "";
@@ -2121,11 +2123,11 @@ function buildCustom(data) {
     const out = (0, import_child_process4.execFileSync)(process.execPath, [cfg.customSegment], {
       input: JSON.stringify(data),
       encoding: "utf8",
-      timeout: 250,
+      timeout: TIMEOUT_MS,
       stdio: ["pipe", "pipe", "ignore"],
       windowsHide: true
     });
-    const first = (out.split("\n")[0] || "").slice(0, 240);
+    const first = (out.split("\n")[0] || "").slice(0, MAX_LEN);
     if (first)
       return `  ${first}`;
   } catch {
@@ -2135,11 +2137,13 @@ function buildCustom(data) {
 
 // src/segments/lastfile.ts
 var fs8 = __toESM(require("fs"));
+var TAIL_BYTES = 262144;
+var MAX_LINES = 80;
 function buildLastFile(TRANSCRIPT) {
   let LAST_FILE = "";
   try {
     if (TRANSCRIPT && fs8.existsSync(TRANSCRIPT)) {
-      const lines = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
+      const lines = readTail(TRANSCRIPT, TAIL_BYTES).split("\n").filter(Boolean).slice(-MAX_LINES);
       const re = /write|edit|read|str_replace|create/i;
       for (const line of lines) {
         let ev;
