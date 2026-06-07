@@ -94,7 +94,7 @@ export interface Config {
   costFlair: boolean; burn: boolean; gitExtra: boolean; rainbowStats: boolean;
   trend: boolean; weather: boolean; limits: boolean;
   limitWarn: number; limitCrit: number;
-  layout: string; separator: string; hide: string;
+  layout: string; separator: string; hide: string; frame: string;
   privacy: boolean; privacyHide: string; projectAliases: string;
   path: string; sysinfo: boolean; accessible: boolean; accessibleGauge: string; responsive: boolean;
   gitRisk: boolean; danger: boolean; warningLine: boolean;

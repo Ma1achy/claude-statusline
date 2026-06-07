@@ -30,6 +30,7 @@ import { buildActivity } from './segments/activity';
 import { buildConversation } from './segments/conversation';
 import { applyWashes } from './render/recolor';
 import { assembleLayout } from './render/layout';
+import { applyFrame } from './render/frame';
 
 export function build(): string {
   const data = readInput();
@@ -148,6 +149,9 @@ export function build(): string {
   }
   if (cfg.activityLine) { const a = buildActivity(TRANSCRIPT); if (a) lines.push(a); }
   if (cfg.conversationLine) { const c = buildConversation(cw.current_usage); if (c) lines.push(c); }
+
+  // Optional framing (config `frame`): a rule between lines, or a box border.
+  if (cfg.frame) lines = applyFrame(lines, cfg.frame);
 
   // Fire-and-forget the git-cache refresher: a detached child re-runs this binary
   // with --git-refresh, execs git off the hot path, and writes the cache for the

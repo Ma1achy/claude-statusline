@@ -108,6 +108,7 @@ function loadConfig(): Config {
     layout: jstr('layout', '3line'),
     separator: jstr('separator', ''),
     hide: jlist('hide'),
+    frame: jstr('frame', ''),
     privacy: jbool('privacy'),
     privacyHide: jlist('privacyHide'),
     projectAliases: projAliases ? JSON.stringify(projAliases) : jstr('projectAliases', ''),
