@@ -416,3 +416,27 @@ test('privacy: dummy email rendered, no real address', () => {
   const out = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));
   assert.ok(out.includes('malachy@email.com'), 'expected dummy email');
 });
+
+// 9. Last-file segment — resolved from a (large) transcript via the bounded tail
+// read. Guards both readTail (the real edit must survive past 256KB of filler) and
+// the case-insensitive tool-name matcher (Claude names are capitalised: Edit/etc).
+test('last-file: resolves from a >256KB transcript tail, capitalised tool names', () => {
+  const os = require('os');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-tr-'));
+  const home = path.join(base, 'home');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+  const tr = path.join(base, 'transcript.jsonl');
+  // ~400KB of filler lines, then the most recent edit at the very end.
+  const filler = JSON.stringify({ type: 'user', message: { content: 'x'.repeat(800) } }) + '\n';
+  let blob = '';
+  for (let i = 0; i < 500; i++) blob += filler;
+  blob += JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/proj/src/engine.rs' } }] } }) + '\n';
+  fs.writeFileSync(tr, blob);
+  const out = stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ workspace: { current_dir: base }, transcript_path: tr, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
+  }));
+  assert.match(out, /› engine\.rs/, 'last-file should resolve from the transcript tail');
+  fs.rmSync(base, { recursive: true, force: true });
+});

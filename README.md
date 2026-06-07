@@ -416,7 +416,8 @@ Source lives in `src/` (TypeScript, one module per concern: `themes`, `bar`, `co
 `rainbow`, `git`, `segments`/`index`, …). The build bundles to a single zero-dependency CommonJS
 file, so the runtime is still just `node statusline.js`. Tests run against the **built** artifact
 and compare to committed golden snapshots in `test/golden/`; after an intentional change, refresh
-them with `node scripts/gen-goldens.js`.
+them with `npm run goldens` (which rebuilds first, so the snapshots can't be generated against a
+stale bundle).
 
 <details>
   <summary>Why a build step?</summary>

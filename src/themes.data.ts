@@ -85,4 +85,12 @@ export const THEMES_DATA: Record<string, ThemeData> = {
   // crisp silver normally; pairs with the danger wash (deep safelight red when
   // context/limits are critical — the darkroom convention). See SL_DANGER.
   'silver-halide': { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 },
+  // Accessibility palette (SL_ACCESSIBLE). Maximum-luminance primaries on the dark
+  // terminal bg, no blending (mix:0), and a stark green→yellow→red gauge — chosen
+  // for strong contrast and to degrade cleanly to the 16-colour primaries. Paired
+  // with motion off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
+  'high-contrast': {
+    cmap: [[0, 255, 0], [255, 255, 0], [255, 0, 0]], mix: 0,
+    palRgb: { RED: [255, 60, 60], GREEN: [0, 255, 0], AMBER: [255, 215, 0], BLUE: [90, 170, 255], CYAN: [0, 255, 255], WHITE: [255, 255, 255], GOLD: [255, 235, 60] },
+  },
 };

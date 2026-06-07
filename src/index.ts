@@ -13,7 +13,8 @@ import { fmtK, fmtCountdown } from './format';
 import { gitOut, countLines } from './git';
 import { cfg, preInput } from './config';
 import { idiv } from './util';
-import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory } from './state';
+import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory,
+  HISTORY_BUCKET_MS, BURN_BASELINE_MIN_MS, BURN_MIN_SESSION_MS } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
 import { runPreview, runDoctor, runReport } from './cli';
 import type { StatuslineInput } from './types';
@@ -64,7 +65,11 @@ function readTail(file: string, maxBytes: number): string {
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, size - len);
     let s = buf.toString('utf8');
-    if (size > maxBytes) { const nl = s.indexOf('\n'); if (nl >= 0) s = s.slice(nl + 1); }  // drop the partial first line
+    // When the file was truncated, the first line is partial — and its leading bytes
+    // may be a split multibyte char that decoded to U+FFFD. Drop everything up to the
+    // first newline (which removes any such garbage). If there's no newline at all
+    // (one pathological >maxBytes line), drop the whole thing rather than keep U+FFFD.
+    if (size > maxBytes) { const nl = s.indexOf('\n'); s = nl >= 0 ? s.slice(nl + 1) : ''; }
     return s;
   } catch { return ''; }
   finally { if (fd >= 0) try { fs.closeSync(fd); } catch { /* ignore */ } }
@@ -161,7 +166,7 @@ function build(): string {
       pushSpark(st, PCT);
       st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
       // one cross-session record per 5-minute duration bucket (keeps the log small).
-      const bucket = idiv(DURATION_MS, 300000);
+      const bucket = idiv(DURATION_MS, HISTORY_BUCKET_MS);
       if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
         st.histBucket = bucket;
         appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
@@ -453,12 +458,12 @@ function build(): string {
     COST_SEG = cfg.rainbowStats ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
     BAR_PREFIX = '';
   }
-  if (cfg.burn && DURATION_MS >= 60000 && costNum > 0) {
+  if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
     const ratePerHr = COST / (DURATION_MS / 3600000);
     COST_SEG += ` ${DIM}$${ratePerHr.toFixed(2)}/hr${R}`;
     // cross-session baseline: how this session's burn compares to your own median.
     try {
-      const rates = readHistory().filter((h) => h.dur >= 300000 && h.cost > 0).map((h) => h.cost / (h.dur / 3600000));
+      const rates = readHistory().filter((h) => h.dur >= BURN_BASELINE_MIN_MS && h.cost > 0).map((h) => h.cost / (h.dur / 3600000));
       if (rates.length >= 5) {
         const med = median(rates);
         if (med > 0) {
