@@ -74,6 +74,9 @@ const CASES = [
   ...['blocks', 'pacman', 'snake', 'matrix'].map((b) => [`bar-${b}`, { SL_BAR_STYLE: b }]),
   ...['256', '16', 'mono'].map((m) => [`color-${m}`, { SL_COLOR_MODE: m }]),
   ['weather', { SL_WEATHER: 'on' }],
+  ...['tiny', '1line', '2line'].map((l) => [`layout-${l}`, { SL_LAYOUT: l }]),
+  ['hide', { SL_HIDE: 'clock,usage,name' }],
+  ['separator', { SL_SEPARATOR: '|' }],
   ['loaded', { SL_PET: 'on', SL_CREST: 'on', SL_MOON: 'on', SL_DAYNIGHT: 'on', SL_COST_FLAIR: 'on', SL_BURN: 'on', SL_GIT_EXTRA: 'on', SL_RAINBOW_STATS: 'on', SL_SHIMMER: 'wave' }],
 ];
 

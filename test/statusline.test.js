@@ -86,6 +86,18 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6a. Layout — line count varies; SL_HIDE drops named segments.
+test('layout: line count + hide', () => {
+  const nlines = (env) => stripAnsi(run(fix, env)).split('\n').filter(Boolean).length;
+  assert.strictEqual(nlines({ SL_LAYOUT: 'tiny' }), 1, 'tiny → 1 line');
+  assert.strictEqual(nlines({ SL_LAYOUT: '1line' }), 1, '1line → 1 line');
+  assert.strictEqual(nlines({ SL_LAYOUT: '2line' }), 2, '2line → 2 lines');
+  assert.strictEqual(nlines({}), 3, 'default → 3 lines');
+  // hide removes the account name (present by default in the fixture).
+  assert.ok(stripAnsi(run(fix, {})).includes('Malachy'), 'name shown by default');
+  assert.ok(!stripAnsi(run(fix, { SL_HIDE: 'name' })).includes('Malachy'), 'SL_HIDE=name removes it');
+});
+
 // 6b. Trend — sparkline accumulates and a sharp context drop counts a compaction.
 test('trend: sparkline grows; sharp context drop counts a compaction', () => {
   const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-th-'));

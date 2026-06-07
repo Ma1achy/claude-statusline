@@ -53,6 +53,7 @@ export interface Config {
   costFlair: boolean; burn: boolean; gitExtra: boolean; rainbowStats: boolean;
   trend: boolean; weather: boolean; limits: boolean;
   limitWarn: number; limitCrit: number;
+  layout: string; separator: string; hide: string;
   nowMs: number;
   clockMs: number;
   baseFrame: number;

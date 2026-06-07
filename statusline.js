@@ -113,6 +113,9 @@ var cfg = {
   limits: pbool("SL_LIMITS"),
   limitWarn: pint("SL_LIMIT_WARN", 80),
   limitCrit: pint("SL_LIMIT_CRIT", 95),
+  layout: penv("SL_LAYOUT", "3line"),
+  separator: penv("SL_SEPARATOR", ""),
+  hide: penv("SL_HIDE", ""),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -1174,42 +1177,61 @@ function build() {
     const fh = rl.five_hour || {}, sd = rl.seven_day || {};
     USAGE_SEG = `${rlSeg("5h", fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg("7d", sd.used_percentage, sd.resets_at, 3e3)}`;
   }
+  const HIDE = new Set(cfg.hide.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
+  const sh = (name, val) => HIDE.has(name) ? "" : val;
+  const SEP = cfg.separator ? ` ${DIM}${cfg.separator}${R} ` : "  ";
   const CTX_SIZE_K = fmtK(MAX_TOK);
-  let BRACKET = `${CREST}${MODEL_DISPLAY}`;
+  let BRACKET = `${sh("crest", CREST)}${sh("model", MODEL_DISPLAY)}`;
   if (ONEM)
     BRACKET += ` ${ONEM}`;
   if (EFFORT_WORD)
-    BRACKET += ` ${EFFORT_WORD}`;
+    BRACKET += ` ${sh("effort", EFFORT_WORD)}`;
   if (THINKING_WORD)
-    BRACKET += ` ${THINKING_WORD}`;
-  const L1_LEFT = `${LEAD} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
-  const L1_RIGHT = `${MOON}${CLOCK_SEG}`;
-  const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${WEATHER_SEG}` : PCT_SEG;
+    BRACKET += ` ${sh("thinking", THINKING_WORD)}`;
+  const L1_LEFT = `${LEAD} ${sh("pet", PET)}${DIM}[${R}${BRACKET}${DIM}]${R}`;
+  const L1_RIGHT = `${sh("moon", MOON)}${sh("clock", CLOCK_SEG)}`;
+  const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${sh("weather", WEATHER_SEG)}` : PCT_SEG;
   let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
   if (TURN_SEG)
-    CTX_STATS += ` ${TURN_SEG}`;
+    CTX_STATS += ` ${sh("tokens", TURN_SEG)}`;
   if (TREND_SEG)
-    CTX_STATS += `  ${TREND_SEG}`;
-  const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_FULL}${COMPACT_LABEL}  ${CTX_STATS}`;
-  const L2_RIGHT = USAGE_SEG;
-  let L3_LEFT = `${DIR_SEG}${FILE_SEG}`;
+    CTX_STATS += `${SEP}${sh("trend", TREND_SEG)}`;
+  const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_FULL}${COMPACT_LABEL}${SEP}${CTX_STATS}`;
+  const L2_RIGHT = sh("usage", USAGE_SEG);
+  let L3_LEFT = `${sh("dir", DIR_SEG)}${sh("file", FILE_SEG)}`;
+  let GIT_SEG = "";
   if (BRANCH)
-    L3_LEFT += `  ${BRANCH_MOOD}${CYAN}\u2387 ${BRANCH}${R}`;
-  L3_LEFT += GIT_AB + GIT_AGE;
+    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}\u2387 ${BRANCH}${R}`;
+  GIT_SEG += GIT_AB + GIT_AGE;
   if (GIT_ID)
-    L3_LEFT += `  ${DIM}${GIT_ID}${R}`;
+    GIT_SEG += `  ${DIM}${GIT_ID}${R}`;
   if (ADDED > 0 || REMOVED > 0)
-    L3_LEFT += `  ${GREEN}+${ADDED}${R}/${RED}-${REMOVED}${R}`;
+    GIT_SEG += `  ${GREEN}+${ADDED}${R}/${RED}-${REMOVED}${R}`;
   if (DIRTY > 0)
-    L3_LEFT += `  ${AMBER}~${DIRTY}${R}`;
+    GIT_SEG += `  ${AMBER}~${DIRTY}${R}`;
   if (STAGED > 0)
-    L3_LEFT += ` ${GREEN}\u25CF${STAGED}${R}`;
-  L3_LEFT += GIT_UNTRACKED + GIT_STASH;
+    GIT_SEG += ` ${GREEN}\u25CF${STAGED}${R}`;
+  GIT_SEG += GIT_UNTRACKED + GIT_STASH;
+  L3_LEFT += sh("git", GIT_SEG);
   let L3_RIGHT = "";
   if (CLAUDE_USER)
-    L3_RIGHT = `${rainbow(CLAUDE_USER)}  `;
-  L3_RIGHT += `${COST_SEG}  ${AGE_SEG}`;
-  let lines = [justified(L1_LEFT, L1_RIGHT), justified(L2_LEFT, L2_RIGHT), justified(L3_LEFT, L3_RIGHT)];
+    L3_RIGHT = `${sh("name", `${rainbow(CLAUDE_USER)}  `)}`;
+  L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
+  const J = justified;
+  let lines;
+  switch (cfg.layout) {
+    case "tiny":
+      lines = [J(`${BAR} ${PCT_SEG}`, sh("cost", COST_SEG))];
+      break;
+    case "1line":
+      lines = [J(`${LEAD} ${BAR}  ${PCT_FULL}  ${BRACKET}`, L3_RIGHT)];
+      break;
+    case "2line":
+      lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L3_RIGHT)];
+      break;
+    default:
+      lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L2_RIGHT), J(L3_LEFT, L3_RIGHT)];
+  }
   if (cfg.shimmer === "disco") {
     const disco = (line) => {
       const glyphs = [];

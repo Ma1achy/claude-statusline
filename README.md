@@ -210,6 +210,9 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_COLOR_MODE` | `auto` | Colour depth: `truecolor` / `256` / `16` / `mono` / `auto` |
 | `SL_LIMIT_WARN` | `80` | Usage % at which `SL_LIMITS` colours a bar amber |
 | `SL_LIMIT_CRIT` | `95` | Usage % at which `SL_LIMITS` shows bold-red `LOW` |
+| `SL_LAYOUT` | `3line` | Vertical footprint: `3line` / `2line` / `1line` / `tiny` |
+| `SL_SEPARATOR` | — | Divider glyph between major segments (e.g. `\|`, `⋮`); default is spacing |
+| `SL_HIDE` | — | Comma list of segments to drop: `clock,moon,usage,name,dir,file,git,cost,age,tokens,weather,trend,pet,crest,model,effort,thinking` |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Sets the white `┃` autocompact marker position on the context bar |
 
 ### Colour depth & accessibility
