@@ -4,13 +4,24 @@
   "description": "A three-line animated statusline for Claude Code — truecolor gradient bars, themes, git context, usage limits, and opt-in whimsy.",
   "license": "MIT",
   "author": "Malachy (@Ma1achy)",
-  "repository": { "type": "git", "url": "https://github.com/Ma1achy/claude-statusline.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ma1achy/claude-statusline.git"
+  },
   "type": "commonjs",
-  "engines": { "node": ">=18" },
-  "files": ["statusline.js", "src", "README.md", "LICENSE"],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "statusline.js",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=statusline.js --banner:js=\"#!/usr/bin/env node\"",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "npm run build && node --test",
     "goldens": "npm run build && node scripts/gen-goldens.js",
     "render": "python3 scripts/render-demos.py",
@@ -23,8 +34,11 @@
     "doctor": "node statusline.js --doctor"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.11.0",
     "esbuild": "^0.20.0",
-    "typescript": "^5.4.0"
+    "eslint": "^10.4.1",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.60.1"
   }
 }

@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
-import { ESC, R, DIM, justified, stripAnsi, txt, tc, termCols } from './ansi';
+import { R, DIM, justified, stripAnsi, txt, tc, termCols } from './ansi';
 import { hueRgb } from './color';
 import { ROLES } from './themes';
 import { drawBar, scaleCells } from './bar';
