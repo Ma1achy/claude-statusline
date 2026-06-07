@@ -44,6 +44,7 @@ export interface Config {
   waveHue: number;
   themeName: string;
   barStyle: string;
+  barScale: string;
   rainbowMixRaw: number | null;
   margin: number;
   colorMode: ColorMode;

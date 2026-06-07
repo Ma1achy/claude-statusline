@@ -86,6 +86,18 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6g. Bar scale — log expands the danger zone (fewer filled cells at high %).
+test('bar scale: log differs from linear and widens the danger zone', () => {
+  const emptyCells = (env) => {
+    const l2 = stripAnsi(execFileSync('node', [STATUSLINE], {
+      input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 90 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', ...env },
+    })).split('\n')[1];
+    return (l2.match(/░/g) || []).length;
+  };
+  assert.ok(emptyCells({ SL_BAR_SCALE: 'log' }) > emptyCells({}), 'log leaves more empty cells at 90% (danger zone widened)');
+});
+
 // 6f. Reactive themes — daynight picks by clock; danger wash on critical context.
 test('reactive: daynight + silver-halide danger wash', () => {
   const at = (env) => execFileSync('node', [STATUSLINE], {

@@ -107,6 +107,7 @@ var cfg = {
   waveHue: pint("SL_WAVE_HUE", 32),
   themeName,
   barStyle: penv("SL_BAR_STYLE", "blocks"),
+  barScale: penv("SL_BAR_SCALE", "linear"),
   rainbowMixRaw: rainbowMix !== "" ? parseInt(rainbowMix, 10) : null,
   margin: pint("SL_MARGIN", 6),
   colorMode: resolveColorMode(),
@@ -545,7 +546,15 @@ function gradientColor(posp) {
 
 // src/bar.ts
 var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
+var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
+var SHADE = "\u2591\u2592\u2593\u2588".split("");
 var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
+function scaleCells(pct, width) {
+  const p = Math.max(0, Math.min(100, pct));
+  if (cfg.barScale === "log" || cfg.barScale === "compact")
+    return Math.round(width * (p / 100) * (p / 100));
+  return idiv(p * width, 100);
+}
 function drawBar(width, filled, marker, phaseMs = 0) {
   const { shimmer: shimmer2, speed, glow, waveHue, barStyle, nowMs: nowMs2, baseFrame, colorMode } = cfg;
   const t = nowMs2 + phaseMs;
@@ -654,6 +663,59 @@ function drawBar(width, filled, marker, phaseMs = 0) {
         out += `${fg(i * 100 + 50)}\u2588${R}`;
       else
         out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
+      continue;
+    }
+    if (barStyle === "braille") {
+      out += isFill ? `${fg(i * 100 + 50)}\u28FF${R}` : `${DIM}\u2804${R}`;
+      continue;
+    }
+    if (barStyle === "battery") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2588${R}` : `${DIM}\u2591${R}`;
+      continue;
+    }
+    if (barStyle === "thermo") {
+      out += isFill ? `${fg(i * 100 + 50)}\u25B0${R}` : `${DIM}\u25B1${R}`;
+      continue;
+    }
+    if (barStyle === "shade") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
+      else
+        out += `${DIM}\u2591${R}`;
+      continue;
+    }
+    if (barStyle === "lines" || barStyle === "minimal") {
+      out += isFill ? `${fg(i * 100 + 50)}\u2501${R}` : `${DIM}\u2500${R}`;
+      continue;
+    }
+    if (barStyle === "rule") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${i % 5 === 0 ? "\u253C" : "\u2500"}${R}`;
+      else
+        out += `${DIM}${i % 5 === 0 ? "\u250A" : "\u2504"}${R}`;
+      continue;
+    }
+    if (barStyle === "equalizer" || barStyle === "waveform") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs2, 140)) % 8]}${R}`;
+      else
+        out += `${DIM}\u2581${R}`;
+      continue;
+    }
+    if (barStyle === "dna") {
+      if (isFill)
+        out += `${fg(i * 100 + 50)}${(i + idiv(nowMs2, 200)) % 2 ? "X" : "x"}${R}`;
+      else
+        out += `${DIM}\xB7${R}`;
+      continue;
+    }
+    if (barStyle === "train") {
+      if (isFill && i === filled - 1)
+        out += `${ESC}[1m${fg(i * 100 + 50)}O${R}`;
+      else if (isFill)
+        out += `${fg(i * 100 + 50)}=${R}`;
+      else
+        out += `${DIM}-${R}`;
       continue;
     }
     if (isFill && shimmer2 === "disco") {
@@ -1207,8 +1269,8 @@ function build() {
     COMPACT_PCT_VAL = 95;
   }
   const BAR_WIDTH = 28;
-  const FILLED = idiv(PCT * BAR_WIDTH, 100);
-  const MARKER_POS = COMPACT_OFF ? -1 : idiv(COMPACT_PCT_VAL * BAR_WIDTH, 100);
+  const FILLED = scaleCells(PCT, BAR_WIDTH);
+  const MARKER_POS = COMPACT_OFF ? -1 : scaleCells(COMPACT_PCT_VAL, BAR_WIDTH);
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
   const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;
   let TREND_SEG = "";
@@ -1299,7 +1361,7 @@ function build() {
       let pct = Math.floor(pctIn || 0);
       if (pct > 100)
         pct = 100;
-      const filled = idiv(pct * 10, 100);
+      const filled = scaleCells(pct, 10);
       const bar = drawBar(10, filled, -1, phase);
       let pc = gradientColor(pct);
       let warn = "";

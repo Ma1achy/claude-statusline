@@ -112,6 +112,19 @@ Bring your own palette without touching the code. Resolved at runtime, in order:
 | `pacman` | `==========C····` — a muncher eating dots |
 | `snake` | `~~~~@~` — a crawling snake |
 | `matrix` | Green blocks with faint code-rain in the empty track |
+| `braille` | `⣿` stipple |
+| `battery` | Solid `█` cells |
+| `thermo` | `▰▱` filled/empty squares |
+| `shade` | Dithered `░▒▓█` density ramp |
+| `lines` / `minimal` | Thin `━`/`─` rule |
+| `rule` | Tick-marked measuring gauge `┼────┼` |
+| `equalizer` / `waveform` | Animated VU-meter sub-blocks |
+| `dna` | `xXxX` phase-shifting helix |
+| `train` | ASCII `====O----` loco |
+
+**`SL_BAR_SCALE`** composes with any style: `linear` (default) or `log`/`compact` — a nonlinear fill
+that compresses the safe zone and **expands the danger zone**, so 90→100% occupies more cells than
+10→20% (the marker and usage bars use the same mapping).
 
 ### Animation styles — `SL_SHIMMER`
 

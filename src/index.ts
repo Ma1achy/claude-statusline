@@ -6,7 +6,7 @@ import * as path from 'path';
 import { ESC, R, DIM, BOLD, justified, stripAnsi, txt, tc, termCols } from './ansi';
 import { hueRgb } from './color';
 import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
-import { drawBar } from './bar';
+import { drawBar, scaleCells } from './bar';
 import { rainbow } from './rainbow';
 import { fmtK, fmtCountdown } from './format';
 import { gitOut, countLines } from './git';
@@ -273,8 +273,8 @@ function build(): string {
 
   // ── context bar ─────────────────────────────────────────────────────────────
   const BAR_WIDTH = 28;
-  const FILLED = idiv(PCT * BAR_WIDTH, 100);
-  const MARKER_POS = COMPACT_OFF ? -1 : idiv(COMPACT_PCT_VAL * BAR_WIDTH, 100);
+  const FILLED = scaleCells(PCT, BAR_WIDTH);
+  const MARKER_POS = COMPACT_OFF ? -1 : scaleCells(COMPACT_PCT_VAL, BAR_WIDTH);
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
   const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;   // lerps along the theme gradient
 
@@ -365,7 +365,7 @@ function build(): string {
     const NOW = cfg.baseFrame;
     const rlSeg = (label: string, pctIn: number | undefined, resetsAt: number | string | undefined, phase: number): string => {
       let pct = Math.floor(pctIn || 0); if (pct > 100) pct = 100;
-      const filled = idiv(pct * 10, 100);
+      const filled = scaleCells(pct, 10);
       const bar = drawBar(10, filled, -1, phase);
       let pc = gradientColor(pct);   // lerps along the theme gradient
       let warn = '';

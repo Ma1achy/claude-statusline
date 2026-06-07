@@ -71,6 +71,7 @@ export const cfg: Config = {
   waveHue: pint('SL_WAVE_HUE', 32),
   themeName,
   barStyle: penv('SL_BAR_STYLE', 'blocks'),
+  barScale: penv('SL_BAR_SCALE', 'linear'),
   rainbowMixRaw: rainbowMix !== '' ? parseInt(rainbowMix, 10) : null,
   margin: pint('SL_MARGIN', 6),
   colorMode: resolveColorMode(),

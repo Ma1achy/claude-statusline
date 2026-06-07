@@ -10,7 +10,17 @@ import { idiv, mod } from './util';
 import type { RGB } from './types';
 
 const MATRIX_CHARS = '01<>{}[]/\\|=+*'.split('');
+const EQ = '▁▂▃▄▅▆▇█'.split('');
+const SHADE = '░▒▓█'.split('');
 const hashI = (n: number): number => Math.imul(n >>> 0, 2654435761) >>> 0;
+
+/** Cells to fill for a percentage. Linear is the original idiv (byte-stable);
+ *  log/compact squares the fraction so the danger zone occupies more cells. */
+export function scaleCells(pct: number, width: number): number {
+  const p = Math.max(0, Math.min(100, pct));
+  if (cfg.barScale === 'log' || cfg.barScale === 'compact') return Math.round(width * (p / 100) * (p / 100));
+  return idiv(p * width, 100);
+}
 
 /**
  * width   — number of character cells
@@ -100,6 +110,48 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
     if (barStyle === 'matrix') {
       if (isFill) out += `${fg(i * 100 + 50)}█${R}`;
       else out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
+      continue;
+    }
+    if (barStyle === 'braille') {
+      out += isFill ? `${fg(i * 100 + 50)}⣿${R}` : `${DIM}⠄${R}`;
+      continue;
+    }
+    if (barStyle === 'battery') {
+      out += isFill ? `${fg(i * 100 + 50)}█${R}` : `${DIM}░${R}`;
+      continue;
+    }
+    if (barStyle === 'thermo') {
+      out += isFill ? `${fg(i * 100 + 50)}▰${R}` : `${DIM}▱${R}`;
+      continue;
+    }
+    if (barStyle === 'shade') {
+      if (isFill) out += `${fg(i * 100 + 50)}${SHADE[Math.min(3, idiv(i * 4, span))]}${R}`;
+      else out += `${DIM}░${R}`;
+      continue;
+    }
+    if (barStyle === 'lines' || barStyle === 'minimal') {
+      out += isFill ? `${fg(i * 100 + 50)}━${R}` : `${DIM}─${R}`;
+      continue;
+    }
+    if (barStyle === 'rule') {
+      if (isFill) out += `${fg(i * 100 + 50)}${i % 5 === 0 ? '┼' : '─'}${R}`;
+      else out += `${DIM}${i % 5 === 0 ? '┊' : '┄'}${R}`;
+      continue;
+    }
+    if (barStyle === 'equalizer' || barStyle === 'waveform') {
+      if (isFill) out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs, 140)) % 8]}${R}`;
+      else out += `${DIM}▁${R}`;
+      continue;
+    }
+    if (barStyle === 'dna') {
+      if (isFill) out += `${fg(i * 100 + 50)}${(i + idiv(nowMs, 200)) % 2 ? 'X' : 'x'}${R}`;
+      else out += `${DIM}·${R}`;
+      continue;
+    }
+    if (barStyle === 'train') {
+      if (isFill && i === filled - 1) out += `${ESC}[1m${fg(i * 100 + 50)}O${R}`;
+      else if (isFill) out += `${fg(i * 100 + 50)}=${R}`;
+      else out += `${DIM}-${R}`;
       continue;
     }
     // disco: solid blocks (the whole line is re-rainbowed in a post-process pass)
