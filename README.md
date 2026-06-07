@@ -68,6 +68,9 @@ override any with `SL_BRANCH_MAIN`/`_FEAT`/`_FIX`/`_HOTFIX`/`_EXP`). `SL_DANGER=
 `silver-halide`) washes the whole line a throbbing safelight red once context ≥ 90% or a usage limit
 is critical.
 
+<p align="center"><img src="assets/demo-reactive.gif" width="100%" /><br/>
+  <em><code>silver-halide</code> — crisp until context goes critical, then the darkroom safelight wash.</em></p>
+
 ### Colormap themes
 
 Perceptually-uniform [matplotlib](https://matplotlib.org/stable/users/explain/colors/colormaps.html) colormaps, sampled as multi-stop gradients.
@@ -129,6 +132,8 @@ Bring your own palette without touching the code. Resolved at runtime, in order:
 that compresses the safe zone and **expands the danger zone**, so 90→100% occupies more cells than
 10→20% (the marker and usage bars use the same mapping).
 
+<p align="center"><img src="assets/demo-bar-scale.gif" width="100%" /></p>
+
 ### Animation styles — `SL_SHIMMER`
 
 All styles rotate **hue** at a moving crest; they differ only in how the crest travels.
@@ -153,6 +158,10 @@ All styles rotate **hue** at a moving crest; they differ only in how the crest t
 | `flash` / `ripple` | Event-driven — pulse / ring at the fill edge the tick the context % changes |
 | `morse` | Blinks "CLAUDE" in morse along the fill |
 | `off` | Static |
+
+The "effects" tier (`drift` · `plasma` · `lumin` · `heartbeat` · `twinkle` · `storm` · `glitch` · `morse`):
+
+<p align="center"><img src="assets/demo-shimmer-fx.gif" width="100%" /></p>
 
 **`SL_EASING`** (`ease` / `bounce` / `elastic`) reshapes where the crest sits each tick — composes with
 `sweep`/`wave`/`comet`. Subtle at the ≤1fps repaint, by design.
@@ -225,6 +234,8 @@ a starting point.
 "env": { "SL_PRESET": "pretty", "SL_THEME": "nord" }  // pretty, but force the nord palette
 ```
 
+<p align="center"><img src="assets/demo-presets.gif" width="100%" /></p>
+
 ### Opt-in extras
 
 All default **off**; enable with `on` / `1` / `true`. Everything is text-safe (width-1 glyphs,
@@ -254,6 +265,15 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_GIT_CACHE` | Cache git output in session state (~2.5s TTL) — fewer execs per repaint, slightly staler |
 | `SL_TMUX_PASSTHROUGH` | Wrap output in the tmux DCS so truecolor survives tmux (needs `allow-passthrough on`) |
 
+`SL_TREND` records context-% history and projects an ETA to autocompact; the sparkline grows and the
+weather word shifts as the session fills up:
+
+<p align="center"><img src="assets/demo-trend.gif" width="100%" /></p>
+
+`SL_PET` has seven face sets (`SL_PET_STYLE`), each with five moods:
+
+<p align="center"><img src="assets/demo-pets.gif" width="100%" /></p>
+
 ### Tuning
 
 | Variable | Default | Effect |
@@ -277,6 +297,10 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_PROJECT_ALIASES` | — | JSON map of real dirs to safe labels, e.g. `{"/Users/me/work/acme":"client-x"}` |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Sets the white `┃` autocompact marker position on the context bar |
 
+`SL_LAYOUT` trades vertical space — `3line` → `2line` → `1line` → `tiny`:
+
+<p align="center"><img src="assets/demo-layouts.gif" width="100%" /></p>
+
 ### Colour depth & accessibility
 
 By default the statusline assumes truecolor, but it degrades cleanly for terminals that don't:
@@ -291,6 +315,8 @@ By default the statusline assumes truecolor, but it degrades cleanly for termina
 
 The [`NO_COLOR`](https://no-color.org/) convention is honoured: setting `NO_COLOR` to any value forces
 `mono`, overriding everything else.
+
+<p align="center"><img src="assets/demo-color-modes.gif" width="100%" /></p>
 
 ### Leading indicator (fast / vim)
 

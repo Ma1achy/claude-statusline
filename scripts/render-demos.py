@@ -104,9 +104,9 @@ def parse(line):
 def width_of(lines): return max(len(parse(l)) for l in lines)
 
 
-def render(lines, caption, W):
+def render(lines, caption, W, nrows=3):
     cap_h = 30 if caption else 0
-    img = Image.new("RGB", (W * CELL_W + 2 * PAD, 3 * LINE_H + 2 * PAD + cap_h), BG)
+    img = Image.new("RGB", (W * CELL_W + 2 * PAD, nrows * LINE_H + 2 * PAD + cap_h), BG)
     d = ImageDraw.Draw(img)
     for row, line in enumerate(lines):
         y = PAD + row * LINE_H
@@ -114,8 +114,13 @@ def render(lines, caption, W):
             x = PAD + col * CELL_W
             if bg is not None: d.rectangle([x, y, x + CELL_W, y + LINE_H], fill=bg)
             if ch != " ": d.text((x, y), ch, font=(fb_font if ch in FALLBACK else font), fill=fg)
-    if caption: d.text((PAD, PAD + 3 * LINE_H + 8), caption, font=cap_font, fill=CAP)
+    if caption: d.text((PAD, PAD + nrows * LINE_H + 8), caption, font=cap_font, fill=CAP)
     return img
+
+
+def clear_state():
+    # wipe the per-session ring-buffer dir so an animated trend starts clean
+    shutil.rmtree(os.path.join(tempfile.gettempdir(), "claude-statusline"), ignore_errors=True)
 
 
 def make_gif(home, repo, name, frames, duration):
@@ -123,6 +128,7 @@ def make_gif(home, repo, name, frames, duration):
     for env_extra, fms, cap in frames:
         env_extra = dict(env_extra)
         pct, cost, dur = env_extra.pop("_pct", 42), env_extra.pop("_cost", 0.23), env_extra.pop("_dur", 1860000)
+        sid = env_extra.pop("_sid", None)
         env_extra.pop("_cap", None)
         # SL_CLOCK_MS freezes the clock so GIFs loop without the seconds ticking.
         env = {"HOME": home, "PATH": os.environ["PATH"], "COLUMNS": COLS, "TZ": "Europe/London",
@@ -135,17 +141,22 @@ def make_gif(home, repo, name, frames, duration):
                                                        "input_tokens": 380, "output_tokens": 210}},
                   "cost": {"total_cost_usd": cost, "total_duration_ms": dur, "total_lines_added": 124, "total_lines_removed": 18},
                   "fast_mode": True, "rate_limits": RL}
+        if sid:
+            sample["session_id"] = sid
         out = subprocess.run(["node", SL], input=json.dumps(sample), env=env, capture_output=True, text=True).stdout
-        rendered.append((out.rstrip("\n").split("\n")[:3], cap))
+        lines = out.rstrip("\n").split("\n")
+        rendered.append((lines[:3], cap))
     W = max(width_of(ls) for ls, _ in rendered)
-    imgs = [render(ls, cap, W).convert("P", palette=Image.ADAPTIVE, colors=256) for ls, cap in rendered]
+    nrows = max(len(ls) for ls, _ in rendered)
+    imgs = [render(ls, cap, W, nrows).convert("P", palette=Image.ADAPTIVE, colors=256) for ls, cap in rendered]
     path = os.path.join(OUT, name)
     imgs[0].save(path, save_all=True, append_images=imgs[1:], duration=duration, loop=0, disposal=2)
     print("wrote", os.path.relpath(path, ROOT), f"({len(imgs)} frames)")
 
 
 def main():
-    # Optional target: all (default) | default | loaded | themes | colormaps | bars | shimmer | presets | disco
+    # Optional target: all (default) | default | loaded | themes | colormaps | bars |
+    #   shimmer | fx | disco | presets | layouts | colors | trend | pets | reactive | scale
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     want = lambda *names: target == "all" or target in names
     base, home, repo = setup_fixture()
@@ -158,34 +169,66 @@ def main():
 
         loaded = {"SL_PET": "on", "SL_CREST": "on", "SL_MOON": "on", "SL_DAYNIGHT": "on",
                   "SL_COST_FLAIR": "on", "SL_BURN": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on",
-                  "SL_SHIMMER": "wave", "SL_SPEED": 2}
+                  "SL_TREND": "on", "SL_WEATHER": "on", "SL_SHIMMER": "wave", "SL_SPEED": 2}
         if want("loaded"):
             make_gif(home, repo, "demo-loaded.gif",
-                     [({**loaded, "_pct": 48, "_cost": 0.55}, BASE_MS + k * 540, None) for k in range(12)], 280)
+                     [({**loaded, "_pct": 48, "_cost": 0.55, "_sid": "loaded"}, BASE_MS + k * 540, None) for k in range(12)], 280)
 
         tb = {"SL_CREST": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on", "SL_SHIMMER": "wave", "_pct": 58}
         if want("themes"):
             make_gif(home, repo, "demo-themes.gif",
                      [({**tb, "SL_THEME": t}, BASE_MS + k * 1000, f"SL_THEME={t}")
-                      for t in ["heat", "synthwave", "matrix", "mono", "pastel", "dracula", "nord", "gruvbox", "tokyonight", "rosepine",
-                                "catppuccin-mocha", "kanagawa", "everforest", "gruvbox", "tokyonight", "cyberpunk", "gothic", "verdigris"]
-                      for k in range(3)], 520)
+                      for t in ["heat", "synthwave", "matrix", "pastel", "dracula", "nord", "gruvbox", "tokyonight", "rosepine",
+                                "catppuccin-mocha", "catppuccin-latte", "kanagawa", "everforest", "onedark", "monokai", "ayu-dark",
+                                "github-dark", "cyberpunk", "phosphor", "gothic", "verdigris", "oceanic", "sumi-e", "pride"]
+                      for k in range(3)], 480)
         if want("colormaps"):
             make_gif(home, repo, "demo-colormaps.gif",
                      [({**tb, "SL_THEME": t}, BASE_MS + k * 1000, f"SL_THEME={t}")
-                      for t in ["viridis", "inferno", "magma", "plasma", "cividis", "twilight", "cubehelix", "batlow", "turbo", "coolwarm"] for k in range(3)], 520)
+                      for t in ["viridis", "inferno", "magma", "plasma", "cividis", "twilight", "cubehelix", "batlow", "turbo", "coolwarm", "ice"] for k in range(3)], 480)
         if want("bars"):
             make_gif(home, repo, "demo-bar-styles.gif",
                      [({"SL_BAR_STYLE": b, "SL_SHIMMER": "sweep", "_pct": 62}, BASE_MS + k * 1000, f"SL_BAR_STYLE={b}")
-                      for b in ["blocks", "pacman", "snake", "matrix", "braille", "battery", "thermo", "shade", "lines", "rule", "equalizer", "dna", "train"] for k in range(4)], 360)
+                      for b in ["blocks", "pacman", "snake", "matrix", "braille", "battery", "thermo", "shade", "lines", "rule", "equalizer", "dna", "train"] for k in range(4)], 340)
         if want("shimmer"):
             make_gif(home, repo, "demo-shimmer.gif",
                      [({"SL_SHIMMER": s, "_pct": 66}, BASE_MS + k * 1000, f"SL_SHIMMER={s}")
-                      for s in ["sweep", "wave", "comet", "breathe", "scan", "drift", "plasma", "lumin", "heartbeat", "twinkle", "storm"] for k in range(4)], 360)
+                      for s in ["sweep", "wave", "comet", "breathe", "scan"] for k in range(5)], 320)
+        if want("fx"):
+            make_gif(home, repo, "demo-shimmer-fx.gif",
+                     [({"SL_SHIMMER": s, "SL_RAINBOW_STATS": "on", "_pct": 66}, BASE_MS + k * 900, f"SL_SHIMMER={s}")
+                      for s in ["drift", "plasma", "lumin", "heartbeat", "twinkle", "storm", "glitch", "morse"] for k in range(5)], 300)
         if want("presets"):
             make_gif(home, repo, "demo-presets.gif",
-                     [({"SL_PRESET": p, "_pct": 58}, BASE_MS + k * 1000, f"SL_PRESET={p}")
-                      for p in ["minimal", "pretty", "focus", "chaos", "demo"] for k in range(3)], 520)
+                     [({"SL_PRESET": p, "_pct": 58}, BASE_MS + k * 700, f"SL_PRESET={p}")
+                      for p in ["minimal", "pretty", "focus", "chaos", "demo"] for k in range(4)], 360)
+        if want("layouts"):
+            make_gif(home, repo, "demo-layouts.gif",
+                     [({"SL_LAYOUT": ly, "SL_CREST": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on", "SL_SHIMMER": "wave", "_pct": 58}, BASE_MS + k * 700, f"SL_LAYOUT={ly}")
+                      for ly in ["3line", "2line", "1line", "tiny"] for k in range(4)], 360)
+        if want("colors"):
+            make_gif(home, repo, "demo-color-modes.gif",
+                     [({"SL_COLOR_MODE": m, "SL_THEME": "viridis", "SL_CREST": "on", "_pct": 62}, BASE_MS + k * 800, f"SL_COLOR_MODE={m}")
+                      for m in ["truecolor", "256", "16", "mono"] for k in range(3)], 460)
+        if want("trend"):
+            clear_state()  # start the sparkline empty so it visibly grows
+            make_gif(home, repo, "demo-trend.gif",
+                     [({"SL_TREND": "on", "SL_WEATHER": "on", "SL_SHIMMER": "wave",
+                        "_sid": "trenddemo", "_pct": 8 + k * 7, "_dur": 60000 * (k + 1)}, BASE_MS + k * 450, None)
+                      for k in range(11)], 420)
+        if want("pets"):
+            make_gif(home, repo, "demo-pets.gif",
+                     [({"SL_PET": "on", "SL_PET_STYLE": p, "_pct": 78}, BASE_MS + k * 800, f"SL_PET_STYLE={p}")
+                      for p in ["default", "cat", "frog", "robot", "ghost", "slime", "dog"] for k in range(2)], 520)
+        if want("reactive"):
+            # silver-halide stays crisp, then the danger wash kicks in at high context
+            frames = [({"SL_THEME": "silver-halide", "SL_GIT_EXTRA": "on", "_pct": 55}, BASE_MS + k * 600, "calm") for k in range(4)]
+            frames += [({"SL_THEME": "silver-halide", "SL_GIT_EXTRA": "on", "_pct": 96}, BASE_MS + k * 250, "context critical → danger wash") for k in range(8)]
+            make_gif(home, repo, "demo-reactive.gif", frames, 320)
+        if want("scale"):
+            make_gif(home, repo, "demo-bar-scale.gif",
+                     [({"SL_BAR_SCALE": s, "SL_THEME": "heat", "_pct": 88}, BASE_MS + k * 800, f"SL_BAR_SCALE={s}  (88%)")
+                      for s in ["linear", "log"] for k in range(3)], 520)
         # disco loops perfectly over 10800 ms (bar hue 1 cycle, name 5 cycles).
         disco = {"SL_SHIMMER": "disco", "SL_RAINBOW_STATS": "on", "SL_PET": "on", "SL_CREST": "on", "_pct": 64}
         if want("disco"):
