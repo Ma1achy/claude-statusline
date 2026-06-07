@@ -8,9 +8,9 @@ export default tseslint.config(
   // Build output, deps, and generated goldens are not linted.
   { ignores: ['statusline.js', 'node_modules/**', 'test/golden/**'] },
 
-  // TypeScript source.
+  // TypeScript source + the direct-import unit tests.
   {
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'test/unit/**/*.ts'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     rules: {
       // `_`-prefixed args/vars are intentional throwaways.

@@ -22,7 +22,8 @@
     "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=statusline.js --banner:js=\"#!/usr/bin/env node\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "npm run build && node --test",
+    "test:unit": "node --import tsx --test test/unit/*.test.ts",
+    "test": "npm run test:unit && npm run build && node --test",
     "goldens": "npm run build && node scripts/gen-goldens.js",
     "render": "python3 scripts/render-demos.py",
     "render:themes": "python3 scripts/render-demos.py themes",
@@ -38,6 +39,7 @@
     "@types/node": "^20.11.0",
     "esbuild": "^0.20.0",
     "eslint": "^10.4.1",
+    "tsx": "^4.22.4",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.60.1"
   }
