@@ -2,7 +2,6 @@
 // Everything is wrapped so a bug prints a minimal line instead of a blank bar.
 import * as fs from 'fs';
 import * as os from 'os';
-import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
 import { R, DIM, justified, stripAnsi, txt, tc, termCols } from './ansi';
 import { hueRgb } from './color';
@@ -10,194 +9,19 @@ import { ROLES } from './themes';
 import { drawBar, scaleCells } from './bar';
 import { rainbow } from './rainbow';
 import { fmtK, fmtCountdown } from './format';
-import { gitOut, countLines } from './git';
-import { cfg, preInput } from './config';
+import { cfg } from './config';
 import { idiv } from './util';
 import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory,
   HISTORY_BUCKET_MS, BURN_BASELINE_MIN_MS, BURN_MIN_SESSION_MS } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
 import { st } from './style';
 import { runPreview, runDoctor, runReport, runMigrate } from './cli';
-import type { StatuslineInput, RateLimit, Role } from './types';
-
-// Pet faces by style, ordered calm → stressed (5 levels). All ASCII, width-safe.
-const PET_FACES: Record<string, string[]> = {
-  default: ['[^_^]', '[._.]', '[o_o]', '[>_<]', '[$_$]'],
-  cat: ['=^_^=', '=._.=', '=o_o=', '=>_<=', '=$_$='],
-  frog: ['(^_^)', '(o_o)', '(._.)', '(O_O)', '(>_<)'],
-  robot: ['[0_0]', '[o_o]', '[._.]', '[!_!]', '[x_x]'],
-  ghost: ['<^_^>', '<o_o>', '<._.>', '<!_!>', '<x_x>'],
-  slime: ['(~_~)', '(o_o)', '(._.)', '(>_<)', '(@_@)'],
-  dog: ['[^o^]', '[^.^]', '[-.-]', '[>n<]', '[ToT]'],
-};
-
-// Display form of the cwd: project aliases first, then (unless SL_PATH=full)
-// home→~ and middle-compression of deep paths (keep root + … + last two).
-function displayPath(cwd: string): string {
-  if (!cwd) return cwd;
-  let p = cwd;
-  if (cfg.projectAliases) {
-    try {
-      const map = JSON.parse(cfg.projectAliases) as Record<string, string>;
-      let best = '';
-      for (const k of Object.keys(map)) if ((p === k || p.startsWith(k + '/')) && k.length > best.length) best = k;
-      if (best) p = map[best] + p.slice(best.length);
-    } catch { /* bad JSON → ignore */ }
-  }
-  if (cfg.path === 'full') return p;
-  const home = os.homedir();
-  if (home && (p === home || p.startsWith(home + '/'))) p = '~' + p.slice(home.length);
-  const parts = p.split('/').filter(Boolean);
-  if (parts.length > 5) p = `${p.startsWith('/') ? '/' : ''}${parts[0]}/…/${parts.slice(-2).join('/')}`;
-  return p;
-}
-
-// Read only the last `maxBytes` of a file (the tail), as a bounded alternative to
-// readFileSync on files that grow without limit. A transcript can reach tens of MB
-// over a long session; reading the whole thing every repaint is the kind of
-// unbounded hot-path I/O that can push a render past refreshInterval. 256 KB of
-// tail is far more than enough to find the most recent tool calls.
-function readTail(file: string, maxBytes: number): string {
-  let fd = -1;
-  try {
-    fd = fs.openSync(file, 'r');
-    const size = fs.fstatSync(fd).size;
-    const len = Math.min(size, maxBytes);
-    const buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, size - len);
-    let s = buf.toString('utf8');
-    // When the file was truncated, the first line is partial — and its leading bytes
-    // may be a split multibyte char that decoded to U+FFFD. Drop everything up to the
-    // first newline (which removes any such garbage). If there's no newline at all
-    // (one pathological >maxBytes line), drop the whole thing rather than keep U+FFFD.
-    if (size > maxBytes) { const nl = s.indexOf('\n'); s = nl >= 0 ? s.slice(nl + 1) : ''; }
-    return s;
-  } catch { return ''; }
-  finally { if (fd >= 0) try { fs.closeSync(fd); } catch { /* ignore */ } }
-}
-
-// Parse the Claude Code JSON from stdin (shared by the renderer and the git
-// refresher). Branch auto-theming may have already consumed stdin into preInput.
-function readInput(): StatuslineInput {
-  if (preInput) return preInput;
-  let input = '';
-  try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
-  try { return (JSON.parse(input) as StatuslineInput) || {}; } catch { return {}; }
-}
-
-// Raw git facts for a working dir, gathered through `gc` (the only thing that
-// touches git). `gc` is a memoised reader: in the foreground it returns cached
-// values and never execs; in the refresher it execs and fills the cache. Both
-// call this, so the set of git commands (cache keys) can never drift between them.
-interface GitInfo {
-  branch: string; branchLabel: string; dirty: number; staged: number; gitId: string;
-  state: string; today: number; ahead: number; behind: number; ageSecs: number;
-  untracked: number; stash: number; mood: string; riskLevel: string;
-}
-function readGit(CWD: string, gc: (args: string[]) => string): GitInfo {
-  const branch = gc(['rev-parse', '--abbrev-ref', 'HEAD']);
-  const g: GitInfo = {
-    branch, branchLabel: branch, dirty: countLines(gc(['status', '--porcelain'])),
-    staged: countLines(gc(['diff', '--cached', '--name-only'])), gitId: gc(['config', 'user.email']),
-    state: '', today: 0, ahead: 0, behind: 0, ageSecs: -1, untracked: 0, stash: 0, mood: '', riskLevel: '',
-  };
-  if (cfg.gitExtra && branch) {
-    // detached HEAD → show a short sha instead of "HEAD".
-    if (branch === 'HEAD') { const sha = gc(['rev-parse', '--short', 'HEAD']); if (sha) g.branchLabel = `:${sha}`; }
-    // mid-operation state from the git dir (merge / rebase / cherry-pick).
-    try {
-      let gd = gc(['rev-parse', '--git-dir']);
-      if (gd) {
-        if (!path.isAbsolute(gd)) gd = path.join(CWD, gd);
-        if (fs.existsSync(path.join(gd, 'MERGE_HEAD'))) g.state = 'merge';
-        else if (fs.existsSync(path.join(gd, 'rebase-merge')) || fs.existsSync(path.join(gd, 'rebase-apply'))) g.state = 'rebase';
-        else if (fs.existsSync(path.join(gd, 'CHERRY_PICK_HEAD'))) g.state = 'cherry';
-      }
-    } catch { /* ignore */ }
-    // commits made since local midnight of the current frame (today's momentum).
-    const mid = new Date(cfg.clockMs); mid.setHours(0, 0, 0, 0);
-    const ct2 = parseInt(gc(['rev-list', '--count', `--since=${idiv(mid.getTime(), 1000)}`, 'HEAD']), 10);
-    if (Number.isFinite(ct2) && ct2 > 0) g.today = ct2;
-    const m = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']).match(/^(\d+)\s+(\d+)$/);
-    if (m) { g.behind = +m[1]; g.ahead = +m[2]; }
-    const ct = parseInt(gc(['log', '-1', '--format=%ct']), 10);
-    if (Number.isFinite(ct) && ct > 0) g.ageSecs = Math.max(0, cfg.baseFrame - ct);
-    g.untracked = countLines(gc(['ls-files', '--others', '--exclude-standard']));
-    g.stash = countLines(gc(['stash', 'list']));
-    g.mood = /^wip\//i.test(branch) ? 'wip' : /^(hotfix|fix)\//i.test(branch) ? 'fix'
-      : /^(feat|feature)\//i.test(branch) ? 'feat' : /^test\//i.test(branch) ? 'test' : '';
-  }
-  // git risk (SL_GIT_RISK) — a deliberately rough composite; opt-in.
-  if (cfg.gitRisk && branch) {
-    let s = 0;
-    if (g.dirty > 0) s += g.dirty >= 10 ? 2 : 1;
-    if (countLines(gc(['stash', 'list'])) > 0) s += 1;
-    const rm = gc(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']).match(/^(\d+)\s+(\d+)$/);
-    if (rm) { if (+rm[1] > 0) s += 1; if (+rm[2] >= 5) s += 1; }
-    if (g.state) s += 2;
-    g.riskLevel = s >= 4 ? 'high' : s >= 2 ? 'med' : 'low';
-  }
-  return g;
-}
-
-// The detached `--git-refresh` child: exec git off the hot path and write the
-// cache for the next foreground tick. No output, no segment work — just git.
-function refreshGitCache(data: StatuslineInput): void {
-  const CWD = (data.workspace && data.workspace.current_dir) || '';
-  const gitMemo: Record<string, string> = {};
-  const gc = (args: string[]): string => {
-    const key = args.join(' ');
-    if (key in gitMemo) return gitMemo[key];
-    const v = gitOut(CWD, args); gitMemo[key] = v; return v;
-  };
-  try {
-    const sk = sessionKey(data);
-    readGit(CWD, gc);                         // populates gitMemo via exec (incl. '' for non-repos)
-    const st = readState(sk);                 // merge into the foreground's latest spark/eta
-    st.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
-    writeState(sk, st);
-  } catch { /* refresh is best-effort */ }
-}
-
-// Pet face (SL_PET): a width-safe ASCII mood that escalates 0→4 with the chosen
-// signal. An unset SL_PET_REACTS_TO reproduces the original context+cost behaviour.
-function buildPet(COST: number, DIRTY: number, PCT: number): string {
-  if (!cfg.pet) return '';
-  let lvl: number;
-  switch (cfg.petReactsTo) {
-    case 'cost': lvl = COST >= 2 ? 4 : COST >= 1 ? 3 : COST >= 0.5 ? 2 : COST >= 0.1 ? 1 : 0; break;
-    case 'git': lvl = DIRTY > 10 ? 4 : DIRTY >= 6 ? 3 : DIRTY >= 3 ? 2 : DIRTY >= 1 ? 1 : 0; break;
-    case 'time': { const h = new Date(cfg.clockMs).getHours(); lvl = h < 6 ? 0 : h < 12 ? 1 : h < 18 ? 2 : h < 22 ? 3 : 0; break; }
-    case 'random': lvl = (Math.imul(idiv(cfg.nowMs, 3000), 2654435761) >>> 0) % 5; break;
-    case 'context': lvl = PCT >= 95 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0; break;
-    default: lvl = COST >= 0.50 ? 4 : PCT >= 85 ? 3 : PCT >= 70 ? 2 : PCT >= 40 ? 1 : 0;   // original behaviour
-  }
-  const faces = PET_FACES[cfg.petStyle] || PET_FACES.default;
-  const role = (['ok', 'fg', 'warn', 'bad', 'gold'] as Role[])[lvl];
-  return `${st('pet', faces[lvl], { role })} `;
-}
-
-// Usage-limit gauges (the 5h / 7d bars on line 2). SL_LIMITS tints amber past the
-// warn threshold and bold-red + "LOW" past crit; each bar shows a reset countdown.
-function buildUsage(rl: { five_hour?: RateLimit; seven_day?: RateLimit }): string {
-  const NOW = cfg.baseFrame;
-  const rlSeg = (label: string, pctIn: number | undefined, resetsAt: number | string | undefined, phase: number): string => {
-    let pct = Math.floor(pctIn || 0); if (pct > 100) pct = 100;
-    const bar = drawBar(10, scaleCells(pct, 10), -1, phase);
-    let pctStr: string, warn = '';
-    // limit warnings (SL_LIMITS): warn role past warn, bold bad + LOW past crit; else gradient.
-    if (cfg.limits && pct >= cfg.limitCrit) { pctStr = st('usage.pct', `${pct}%`, { role: 'bad', weight: 'bold' }); warn = ` ${st('usage.warn', 'LOW')}`; }
-    else if (cfg.limits && pct >= cfg.limitWarn) { pctStr = st('usage.pct', `${pct}%`, { role: 'warn' }); }
-    else pctStr = st('usage.pct', `${pct}%`, { pct });
-    let secsLeft = 0;
-    const ra = typeof resetsAt === 'number' ? resetsAt : parseInt(String(resetsAt), 10);
-    if (Number.isFinite(ra) && ra > 0) secsLeft = ra - NOW;
-    const cd = st('usage.countdown', secsLeft <= 0 ? 'now' : fmtCountdown(secsLeft));
-    return `${st('usage.label', label)} ${bar} ${pctStr}${warn} ${cd}`;
-  };
-  const fh = rl.five_hour || {}, sd = rl.seven_day || {};
-  return `${rlSeg('5h', fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg('7d', sd.used_percentage, sd.resets_at, 3000)}`;
-}
+import { readInput, readTail } from './io/input';
+import { readGit, refreshGitCache } from './io/gitcache';
+import { displayPath } from './segments/path';
+import { buildPet } from './segments/pet';
+import { buildUsage } from './segments/usage';
+import type { Role } from './types';
 
 function build(): string {
   const data = readInput();
