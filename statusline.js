@@ -68,8 +68,6 @@ var countLines = (s) => s ? s.split("\n").filter((l) => l.length).length : 0;
 
 // src/config.ts
 var preInput = null;
-var nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
-var clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
 function loadJson() {
   try {
     const p = process.env.SL_CONFIG || `${os.homedir()}/.claude/statusline.json`;
@@ -79,125 +77,130 @@ function loadJson() {
     return {};
   }
 }
-var raw = loadJson();
-var preset = typeof raw.preset === "string" && PRESETS[raw.preset.toLowerCase()] || {};
-var J = { ...preset, ...raw };
-var jstr = (k, d) => typeof J[k] === "string" ? J[k] : d;
-var jbool = (k) => J[k] === true;
-var jint = (k, d) => typeof J[k] === "number" && Number.isFinite(J[k]) ? J[k] : d;
-var jobj = (k) => J[k] && typeof J[k] === "object" && !Array.isArray(J[k]) ? J[k] : void 0;
-var jlist = (k) => (
-  // hide / privacyHide: array or string
-  Array.isArray(J[k]) ? J[k].join(" ") : typeof J[k] === "string" ? J[k] : ""
-);
-function resolveColorMode() {
-  if (process.env.NO_COLOR !== void 0 && process.env.NO_COLOR !== "")
-    return "mono";
-  const m = (process.env.SL_COLOR_MODE || jstr("colorMode", "auto")).toLowerCase();
-  if (m === "truecolor" || m === "256" || m === "16" || m === "mono")
-    return m;
-  const ct = (process.env.COLORTERM || "").toLowerCase();
-  if (ct.includes("truecolor") || ct.includes("24bit"))
+function loadConfig() {
+  const nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
+  const clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
+  const raw = loadJson();
+  const preset = typeof raw.preset === "string" && PRESETS[raw.preset.toLowerCase()] || {};
+  const J = { ...preset, ...raw };
+  const jstr = (k, d) => typeof J[k] === "string" ? J[k] : d;
+  const jbool = (k) => J[k] === true;
+  const jint = (k, d) => typeof J[k] === "number" && Number.isFinite(J[k]) ? J[k] : d;
+  const jobj = (k) => J[k] && typeof J[k] === "object" && !Array.isArray(J[k]) ? J[k] : void 0;
+  const jlist = (k) => (
+    // hide / privacyHide: array or string
+    Array.isArray(J[k]) ? J[k].join(" ") : typeof J[k] === "string" ? J[k] : ""
+  );
+  const resolveColorMode = () => {
+    if (process.env.NO_COLOR !== void 0 && process.env.NO_COLOR !== "")
+      return "mono";
+    const m = (process.env.SL_COLOR_MODE || jstr("colorMode", "auto")).toLowerCase();
+    if (m === "truecolor" || m === "256" || m === "16" || m === "mono")
+      return m;
+    const ct = (process.env.COLORTERM || "").toLowerCase();
+    if (ct.includes("truecolor") || ct.includes("24bit"))
+      return "truecolor";
+    const term = (process.env.TERM || "").toLowerCase();
+    if (term === "dumb")
+      return "mono";
+    if (term.includes("256"))
+      return "256";
     return "truecolor";
-  const term = (process.env.TERM || "").toLowerCase();
-  if (term === "dumb")
-    return "mono";
-  if (term.includes("256"))
-    return "256";
-  return "truecolor";
-}
-var shimmer = jstr("shimmer", "sweep");
-if (shimmer === "pulse")
-  shimmer = "breathe";
-if (shimmer === "march")
-  shimmer = "scan";
-if (jbool("accessible"))
-  shimmer = "off";
-var themeName = jstr("theme", "heat");
-var autoTheme = jstr("autoTheme", "");
-if (autoTheme === "daynight") {
-  const h = new Date(clockMs).getHours();
-  themeName = h >= 7 && h < 19 ? jstr("dayTheme", "heat") : jstr("nightTheme", "tokyonight");
-} else if (autoTheme === "seasonal") {
-  const m = new Date(clockMs).getMonth();
-  themeName = m <= 1 || m === 11 ? "void" : m <= 4 ? "everforest" : m <= 7 ? "oceanic" : "verdigris";
-} else if (autoTheme === "branch") {
-  try {
-    if (!process.stdin.isTTY) {
-      preInput = JSON.parse(fs.readFileSync(0, "utf8"));
-      const cwd = preInput && preInput.workspace && preInput.workspace.current_dir || "";
-      const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
-      const bt = jobj("branchThemes") || {};
-      if (/^(main|master)$/i.test(br))
-        themeName = bt.main || "nord";
-      else if (/^(feat|feature)\//i.test(br))
-        themeName = bt.feat || "everforest";
-      else if (/^hotfix\//i.test(br))
-        themeName = bt.hotfix || "heat";
-      else if (/^(fix|bugfix)\//i.test(br))
-        themeName = bt.fix || "gruvbox";
-      else if (/^(exp|experiment)\//i.test(br))
-        themeName = bt.exp || "tokyonight";
+  };
+  let shimmer = jstr("shimmer", "sweep");
+  if (shimmer === "pulse")
+    shimmer = "breathe";
+  if (shimmer === "march")
+    shimmer = "scan";
+  if (jbool("accessible"))
+    shimmer = "off";
+  let themeName = jstr("theme", "heat");
+  const autoTheme = jstr("autoTheme", "");
+  if (autoTheme === "daynight") {
+    const h = new Date(clockMs).getHours();
+    themeName = h >= 7 && h < 19 ? jstr("dayTheme", "heat") : jstr("nightTheme", "tokyonight");
+  } else if (autoTheme === "seasonal") {
+    const m = new Date(clockMs).getMonth();
+    themeName = m <= 1 || m === 11 ? "void" : m <= 4 ? "everforest" : m <= 7 ? "oceanic" : "verdigris";
+  } else if (autoTheme === "branch") {
+    try {
+      if (!process.stdin.isTTY) {
+        preInput = JSON.parse(fs.readFileSync(0, "utf8"));
+        const cwd = preInput && preInput.workspace && preInput.workspace.current_dir || "";
+        const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+        const bt = jobj("branchThemes") || {};
+        if (/^(main|master)$/i.test(br))
+          themeName = bt.main || "nord";
+        else if (/^(feat|feature)\//i.test(br))
+          themeName = bt.feat || "everforest";
+        else if (/^hotfix\//i.test(br))
+          themeName = bt.hotfix || "heat";
+        else if (/^(fix|bugfix)\//i.test(br))
+          themeName = bt.fix || "gruvbox";
+        else if (/^(exp|experiment)\//i.test(br))
+          themeName = bt.exp || "tokyonight";
+      }
+    } catch {
     }
-  } catch {
   }
+  const projAliases = jobj("projectAliases");
+  return {
+    shimmer,
+    speed: jint("speed", 3),
+    glow: jint("glow", 240),
+    waveHue: jint("waveHue", 32),
+    easing: jstr("easing", ""),
+    themeName,
+    barStyle: jstr("barStyle", "blocks"),
+    barScale: jstr("barScale", "linear"),
+    rainbowMixRaw: typeof J.rainbowMix === "number" ? J.rainbowMix : null,
+    margin: jint("margin", 6),
+    colorMode: resolveColorMode(),
+    themeFile: jstr("themeFile", ""),
+    base16: jstr("base16", ""),
+    pet: jbool("pet"),
+    crest: jbool("crest"),
+    moon: jbool("moon"),
+    daynight: jbool("daynight"),
+    costFlair: jbool("costFlair"),
+    burn: jbool("burn"),
+    gitExtra: jbool("gitExtra"),
+    rainbowStats: jbool("rainbowStats"),
+    trend: jbool("trend"),
+    weather: jbool("weather"),
+    limits: jbool("limits"),
+    limitWarn: jint("limitWarn", 80),
+    limitCrit: jint("limitCrit", 95),
+    layout: jstr("layout", "3line"),
+    separator: jstr("separator", ""),
+    hide: jlist("hide"),
+    privacy: jbool("privacy"),
+    privacyHide: jlist("privacyHide"),
+    projectAliases: projAliases ? JSON.stringify(projAliases) : jstr("projectAliases", ""),
+    path: jstr("path", "auto"),
+    sysinfo: jbool("sysinfo"),
+    accessible: jbool("accessible"),
+    accessibleGauge: jstr("accessibleGauge", "cvd"),
+    responsive: jbool("responsive"),
+    gitRisk: jbool("gitRisk"),
+    danger: jbool("danger"),
+    petStyle: jstr("petStyle", "default"),
+    petReactsTo: jstr("petReactsTo", ""),
+    bell: jbool("bell"),
+    nerdfont: jbool("nerdfont"),
+    customSegment: jstr("customSegment", ""),
+    event: false,
+    tmuxPassthrough: jbool("tmuxPassthrough"),
+    elements: jobj("elements"),
+    glyphs: jobj("glyphs"),
+    labels: jobj("labels"),
+    customTheme: jobj("customTheme"),
+    nowMs,
+    clockMs,
+    baseFrame: idiv(nowMs, 1e3)
+  };
 }
-var projAliases = jobj("projectAliases");
-var cfg = {
-  shimmer,
-  speed: jint("speed", 3),
-  glow: jint("glow", 240),
-  waveHue: jint("waveHue", 32),
-  easing: jstr("easing", ""),
-  themeName,
-  barStyle: jstr("barStyle", "blocks"),
-  barScale: jstr("barScale", "linear"),
-  rainbowMixRaw: typeof J.rainbowMix === "number" ? J.rainbowMix : null,
-  margin: jint("margin", 6),
-  colorMode: resolveColorMode(),
-  themeFile: jstr("themeFile", ""),
-  base16: jstr("base16", ""),
-  pet: jbool("pet"),
-  crest: jbool("crest"),
-  moon: jbool("moon"),
-  daynight: jbool("daynight"),
-  costFlair: jbool("costFlair"),
-  burn: jbool("burn"),
-  gitExtra: jbool("gitExtra"),
-  rainbowStats: jbool("rainbowStats"),
-  trend: jbool("trend"),
-  weather: jbool("weather"),
-  limits: jbool("limits"),
-  limitWarn: jint("limitWarn", 80),
-  limitCrit: jint("limitCrit", 95),
-  layout: jstr("layout", "3line"),
-  separator: jstr("separator", ""),
-  hide: jlist("hide"),
-  privacy: jbool("privacy"),
-  privacyHide: jlist("privacyHide"),
-  projectAliases: projAliases ? JSON.stringify(projAliases) : jstr("projectAliases", ""),
-  path: jstr("path", "auto"),
-  sysinfo: jbool("sysinfo"),
-  accessible: jbool("accessible"),
-  accessibleGauge: jstr("accessibleGauge", "cvd"),
-  responsive: jbool("responsive"),
-  gitRisk: jbool("gitRisk"),
-  danger: jbool("danger"),
-  petStyle: jstr("petStyle", "default"),
-  petReactsTo: jstr("petReactsTo", ""),
-  bell: jbool("bell"),
-  nerdfont: jbool("nerdfont"),
-  customSegment: jstr("customSegment", ""),
-  event: false,
-  tmuxPassthrough: jbool("tmuxPassthrough"),
-  elements: jobj("elements"),
-  glyphs: jobj("glyphs"),
-  labels: jobj("labels"),
-  customTheme: jobj("customTheme"),
-  nowMs,
-  clockMs,
-  baseFrame: idiv(nowMs, 1e3)
-};
+var cfg = loadConfig();
 
 // src/ansi.ts
 var ESC = "\x1B";
@@ -1663,8 +1666,8 @@ function scaleCells(pct, width) {
   return idiv(p * width, 100);
 }
 function drawBar(width, filled, marker, phaseMs = 0) {
-  const { shimmer: shimmer2, speed, glow, waveHue, barStyle, nowMs: nowMs2, baseFrame, colorMode } = cfg;
-  const t = nowMs2 + phaseMs;
+  const { shimmer, speed, glow, waveHue, barStyle, nowMs, baseFrame, colorMode } = cfg;
+  const t = nowMs + phaseMs;
   let span = filled;
   if (span < 1)
     span = 1;
@@ -1674,7 +1677,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
     const m = mod(Math.round(x), 200);
     return m < 100 ? m : 200 - m;
   };
-  if (shimmer2 === "sweep" || shimmer2 === "comet" || shimmer2 === "wave") {
+  if (shimmer === "sweep" || shimmer === "comet" || shimmer === "wave") {
     posc = mod(idiv(t * speed, 10), wrap);
     if (cfg.easing) {
       const f = posc / wrap;
@@ -1688,14 +1691,14 @@ function drawBar(width, filled, marker, phaseMs = 0) {
         e = Math.max(0, Math.min(1, f + 0.12 * Math.sin(f * 12)));
       posc = mod(Math.round(e * wrap), wrap);
     }
-  } else if (shimmer2 === "scan") {
+  } else if (shimmer === "scan") {
     let cyclec = span * 200;
     if (cyclec < 1)
       cyclec = 1;
     posc = mod(idiv(t * speed, 10), cyclec);
     if (posc >= span * 100)
       posc = span * 200 - posc;
-  } else if (shimmer2 === "breathe") {
+  } else if (shimmer === "breathe") {
     let trib = mod(t, 2600);
     if (trib >= 1300)
       trib = 2600 - trib;
@@ -1704,14 +1707,14 @@ function drawBar(width, filled, marker, phaseMs = 0) {
   const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
   const sctx = { t, speed, wrap, glow, waveHue, posc, hglob, filled, event: cfg.event, tri };
   const px = (sx) => {
-    if (shimmer2 === "disco")
+    if (shimmer === "disco")
       return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
     let posp = idiv(sx, width);
     if (posp > 100)
       posp = 100;
     if (posp < 0)
       posp = 0;
-    const hoff = HUE_SHIMMERS[shimmer2]?.(sx, sctx) ?? 0;
+    const hoff = HUE_SHIMMERS[shimmer]?.(sx, sctx) ?? 0;
     let base;
     if (TH.cmap) {
       const c = cmapSample(TH.cmap, posp);
@@ -1721,7 +1724,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
       base = hsv(bh + hoff, TH.sat, vv);
     }
-    const bf = BRIGHT_SHIMMERS[shimmer2]?.(sx, sctx) ?? 100;
+    const bf = BRIGHT_SHIMMERS[shimmer]?.(sx, sctx) ?? 100;
     if (bf !== 100)
       base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
     return base;
@@ -1792,14 +1795,14 @@ function drawBar(width, filled, marker, phaseMs = 0) {
     }
     if (barStyle === "equalizer" || barStyle === "waveform") {
       if (isFill)
-        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 17 + idiv(nowMs2, 140)) % 8]}${R}`;
+        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 17 + idiv(nowMs, 140)) % 8]}${R}`;
       else
         out += `${ROLES.muted}\u2581${R}`;
       continue;
     }
     if (barStyle === "dna") {
       if (isFill)
-        out += `${fg(i * 100 + 50)}${(i + idiv(nowMs2, 200)) % 2 ? "X" : "x"}${R}`;
+        out += `${fg(i * 100 + 50)}${(i + idiv(nowMs, 200)) % 2 ? "X" : "x"}${R}`;
       else
         out += `${ROLES.muted}\xB7${R}`;
       continue;
@@ -1813,7 +1816,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
         out += `${ROLES.muted}-${R}`;
       continue;
     }
-    if (isFill && shimmer2 === "disco") {
+    if (isFill && shimmer === "disco") {
       const [r, g, b] = px(i * 100 + 50);
       out += `${tc(r, g, b)}\u2588${R}`;
       continue;
@@ -2204,7 +2207,7 @@ function applyWashes(lines, rl, PCT) {
 
 // src/render/layout.ts
 function assembleLayout(p, sh) {
-  const J2 = justified;
+  const J = justified;
   let layout = cfg.layout;
   if (cfg.responsive) {
     const c = termCols();
@@ -2212,13 +2215,13 @@ function assembleLayout(p, sh) {
   }
   switch (layout) {
     case "tiny":
-      return [J2(`${p.BAR} ${p.PCT_SEG}`, sh("cost", p.COST_SEG))];
+      return [J(`${p.BAR} ${p.PCT_SEG}`, sh("cost", p.COST_SEG))];
     case "1line":
-      return [J2(`${p.LEAD} ${p.BAR}  ${p.PCT_FULL}  ${p.BRACKET}`, p.L3_RIGHT)];
+      return [J(`${p.LEAD} ${p.BAR}  ${p.PCT_FULL}  ${p.BRACKET}`, p.L3_RIGHT)];
     case "2line":
-      return [J2(p.L1_LEFT, p.L1_RIGHT), J2(p.L2_LEFT, p.L3_RIGHT)];
+      return [J(p.L1_LEFT, p.L1_RIGHT), J(p.L2_LEFT, p.L3_RIGHT)];
     default:
-      return [J2(p.L1_LEFT, p.L1_RIGHT), J2(p.L2_LEFT, p.L2_RIGHT), J2(p.L3_LEFT, p.L3_RIGHT)];
+      return [J(p.L1_LEFT, p.L1_RIGHT), J(p.L2_LEFT, p.L2_RIGHT), J(p.L3_LEFT, p.L3_RIGHT)];
   }
 }
 
