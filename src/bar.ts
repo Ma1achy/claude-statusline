@@ -7,27 +7,13 @@ import { TH } from './themes';
 import { cfg } from './config';
 import { hsv, cmapSample, shiftHue } from './color';
 import { idiv, mod } from './util';
+import { HUE_SHIMMERS, BRIGHT_SHIMMERS, type ShimmerCtx } from './anim/shimmers';
 import type { RGB } from './types';
 
 const MATRIX_CHARS = '01<>{}[]/\\|=+*'.split('');
 const EQ = '▁▂▃▄▅▆▇█'.split('');
 const SHADE = '░▒▓█'.split('');
 const hashI = (n: number): number => Math.imul(n >>> 0, 2654435761) >>> 0;
-
-// Morse on/off timeline (1 unit/dot, 3/dash, 1 gap between symbols, 3 between
-// letters, 7 at the end) — used by the `morse` shimmer to blink "CLAUDE".
-const MORSE: Record<string, string> = { C: '-.-.', L: '.-..', A: '.-', U: '..-', D: '-..', E: '.' };
-const MORSE_SEQ: boolean[] = (() => {
-  const out: boolean[] = [];
-  const push = (on: boolean, n: number): void => { for (let i = 0; i < n; i++) out.push(on); };
-  const word = 'CLAUDE'.split('');
-  word.forEach((ch, li) => {
-    const code = MORSE[ch] || '';
-    code.split('').forEach((sym, si) => { push(true, sym === '-' ? 3 : 1); if (si < code.length - 1) push(false, 1); });
-    push(false, li < word.length - 1 ? 3 : 7);
-  });
-  return out;
-})();
 
 /** Cells to fill for a percentage. Linear is the original idiv (byte-stable);
  *  log/compact squares the fraction so the danger zone occupies more cells. */
@@ -76,50 +62,13 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
   }
   const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
 
+  // Per-render context the shimmer strategies read (see anim/shimmers.ts).
+  const sctx: ShimmerCtx = { t, speed, wrap, glow, waveHue, posc, hglob, filled, event: cfg.event, tri };
+
   const px = (sx: number): RGB => {
     if (shimmer === 'disco') return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
     let posp = idiv(sx, width); if (posp > 100) posp = 100; if (posp < 0) posp = 0;
-    let hoff = 0;
-    // toroidal distance to the crest (wraps around the ends) → seamless loop
-    const torus = (): number => { const d = Math.abs(sx - posc); return Math.min(d, wrap - d); };
-    switch (shimmer) {
-      case 'sweep': {
-        const dc = torus();
-        if (dc < glow) hoff = idiv(waveHue * (glow - dc) * (glow - dc), glow * glow);
-        break;
-      }
-      case 'wave': {
-        const dc = torus();
-        if (dc < 450) hoff = idiv(waveHue * (450 - dc), 450);
-        break;
-      }
-      case 'comet': {
-        const lead = mod(posc - sx, wrap);   // distance behind the head, wrapping
-        if (lead < 420) hoff = idiv(waveHue * (420 - lead), 420);
-        if (torus() < 70) hoff = waveHue;     // the head itself
-        break;
-      }
-      case 'scan': {
-        const dc = Math.abs(sx - posc);       // scan bounces, so no wrap needed
-        if (dc < 140) hoff = idiv(waveHue * (140 - dc), 140);
-        break;
-      }
-      case 'breathe':
-        hoff = hglob;
-        break;
-      case 'drift': case 'aurora':
-        hoff = idiv(waveHue * tri(idiv(sx, 8) + idiv(t * speed, 25)), 100);
-        break;
-      case 'plasma':
-        hoff = idiv(waveHue * (tri(idiv(sx, 6) + idiv(t, 30)) + tri(idiv(sx, 11) - idiv(t, 45))), 200);
-        break;
-      case 'glitch': {
-        // brief broken hue jumps on pseudo-random cells, re-seeded each time bucket
-        const bk = idiv(t, 220);
-        if (hashI(sx * 13 + bk) % 100 < 12) hoff = hashI(sx + bk) % 2 ? waveHue * 3 : -waveHue * 2;
-        break;
-      }
-    }
+    const hoff = HUE_SHIMMERS[shimmer]?.(sx, sctx) ?? 0;
     let base: RGB;
     if (TH.cmap) {
       const c = cmapSample(TH.cmap, posp);
@@ -130,16 +79,7 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
       base = hsv(bh + hoff, TH.sat as number, vv);
     }
     // Brightness-channel shimmers (leave hue alone, modulate value over time/cell).
-    let bf = 100;
-    if (shimmer === 'lumin') bf = 55 + idiv(45 * tri(idiv(t, 12)), 100);
-    else if (shimmer === 'heartbeat') { const m = mod(t, 1400); const bump = (c: number, w: number): number => { const d = Math.abs(m - c); return d < w ? w - d : 0; }; bf = 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150); }
-    else if (shimmer === 'twinkle') bf = hashI(sx * 29 + idiv(t, 180)) % 100 < 14 ? 165 : 75;
-    else if (shimmer === 'storm') {
-      const flash = mod(idiv(t * speed, 8), wrap); const d = Math.abs(sx - flash); const dd = Math.min(d, wrap - d);
-      bf = dd < 120 ? 150 : 68; if (hashI(idiv(t, 400)) % 100 < 8) bf = 185;
-    } else if (shimmer === 'morse') bf = MORSE_SEQ[idiv(t, 160) % MORSE_SEQ.length] ? 100 : 22;
-    else if (shimmer === 'flash') bf = cfg.event ? 175 : 100;            // bright pulse the tick the % changes
-    else if (shimmer === 'ripple') bf = cfg.event ? (Math.abs(sx - filled * 100) < 250 ? 175 : 88) : 88;   // ring at the fill edge on update
+    const bf = BRIGHT_SHIMMERS[shimmer]?.(sx, sctx) ?? 100;
     if (bf !== 100) base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
     return base;
   };
