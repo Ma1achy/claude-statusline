@@ -66,6 +66,10 @@ function coerceThemeData(j: any): ThemeData | null {
       d.palRgb = keys.reduce((o, k) => { o[k] = (j.palette[k] as RGB).map(clamp) as RGB; return o; }, {} as PaletteRGB);
     }
   }
+  // theme-v2 pass-through (per-element styles / glyphs / labels) for inline themes.
+  if (j.elements && typeof j.elements === 'object') d.elements = j.elements;
+  if (j.glyphs && typeof j.glyphs === 'object') d.glyphs = j.glyphs;
+  if (j.labels && typeof j.labels === 'object') d.labels = j.labels;
   // need at least a ramp, a cmap, or a palette to be usable.
   if (!d.cmap && d.hueHi === undefined && !d.palRgb) return null;
   // a palette-only theme still needs a bar gradient → synthesize green→amber→red.
@@ -84,6 +88,8 @@ function themeFromBase16(spec: string): ThemeData | null {
 }
 
 function loadCustom(): Theme | null {
+  // 1) inline customTheme in the JSON config, 2) an external theme file, 3) base16.
+  try { if (cfg.customTheme) { const d = coerceThemeData(cfg.customTheme); if (d) return buildTheme(d); } } catch { /* ignore */ }
   try {
     const p = cfg.themeFile || `${os.homedir()}/.claude/statusline-theme.json`;
     if (fs.existsSync(p)) { const d = coerceThemeData(JSON.parse(fs.readFileSync(p, 'utf8'))); if (d) return buildTheme(d); }

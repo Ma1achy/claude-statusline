@@ -55,22 +55,62 @@ const SAMPLE = {
   rate_limits: { five_hour: { used_percentage: 63, resets_at: 1700008100 }, seven_day: { used_percentage: 38, resets_at: 1700280800 } },
 };
 
+// Config now lives in a JSON file, not env vars. CASES are still written in the
+// familiar SL_* shorthand; this table translates each to its JSON config key so the
+// goldens exercise the real config pipeline. Bootstrap vars stay in the environment.
+const SL_MAP = {
+  SL_THEME: ['theme', 's'], SL_SHIMMER: ['shimmer', 's'], SL_SPEED: ['speed', 'i'],
+  SL_GLOW: ['glow', 'i'], SL_WAVE_HUE: ['waveHue', 'i'], SL_EASING: ['easing', 's'],
+  SL_AUTO_THEME: ['autoTheme', 's'], SL_DAY_THEME: ['dayTheme', 's'], SL_NIGHT_THEME: ['nightTheme', 's'],
+  SL_BAR_STYLE: ['barStyle', 's'], SL_BAR_SCALE: ['barScale', 's'], SL_RAINBOW_MIX: ['rainbowMix', 'i'],
+  SL_MARGIN: ['margin', 'i'], SL_THEME_FILE: ['themeFile', 's'], SL_BASE16: ['base16', 's'],
+  SL_LAYOUT: ['layout', 's'], SL_SEPARATOR: ['separator', 's'], SL_HIDE: ['hide', 's'],
+  SL_PRIVACY_HIDE: ['privacyHide', 's'], SL_PROJECT_ALIASES: ['projectAliases', 'j'], SL_PATH: ['path', 's'],
+  SL_ACCESSIBLE_GAUGE: ['accessibleGauge', 's'], SL_PET_STYLE: ['petStyle', 's'], SL_PET_REACTS_TO: ['petReactsTo', 's'],
+  SL_CUSTOM_SEGMENT: ['customSegment', 's'], SL_PRESET: ['preset', 's'],
+  SL_LIMIT_WARN: ['limitWarn', 'i'], SL_LIMIT_CRIT: ['limitCrit', 'i'],
+  SL_PET: ['pet', 'b'], SL_CREST: ['crest', 'b'], SL_MOON: ['moon', 'b'], SL_DAYNIGHT: ['daynight', 'b'],
+  SL_COST_FLAIR: ['costFlair', 'b'], SL_BURN: ['burn', 'b'], SL_GIT_EXTRA: ['gitExtra', 'b'],
+  SL_RAINBOW_STATS: ['rainbowStats', 'b'], SL_TREND: ['trend', 'b'], SL_WEATHER: ['weather', 'b'],
+  SL_LIMITS: ['limits', 'b'], SL_PRIVACY: ['privacy', 'b'], SL_SYSINFO: ['sysinfo', 'b'],
+  SL_ACCESSIBLE: ['accessible', 'b'], SL_RESPONSIVE: ['responsive', 'b'], SL_GIT_RISK: ['gitRisk', 'b'],
+  SL_DANGER: ['danger', 'b'], SL_BELL: ['bell', 'b'], SL_NERDFONT: ['nerdfont', 'b'], SL_TMUX_PASSTHROUGH: ['tmuxPassthrough', 'b'],
+};
+// Bootstrap stays in the environment (deterministic; not part of the JSON config).
+const BOOTSTRAP = new Set(['SL_FRAME_MS', 'SL_CLOCK_MS', 'SL_COLOR_MODE', 'NO_COLOR', 'COLUMNS', 'TMPDIR']);
+
+// Translate SL_* shorthand → JSON config written to <home>/.claude/statusline.json;
+// returns bootstrap overrides (SL_FRAME_MS etc.) to merge into the env. Used by run()
+// and by the standalone tests that drive statusline.js directly.
+function writeConfig(homeDir, overrides) {
+  const conf = {}, envExtra = {};
+  for (const [k, v] of Object.entries(overrides || {})) {
+    if (BOOTSTRAP.has(k)) { envExtra[k] = v; continue; }
+    if (k.startsWith('SL_BRANCH_')) { (conf.branchThemes || (conf.branchThemes = {}))[k.slice(10).toLowerCase()] = v; continue; }
+    const m = SL_MAP[k];
+    if (!m) { envExtra[k] = v; continue; }                              // unknown → leave in env
+    const [key, t] = m;
+    conf[key] = t === 'b' ? /^(on|1|true|yes)$/i.test(v) : t === 'i' ? parseInt(v, 10) : t === 'j' ? JSON.parse(v) : v;
+  }
+  fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(homeDir, '.claude', 'statusline.json'), JSON.stringify(conf));
+  return envExtra;
+}
+
 function run(fix, envOverrides) {
   const sample = { ...SAMPLE, workspace: { current_dir: fix.repo } };
   const input = JSON.stringify(sample);
-  // Git runs only in the detached refresher, so warm the cache first, then render —
-  // this makes the (otherwise background) git output deterministic for goldens.
-  // A unique TMPDIR per call isolates the session state file so concurrent tests
-  // can't race on the shared cache (state.ts keys off os.tmpdir(), which honours TMPDIR).
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-state-'));
-  const env = { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: FRAME_MS, SL_COLOR_MODE: 'truecolor', TMPDIR: stateDir, ...envOverrides };
+  const envExtra = writeConfig(fix.home, envOverrides);
+  const env = { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: FRAME_MS, SL_COLOR_MODE: 'truecolor', TMPDIR: stateDir, ...envExtra };
+  // Git runs only in the detached refresher → warm the cache, then render; unique
+  // TMPDIR per call isolates the session-state file from concurrent tests.
   try {
     execFileSync('node', [STATUSLINE, '--git-refresh'], { input, encoding: 'utf8', env });
     return execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env });
   } finally {
     try { fs.rmSync(stateDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
-  // fixed fixture path → output is already deterministic & portable
 }
 
 // The matrix of scenarios that get golden snapshots.
@@ -108,4 +148,4 @@ const CASES = [
   ['loaded', { SL_PET: 'on', SL_CREST: 'on', SL_MOON: 'on', SL_DAYNIGHT: 'on', SL_COST_FLAIR: 'on', SL_BURN: 'on', SL_GIT_EXTRA: 'on', SL_RAINBOW_STATS: 'on', SL_SHIMMER: 'wave' }],
 ];
 
-module.exports = { setupFixture, cleanup, run, CASES, STATUSLINE };
+module.exports = { setupFixture, cleanup, run, writeConfig, CASES, STATUSLINE };

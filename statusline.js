@@ -24,8 +24,8 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 ));
 
 // src/index.ts
-var fs4 = __toESM(require("fs"));
-var os3 = __toESM(require("os"));
+var fs5 = __toESM(require("fs"));
+var os5 = __toESM(require("os"));
 var path2 = __toESM(require("path"));
 var import_child_process4 = require("child_process");
 
@@ -39,19 +39,20 @@ var mod = (a, b) => (a % b + b) % b;
 
 // src/config.ts
 var fs = __toESM(require("fs"));
+var os = __toESM(require("os"));
 
 // src/presets.ts
 var PRESETS = {
   // Quiet and static: no motion, greyscale, plain bar.
-  minimal: { SL_THEME: "mono", SL_SHIMMER: "off", SL_BAR_STYLE: "blocks" },
+  minimal: { theme: "mono", shimmer: "off", barStyle: "blocks" },
   // Colourful and lively without the joke modes.
-  pretty: { SL_THEME: "synthwave", SL_SHIMMER: "wave", SL_CREST: "on", SL_MOON: "on", SL_RAINBOW_STATS: "on" },
+  pretty: { theme: "synthwave", shimmer: "wave", crest: true, moon: true, rainbowStats: true },
   // Calm but informative — for long working sessions.
-  focus: { SL_THEME: "nord", SL_SHIMMER: "breathe", SL_BURN: "on", SL_GIT_EXTRA: "on" },
+  focus: { theme: "nord", shimmer: "breathe", burn: true, gitExtra: true },
   // Everything loud, on purpose.
-  chaos: { SL_SHIMMER: "disco", SL_THEME: "plasma", SL_PET: "on", SL_CREST: "on", SL_COST_FLAIR: "on", SL_RAINBOW_STATS: "on" },
+  chaos: { shimmer: "disco", theme: "plasma", pet: true, crest: true, costFlair: true, rainbowStats: true },
   // The kitchen-sink showcase used for screenshots/GIFs.
-  demo: { SL_THEME: "viridis", SL_SHIMMER: "comet", SL_CREST: "on", SL_PET: "on", SL_MOON: "on", SL_DAYNIGHT: "on", SL_BURN: "on", SL_GIT_EXTRA: "on", SL_RAINBOW_STATS: "on" }
+  demo: { theme: "viridis", shimmer: "comet", crest: true, pet: true, moon: true, daynight: true, burn: true, gitExtra: true, rainbowStats: true }
 };
 
 // src/git.ts
@@ -73,24 +74,32 @@ var countLines = (s) => s ? s.split("\n").filter((l) => l.length).length : 0;
 
 // src/config.ts
 var preInput = null;
-var preset = PRESETS[(process.env.SL_PRESET || "").toLowerCase()] || {};
-var penv = (k, d) => {
-  const e = process.env[k];
-  if (e !== void 0 && e !== "")
-    return e;
-  if (preset[k] !== void 0)
-    return preset[k];
-  return d;
-};
-var pbool = (k) => /^(on|1|true|yes)$/i.test(penv(k, ""));
-var pint = (k, d) => {
-  const v = parseInt(penv(k, ""), 10);
-  return Number.isFinite(v) ? v : d;
-};
+var nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
+var clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
+function loadJson() {
+  try {
+    const p = process.env.SL_CONFIG || `${os.homedir()}/.claude/statusline.json`;
+    const j = JSON.parse(fs.readFileSync(p, "utf8"));
+    return j && typeof j === "object" ? j : {};
+  } catch {
+    return {};
+  }
+}
+var raw = loadJson();
+var preset = typeof raw.preset === "string" && PRESETS[raw.preset.toLowerCase()] || {};
+var J = { ...preset, ...raw };
+var jstr = (k, d) => typeof J[k] === "string" ? J[k] : d;
+var jbool = (k) => J[k] === true;
+var jint = (k, d) => typeof J[k] === "number" && Number.isFinite(J[k]) ? J[k] : d;
+var jobj = (k) => J[k] && typeof J[k] === "object" && !Array.isArray(J[k]) ? J[k] : void 0;
+var jlist = (k) => (
+  // hide / privacyHide: array or string
+  Array.isArray(J[k]) ? J[k].join(" ") : typeof J[k] === "string" ? J[k] : ""
+);
 function resolveColorMode() {
   if (process.env.NO_COLOR !== void 0 && process.env.NO_COLOR !== "")
     return "mono";
-  const m = penv("SL_COLOR_MODE", "auto").toLowerCase();
+  const m = (process.env.SL_COLOR_MODE || jstr("colorMode", "auto")).toLowerCase();
   if (m === "truecolor" || m === "256" || m === "16" || m === "mono")
     return m;
   const ct = (process.env.COLORTERM || "").toLowerCase();
@@ -103,20 +112,18 @@ function resolveColorMode() {
     return "256";
   return "truecolor";
 }
-var shimmer = penv("SL_SHIMMER", "sweep");
+var shimmer = jstr("shimmer", "sweep");
 if (shimmer === "pulse")
   shimmer = "breathe";
 if (shimmer === "march")
   shimmer = "scan";
-if (pbool("SL_ACCESSIBLE"))
+if (jbool("accessible"))
   shimmer = "off";
-var nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
-var clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
-var themeName = penv("SL_THEME", "heat");
-var autoTheme = penv("SL_AUTO_THEME", "");
+var themeName = jstr("theme", "heat");
+var autoTheme = jstr("autoTheme", "");
 if (autoTheme === "daynight") {
   const h = new Date(clockMs).getHours();
-  themeName = h >= 7 && h < 19 ? penv("SL_DAY_THEME", "heat") : penv("SL_NIGHT_THEME", "tokyonight");
+  themeName = h >= 7 && h < 19 ? jstr("dayTheme", "heat") : jstr("nightTheme", "tokyonight");
 } else if (autoTheme === "seasonal") {
   const m = new Date(clockMs).getMonth();
   themeName = m <= 1 || m === 11 ? "void" : m <= 4 ? "everforest" : m <= 7 ? "oceanic" : "verdigris";
@@ -126,74 +133,73 @@ if (autoTheme === "daynight") {
       preInput = JSON.parse(fs.readFileSync(0, "utf8"));
       const cwd = preInput && preInput.workspace && preInput.workspace.current_dir || "";
       const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+      const bt = jobj("branchThemes") || {};
       if (/^(main|master)$/i.test(br))
-        themeName = penv("SL_BRANCH_MAIN", "nord");
+        themeName = bt.main || "nord";
       else if (/^(feat|feature)\//i.test(br))
-        themeName = penv("SL_BRANCH_FEAT", "everforest");
+        themeName = bt.feat || "everforest";
       else if (/^hotfix\//i.test(br))
-        themeName = penv("SL_BRANCH_HOTFIX", "heat");
+        themeName = bt.hotfix || "heat";
       else if (/^(fix|bugfix)\//i.test(br))
-        themeName = penv("SL_BRANCH_FIX", "gruvbox");
+        themeName = bt.fix || "gruvbox";
       else if (/^(exp|experiment)\//i.test(br))
-        themeName = penv("SL_BRANCH_EXP", "tokyonight");
+        themeName = bt.exp || "tokyonight";
     }
   } catch {
   }
 }
-var rainbowMix = penv("SL_RAINBOW_MIX", "");
+var projAliases = jobj("projectAliases");
 var cfg = {
   shimmer,
-  speed: pint("SL_SPEED", 3),
-  glow: pint("SL_GLOW", 240),
-  waveHue: pint("SL_WAVE_HUE", 32),
-  easing: penv("SL_EASING", ""),
+  speed: jint("speed", 3),
+  glow: jint("glow", 240),
+  waveHue: jint("waveHue", 32),
+  easing: jstr("easing", ""),
   themeName,
-  barStyle: penv("SL_BAR_STYLE", "blocks"),
-  barScale: penv("SL_BAR_SCALE", "linear"),
-  rainbowMixRaw: rainbowMix !== "" ? parseInt(rainbowMix, 10) : null,
-  margin: pint("SL_MARGIN", 6),
+  barStyle: jstr("barStyle", "blocks"),
+  barScale: jstr("barScale", "linear"),
+  rainbowMixRaw: typeof J.rainbowMix === "number" ? J.rainbowMix : null,
+  margin: jint("margin", 6),
   colorMode: resolveColorMode(),
-  themeFile: penv("SL_THEME_FILE", ""),
-  base16: penv("SL_BASE16", ""),
-  pet: pbool("SL_PET"),
-  crest: pbool("SL_CREST"),
-  moon: pbool("SL_MOON"),
-  daynight: pbool("SL_DAYNIGHT"),
-  costFlair: pbool("SL_COST_FLAIR"),
-  burn: pbool("SL_BURN"),
-  gitExtra: pbool("SL_GIT_EXTRA"),
-  rainbowStats: pbool("SL_RAINBOW_STATS"),
-  trend: pbool("SL_TREND"),
-  weather: pbool("SL_WEATHER"),
-  limits: pbool("SL_LIMITS"),
-  limitWarn: pint("SL_LIMIT_WARN", 80),
-  limitCrit: pint("SL_LIMIT_CRIT", 95),
-  layout: penv("SL_LAYOUT", "3line"),
-  separator: penv("SL_SEPARATOR", ""),
-  hide: penv("SL_HIDE", ""),
-  privacy: pbool("SL_PRIVACY"),
-  privacyHide: penv("SL_PRIVACY_HIDE", ""),
-  projectAliases: penv("SL_PROJECT_ALIASES", ""),
-  path: penv("SL_PATH", "auto"),
-  sysinfo: pbool("SL_SYSINFO"),
-  accessible: pbool("SL_ACCESSIBLE"),
-  accessibleGauge: penv("SL_ACCESSIBLE_GAUGE", "cvd"),
-  // cvd | traffic | grayscale
-  responsive: pbool("SL_RESPONSIVE"),
-  gitRisk: pbool("SL_GIT_RISK"),
-  danger: pbool("SL_DANGER"),
-  petStyle: penv("SL_PET_STYLE", "default"),
-  petReactsTo: penv("SL_PET_REACTS_TO", ""),
-  bell: pbool("SL_BELL"),
-  nerdfont: pbool("SL_NERDFONT"),
-  customSegment: penv("SL_CUSTOM_SEGMENT", ""),
+  themeFile: jstr("themeFile", ""),
+  base16: jstr("base16", ""),
+  pet: jbool("pet"),
+  crest: jbool("crest"),
+  moon: jbool("moon"),
+  daynight: jbool("daynight"),
+  costFlair: jbool("costFlair"),
+  burn: jbool("burn"),
+  gitExtra: jbool("gitExtra"),
+  rainbowStats: jbool("rainbowStats"),
+  trend: jbool("trend"),
+  weather: jbool("weather"),
+  limits: jbool("limits"),
+  limitWarn: jint("limitWarn", 80),
+  limitCrit: jint("limitCrit", 95),
+  layout: jstr("layout", "3line"),
+  separator: jstr("separator", ""),
+  hide: jlist("hide"),
+  privacy: jbool("privacy"),
+  privacyHide: jlist("privacyHide"),
+  projectAliases: projAliases ? JSON.stringify(projAliases) : jstr("projectAliases", ""),
+  path: jstr("path", "auto"),
+  sysinfo: jbool("sysinfo"),
+  accessible: jbool("accessible"),
+  accessibleGauge: jstr("accessibleGauge", "cvd"),
+  responsive: jbool("responsive"),
+  gitRisk: jbool("gitRisk"),
+  danger: jbool("danger"),
+  petStyle: jstr("petStyle", "default"),
+  petReactsTo: jstr("petReactsTo", ""),
+  bell: jbool("bell"),
+  nerdfont: jbool("nerdfont"),
+  customSegment: jstr("customSegment", ""),
   event: false,
-  tmuxPassthrough: pbool("SL_TMUX_PASSTHROUGH"),
-  // Git always runs off the hot path: the foreground render paints from a cached
-  // git snapshot and a detached background process (this same binary, run with
-  // --git-refresh → refreshGitCache) re-execs git and rewrites the cache. The
-  // render itself never execs git, so a large/slow repo can't push a repaint past
-  // refreshInterval (which would get the in-flight run cancelled, freezing the clock).
+  tmuxPassthrough: jbool("tmuxPassthrough"),
+  elements: jobj("elements"),
+  glyphs: jobj("glyphs"),
+  labels: jobj("labels"),
+  customTheme: jobj("customTheme"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -391,7 +397,7 @@ function hueRgb(h, mix) {
 
 // src/themes.ts
 var fs2 = __toESM(require("fs"));
-var os = __toESM(require("os"));
+var os2 = __toESM(require("os"));
 
 // src/themes.data.ts
 var A11Y_PAL = {
@@ -605,6 +611,12 @@ function coerceThemeData(j) {
       }, {});
     }
   }
+  if (j.elements && typeof j.elements === "object")
+    d.elements = j.elements;
+  if (j.glyphs && typeof j.glyphs === "object")
+    d.glyphs = j.glyphs;
+  if (j.labels && typeof j.labels === "object")
+    d.labels = j.labels;
   if (!d.cmap && d.hueHi === void 0 && !d.palRgb)
     return null;
   if (!d.cmap && d.hueHi === void 0 && d.palRgb)
@@ -621,7 +633,15 @@ function themeFromBase16(spec) {
 }
 function loadCustom() {
   try {
-    const p = cfg.themeFile || `${os.homedir()}/.claude/statusline-theme.json`;
+    if (cfg.customTheme) {
+      const d = coerceThemeData(cfg.customTheme);
+      if (d)
+        return buildTheme(d);
+    }
+  } catch {
+  }
+  try {
+    const p = cfg.themeFile || `${os2.homedir()}/.claude/statusline-theme.json`;
     if (fs2.existsSync(p)) {
       const d = coerceThemeData(JSON.parse(fs2.readFileSync(p, "utf8")));
       if (d)
@@ -1015,10 +1035,10 @@ function fmtCountdown(secs) {
 
 // src/state.ts
 var fs3 = __toESM(require("fs"));
-var os2 = __toESM(require("os"));
+var os3 = __toESM(require("os"));
 var path = __toESM(require("path"));
-var DIR = path.join(os2.tmpdir(), "claude-statusline");
-var HISTORY = path.join(os2.homedir(), ".claude", "statusline-history.jsonl");
+var DIR = path.join(os3.tmpdir(), "claude-statusline");
+var HISTORY = path.join(os3.homedir(), ".claude", "statusline-history.jsonl");
 var TTL_MS = 7 * 864e5;
 var SPARK_CAP = 30;
 var ETA_CAP = 20;
@@ -1314,7 +1334,7 @@ function modBright(esc, f) {
 function st(id, text, opts = {}) {
   if (text === "")
     return "";
-  const d = { ...ELEMENT_DEFAULTS[id], ...TH.elements && TH.elements[id] };
+  const d = { ...ELEMENT_DEFAULTS[id], ...TH.elements && TH.elements[id], ...cfg.elements && cfg.elements[id] };
   const a11y = cfg.accessible;
   let fill = opts.role ?? d.fill ?? "fg";
   if (a11y && fill === "rainbow")
@@ -1341,6 +1361,8 @@ function st(id, text, opts = {}) {
 }
 
 // src/cli.ts
+var fs4 = __toESM(require("fs"));
+var os4 = __toESM(require("os"));
 var import_child_process3 = require("child_process");
 var SAMPLE = JSON.stringify({
   session_id: "preview",
@@ -1401,22 +1423,22 @@ function runDoctor() {
   line("git", gitVer ? `${ok(true)} ${gitVer}` : `${ok(false)} not found`);
   line("git mode", `${DIM}cached + background refresh (off the hot path; refreshInterval-safe)${R}`);
   line("NO_COLOR", process.env.NO_COLOR ? "set (forces mono)" : "unset");
-  const active = Object.keys(process.env).filter((k) => k.startsWith("SL_")).sort();
-  process.stdout.write(`
-${BOLD}Active SL_* vars${R}
-`);
-  if (!active.length)
-    process.stdout.write(`  ${DIM}(none)${R}
-`);
-  for (const k of active)
-    process.stdout.write(`  ${DIM}${k}${R}=${process.env[k]}
-`);
+  const cfgPath = process.env.SL_CONFIG || `${os4.homedir()}/.claude/statusline.json`;
+  let cfgFound = false;
+  try {
+    cfgFound = fs4.existsSync(cfgPath);
+  } catch {
+  }
+  line("config", `${ok(cfgFound)} ${DIM}${cfgPath}${cfgFound ? "" : " (using defaults)"}${R}`);
+  line("theme", cfg.themeName);
+  line("layout", cfg.layout);
   const warn = [];
-  if (process.env.NO_COLOR && process.env.SL_THEME)
-    warn.push("NO_COLOR forces mono \u2014 SL_THEME has no visible effect.");
+  const legacy = Object.keys(process.env).filter((k) => /^SL_/.test(k) && !["SL_CONFIG", "SL_FRAME_MS", "SL_CLOCK_MS", "SL_COLOR_MODE"].includes(k));
+  if (legacy.length)
+    warn.push(`Legacy ${legacy.join(", ")} ${legacy.length > 1 ? "are" : "is"} ignored \u2014 config moved to JSON. Run \`statusline.js --migrate\` to convert.`);
   if (cfg.colorMode === "mono" && cfg.shimmer === "disco")
-    warn.push("disco needs colour but SL_COLOR_MODE=mono \u2014 animation will be invisible.");
-  if (cfg.colorMode !== "truecolor" && process.env.SL_THEME)
+    warn.push("disco needs colour but the mode is mono \u2014 animation will be invisible.");
+  if (cfg.colorMode !== "truecolor" && cfg.themeName !== "heat")
     warn.push(`Colour mode is ${cfg.colorMode}; themes are approximated below truecolor.`);
   if (warn.length) {
     process.stdout.write(`
@@ -1428,12 +1450,82 @@ ${BOLD}Notes${R}
   }
   process.stdout.write("\n");
 }
+var MIGRATE = {
+  SL_THEME: ["theme", "s"],
+  SL_SHIMMER: ["shimmer", "s"],
+  SL_SPEED: ["speed", "i"],
+  SL_GLOW: ["glow", "i"],
+  SL_WAVE_HUE: ["waveHue", "i"],
+  SL_EASING: ["easing", "s"],
+  SL_AUTO_THEME: ["autoTheme", "s"],
+  SL_DAY_THEME: ["dayTheme", "s"],
+  SL_NIGHT_THEME: ["nightTheme", "s"],
+  SL_BAR_STYLE: ["barStyle", "s"],
+  SL_BAR_SCALE: ["barScale", "s"],
+  SL_RAINBOW_MIX: ["rainbowMix", "i"],
+  SL_MARGIN: ["margin", "i"],
+  SL_THEME_FILE: ["themeFile", "s"],
+  SL_BASE16: ["base16", "s"],
+  SL_LAYOUT: ["layout", "s"],
+  SL_SEPARATOR: ["separator", "s"],
+  SL_HIDE: ["hide", "s"],
+  SL_PRIVACY_HIDE: ["privacyHide", "s"],
+  SL_PROJECT_ALIASES: ["projectAliases", "j"],
+  SL_PATH: ["path", "s"],
+  SL_ACCESSIBLE_GAUGE: ["accessibleGauge", "s"],
+  SL_PET_STYLE: ["petStyle", "s"],
+  SL_PET_REACTS_TO: ["petReactsTo", "s"],
+  SL_CUSTOM_SEGMENT: ["customSegment", "s"],
+  SL_PRESET: ["preset", "s"],
+  SL_LIMIT_WARN: ["limitWarn", "i"],
+  SL_LIMIT_CRIT: ["limitCrit", "i"],
+  SL_PET: ["pet", "b"],
+  SL_CREST: ["crest", "b"],
+  SL_MOON: ["moon", "b"],
+  SL_DAYNIGHT: ["daynight", "b"],
+  SL_COST_FLAIR: ["costFlair", "b"],
+  SL_BURN: ["burn", "b"],
+  SL_GIT_EXTRA: ["gitExtra", "b"],
+  SL_RAINBOW_STATS: ["rainbowStats", "b"],
+  SL_TREND: ["trend", "b"],
+  SL_WEATHER: ["weather", "b"],
+  SL_LIMITS: ["limits", "b"],
+  SL_PRIVACY: ["privacy", "b"],
+  SL_SYSINFO: ["sysinfo", "b"],
+  SL_ACCESSIBLE: ["accessible", "b"],
+  SL_RESPONSIVE: ["responsive", "b"],
+  SL_GIT_RISK: ["gitRisk", "b"],
+  SL_DANGER: ["danger", "b"],
+  SL_BELL: ["bell", "b"],
+  SL_NERDFONT: ["nerdfont", "b"],
+  SL_TMUX_PASSTHROUGH: ["tmuxPassthrough", "b"]
+};
+function runMigrate() {
+  const conf = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === void 0)
+      continue;
+    if (k.startsWith("SL_BRANCH_")) {
+      (conf.branchThemes || (conf.branchThemes = {}))[k.slice(10).toLowerCase()] = v;
+      continue;
+    }
+    const m = MIGRATE[k];
+    if (!m)
+      continue;
+    const [key, t] = m;
+    try {
+      conf[key] = t === "b" ? /^(on|1|true|yes)$/i.test(v) : t === "i" ? parseInt(v, 10) : t === "j" ? JSON.parse(v) : v;
+    } catch {
+    }
+  }
+  process.stdout.write(JSON.stringify(conf, null, 2) + "\n");
+}
 function runReport() {
   process.stdout.write(`${BOLD}claude-statusline --report${R}
 `);
   const hist = readHistory();
   if (!hist.length) {
-    process.stdout.write(`  ${DIM}no cross-session history yet (enable SL_BURN to start recording)${R}
+    process.stdout.write(`  ${DIM}no cross-session history yet (enable "burn" in your config to start recording)${R}
 `);
     return;
   }
@@ -1481,7 +1573,7 @@ function displayPath(cwd) {
   }
   if (cfg.path === "full")
     return p;
-  const home = os3.homedir();
+  const home = os5.homedir();
   if (home && (p === home || p.startsWith(home + "/")))
     p = "~" + p.slice(home.length);
   const parts = p.split("/").filter(Boolean);
@@ -1492,11 +1584,11 @@ function displayPath(cwd) {
 function readTail(file, maxBytes) {
   let fd = -1;
   try {
-    fd = fs4.openSync(file, "r");
-    const size = fs4.fstatSync(fd).size;
+    fd = fs5.openSync(file, "r");
+    const size = fs5.fstatSync(fd).size;
     const len = Math.min(size, maxBytes);
     const buf = Buffer.alloc(len);
-    fs4.readSync(fd, buf, 0, len, size - len);
+    fs5.readSync(fd, buf, 0, len, size - len);
     let s = buf.toString("utf8");
     if (size > maxBytes) {
       const nl = s.indexOf("\n");
@@ -1508,7 +1600,7 @@ function readTail(file, maxBytes) {
   } finally {
     if (fd >= 0)
       try {
-        fs4.closeSync(fd);
+        fs5.closeSync(fd);
       } catch {
       }
   }
@@ -1518,7 +1610,7 @@ function readInput() {
     return preInput;
   let input = "";
   try {
-    input = fs4.readFileSync(0, "utf8");
+    input = fs5.readFileSync(0, "utf8");
   } catch {
   }
   try {
@@ -1556,11 +1648,11 @@ function readGit(CWD, gc) {
       if (gd) {
         if (!path2.isAbsolute(gd))
           gd = path2.join(CWD, gd);
-        if (fs4.existsSync(path2.join(gd, "MERGE_HEAD")))
+        if (fs5.existsSync(path2.join(gd, "MERGE_HEAD")))
           g.state = "merge";
-        else if (fs4.existsSync(path2.join(gd, "rebase-merge")) || fs4.existsSync(path2.join(gd, "rebase-apply")))
+        else if (fs5.existsSync(path2.join(gd, "rebase-merge")) || fs5.existsSync(path2.join(gd, "rebase-apply")))
           g.state = "rebase";
-        else if (fs4.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
+        else if (fs5.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
           g.state = "cherry";
       }
     } catch {
@@ -1858,13 +1950,13 @@ function build() {
   const PET = buildPet(COST, DIRTY, PCT);
   let CLAUDE_USER = "";
   try {
-    const cj = JSON.parse(fs4.readFileSync(`${os3.homedir()}/.claude.json`, "utf8"));
+    const cj = JSON.parse(fs5.readFileSync(`${os5.homedir()}/.claude.json`, "utf8"));
     CLAUDE_USER = cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
   } catch {
   }
   let LAST_FILE = "";
   try {
-    if (TRANSCRIPT && fs4.existsSync(TRANSCRIPT)) {
+    if (TRANSCRIPT && fs5.existsSync(TRANSCRIPT)) {
       const lines2 = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
       const re = /write|edit|read|str_replace|create/i;
       for (const line of lines2) {
@@ -1890,7 +1982,7 @@ function build() {
   const FILE_SEG = LAST_FILE ? ` ${st("file", `\u203A ${LAST_FILE}`)}` : "";
   let COMPACT_PCT = "", COMPACT_OFF = false;
   try {
-    const st2 = JSON.parse(fs4.readFileSync(`${os3.homedir()}/.claude/settings.json`, "utf8"));
+    const st2 = JSON.parse(fs5.readFileSync(`${os5.homedir()}/.claude/settings.json`, "utf8"));
     if (st2.env && st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
       COMPACT_PCT = String(st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
     if (st2.autoCompactEnabled === false || st2.autoCompact === false)
@@ -2005,7 +2097,7 @@ function build() {
   const SEP = cfg.separator ? ` ${st("separator", cfg.separator)} ` : "  ";
   let SYS_SEG = "";
   if (cfg.sysinfo) {
-    const la = os3.loadavg()[0];
+    const la = os5.loadavg()[0];
     if (la > 0)
       SYS_SEG = `${st("sysinfo", `\u21AF${la.toFixed(2)}`)} `;
   }
@@ -2051,7 +2143,7 @@ function build() {
   if (CLAUDE_USER)
     L3_RIGHT = `${sh("name", `${st("name", CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
-  const J = justified;
+  const J2 = justified;
   let lines;
   let layout = cfg.layout;
   if (cfg.responsive) {
@@ -2060,16 +2152,16 @@ function build() {
   }
   switch (layout) {
     case "tiny":
-      lines = [J(`${BAR} ${PCT_SEG}`, sh("cost", COST_SEG))];
+      lines = [J2(`${BAR} ${PCT_SEG}`, sh("cost", COST_SEG))];
       break;
     case "1line":
-      lines = [J(`${LEAD} ${BAR}  ${PCT_FULL}  ${BRACKET}`, L3_RIGHT)];
+      lines = [J2(`${LEAD} ${BAR}  ${PCT_FULL}  ${BRACKET}`, L3_RIGHT)];
       break;
     case "2line":
-      lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L3_RIGHT)];
+      lines = [J2(L1_LEFT, L1_RIGHT), J2(L2_LEFT, L3_RIGHT)];
       break;
     default:
-      lines = [J(L1_LEFT, L1_RIGHT), J(L2_LEFT, L2_RIGHT), J(L3_LEFT, L3_RIGHT)];
+      lines = [J2(L1_LEFT, L1_RIGHT), J2(L2_LEFT, L2_RIGHT), J2(L3_LEFT, L3_RIGHT)];
   }
   const recolor = (line, colour) => {
     const glyphs = [];
@@ -2134,10 +2226,12 @@ else if (cliArg === "--doctor")
   runDoctor();
 else if (cliArg === "--report")
   runReport();
+else if (cliArg === "--migrate")
+  runMigrate();
 else if (cliArg === "--git-refresh") {
   refreshGitCache(readInput());
 } else if (cliArg && cliArg.startsWith("-")) {
-  process.stdout.write("claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active SL_* vars, and conflicts\n  --report    summarise cross-session usage history\n  --help      this message\n\nConfigure with SL_* environment variables \u2014 see the README.\n");
+  process.stdout.write("claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active config, and conflicts\n  --report    summarise cross-session usage history\n  --migrate   translate a legacy SL_* env block to JSON config (on stdout)\n  --help      this message\n\nConfigure via ~/.claude/statusline.json (or $SL_CONFIG) \u2014 see the README.\n");
 } else {
   try {
     const out = build();

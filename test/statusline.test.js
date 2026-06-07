@@ -6,7 +6,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { setupFixture, cleanup, run, CASES, STATUSLINE } = require('./harness');
+const { setupFixture, cleanup, run, writeConfig, CASES, STATUSLINE } = require('./harness');
 
 const GOLD = path.join(__dirname, 'golden');
 const fix = setupFixture();
@@ -94,9 +94,10 @@ test('forks: nerdfont + custom segment', () => {
   // a custom segment plugin: JSON in on stdin, first stdout line appended.
   const plug = path.join(fix.base, 'plug.js');
   fs.writeFileSync(plug, 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);process.stdout.write("PLUG:"+Math.floor(j.context_window.used_percentage))})');
+  writeConfig(fix.home, { SL_CUSTOM_SEGMENT: plug });
   const out = stripAnsi(execFileSync('node', [STATUSLINE], {
     input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 42 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_CUSTOM_SEGMENT: plug },
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
   }));
   assert.ok(out.includes('PLUG:42'), 'custom segment output appended');
   // a missing plugin must not break the statusline (still 3 lines).
@@ -132,9 +133,10 @@ test('flash: renders differently when % changes vs holds', () => {
     const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-fl-'));
     fs.mkdirSync(path.join(home, '.claude')); fs.writeFileSync(path.join(home, '.claude.json'), '{}');
     const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-fld-'));
+    writeConfig(home, { SL_SHIMMER: 'flash' });
     return (pct, fm) => execFileSync('node', [STATUSLINE], {
       input: JSON.stringify({ session_id: id, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: pct }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-      encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '120', SL_FRAME_MS: fm, SL_COLOR_MODE: 'truecolor', SL_SHIMMER: 'flash', TMPDIR: tmp },
+      encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '120', SL_FRAME_MS: fm, SL_COLOR_MODE: 'truecolor', TMPDIR: tmp },
     }).split('\n')[1];
   };
   const a = sess('A'); a(50, '1700000000000'); const held = a(50, '1700000000001');     // prev 50 → no change
@@ -148,18 +150,20 @@ test('pet styles + bell de-dup', () => {
   assert.ok(stripAnsi(run(fix, { SL_PET: 'on' })).includes('[._.]'), 'default pet face');
   assert.ok(stripAnsi(run(fix, { SL_PET: 'on', SL_PET_STYLE: 'cat' })).includes('=._.='), 'cat pet face');
   // reacts-to=cost: high cost → stressed face regardless of context.
+  writeConfig(fix.home, { SL_PET: 'on', SL_PET_REACTS_TO: 'cost' });
   const greedy = stripAnsi(execFileSync('node', [STATUSLINE], {
     input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 10 }, cost: { total_cost_usd: 2.5, total_duration_ms: 120000 } }),
-    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_PET: 'on', SL_PET_REACTS_TO: 'cost' },
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
   }));
   assert.ok(greedy.includes('[$_$]'), 'cost reaction → stressed at high spend');
   // bell rings (0x07) the first time context crosses 80, then de-dups.
   const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-bell-'));
   fs.mkdirSync(path.join(home, '.claude')); fs.writeFileSync(path.join(home, '.claude.json'), '{}');
   const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-bt-'));
+  writeConfig(home, { SL_BELL: 'on' });
   const ring = () => execFileSync('node', [STATUSLINE], {
     input: JSON.stringify({ session_id: 'b', model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 85 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_BELL: 'on', TMPDIR: tmp },
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', TMPDIR: tmp },
   });
   assert.strictEqual(ring().charCodeAt(0), 7, 'first crossing rings the bell');
   assert.notStrictEqual(ring().charCodeAt(0), 7, 'same level does not re-ring');
@@ -168,10 +172,11 @@ test('pet styles + bell de-dup', () => {
 
 // 6g. Bar scale — log expands the danger zone (fewer filled cells at high %).
 test('bar scale: log differs from linear and widens the danger zone', () => {
-  const emptyCells = (env) => {
+  const emptyCells = (over) => {
+    writeConfig(fix.home, over);
     const l2 = stripAnsi(execFileSync('node', [STATUSLINE], {
       input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 90 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', ...env },
+      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
     })).split('\n')[1];
     return (l2.match(/░/g) || []).length;
   };
@@ -190,10 +195,13 @@ test('branch auto-theme: feat/* → everforest', () => {
 
 // 6f. Reactive themes — daynight picks by clock; danger wash on critical context.
 test('reactive: daynight + silver-halide danger wash', () => {
-  const at = (env) => execFileSync('node', [STATUSLINE], {
-    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: env._pct || 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_CLOCK_MS: env._clock || '1700000000123', SL_COLOR_MODE: 'truecolor', ...env },
-  });
+  const at = (over) => {
+    writeConfig(fix.home, over);
+    return execFileSync('node', [STATUSLINE], {
+      input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: over._pct || 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_CLOCK_MS: over._clock || '1700000000123', SL_COLOR_MODE: 'truecolor' },
+    });
+  };
   // daynight resolves to different themes for a day vs night hour → different output.
   const day = at({ SL_AUTO_THEME: 'daynight', SL_DAY_THEME: 'heat', SL_NIGHT_THEME: 'tokyonight', _clock: String(1700000000000 - 9 * 3600000) });
   const night = at({ SL_AUTO_THEME: 'daynight', SL_DAY_THEME: 'heat', SL_NIGHT_THEME: 'tokyonight', _clock: String(1700000000000) });
@@ -251,8 +259,9 @@ test('git: detached HEAD + merge state', () => {
   const input = JSON.stringify({ workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } });
   // Git is off the hot path, so warm the cache (--git-refresh) then render. The git
   // state changes between calls, so re-warm each time (same frame ts overwrites the cache).
+  writeConfig(home, { SL_GIT_EXTRA: 'on' });
   const l3 = (extra) => {
-    const env = { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_GIT_EXTRA: 'on', TMPDIR: tmp, ...extra };
+    const env = { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', TMPDIR: tmp, ...extra };
     execFileSync('node', [STATUSLINE, '--git-refresh'], { input, encoding: 'utf8', env });
     return stripAnsi(execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env })).split('\n')[2];
   };
@@ -282,7 +291,8 @@ test('git: ahead of upstream shows ↑N', () => {
   fs.writeFileSync(path.join(repo, 'f'), '1\n'); g('add', 'f'); g('commit', '-q', '-m', 'c1'); g('push', '-q', '-u', 'origin', 'HEAD');
   fs.writeFileSync(path.join(repo, 'f'), '2\n'); g('commit', '-q', '-am', 'c2');   // now ahead by 1
   const input = JSON.stringify({ session_id: 'ab', workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } });
-  const env = { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_GIT_EXTRA: 'on', TMPDIR: tmp };
+  writeConfig(home, { SL_GIT_EXTRA: 'on' });
+  const env = { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', TMPDIR: tmp };
   execFileSync('node', [STATUSLINE, '--git-refresh'], { input, encoding: 'utf8', env });
   const out = stripAnsi(execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env })).split('\n')[2];
   assert.match(out, /↑︎?1/, 'a branch one commit ahead should show ↑1');
@@ -301,10 +311,11 @@ test('privacy: SL_PRIVACY hides sensitive segments', () => {
 
 test('path: deep paths truncate; aliases and SL_PATH=full apply', () => {
   const deep = '/a/b/c/d/e/f/g/leaf';
-  const at = (env) => {
+  const at = (over) => {
+    writeConfig(fix.home, over);
     const out = execFileSync('node', [STATUSLINE], {
       input: JSON.stringify({ workspace: { current_dir: deep }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', ...env },
+      encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
     });
     return stripAnsi(out).split('\n')[2];
   };
@@ -331,10 +342,11 @@ test('trend: sparkline grows; sharp context drop counts a compaction', () => {
   fs.mkdirSync(path.join(home, '.claude'));
   fs.writeFileSync(path.join(home, '.claude.json'), '{}');
   const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-tt-'));
+  writeConfig(home, { SL_TREND: 'on' });
   const at = (pct) => {
     const out = execFileSync('node', [STATUSLINE], {
       input: JSON.stringify({ session_id: 'trendsess', model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: pct }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-      encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_TREND: 'on', TMPDIR: tmp },
+      encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', TMPDIR: tmp },
     });
     return stripAnsi(out).split('\n')[1];
   };
@@ -348,17 +360,13 @@ test('trend: sparkline grows; sharp context drop counts a compaction', () => {
 
 // 6c. Limit warnings — a usage bar past the crit threshold flags LOW.
 test('limits: usage past SL_LIMIT_CRIT shows LOW', () => {
-  const line2 = stripAnsi(execFileSync('node', [STATUSLINE], {
-    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 50 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 }, rate_limits: { five_hour: { used_percentage: 97, resets_at: 1700008100 }, seven_day: { used_percentage: 38, resets_at: 1700280800 } } }),
-    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_LIMITS: 'on' },
+  writeConfig(fix.home, { SL_LIMITS: 'on' });
+  const lim = (fhPct) => stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 50 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 }, rate_limits: { five_hour: { used_percentage: fhPct, resets_at: 1700008100 }, seven_day: { used_percentage: 38, resets_at: 1700280800 } } }),
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor' },
   }).split('\n')[1]);
-  assert.ok(line2.includes('LOW'), 'critical usage should show LOW');
-  // below thresholds → no LOW.
-  const calm = stripAnsi(execFileSync('node', [STATUSLINE], {
-    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 50 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 }, rate_limits: { five_hour: { used_percentage: 30, resets_at: 1700008100 }, seven_day: { used_percentage: 38, resets_at: 1700280800 } } }),
-    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_LIMITS: 'on' },
-  }).split('\n')[1]);
-  assert.ok(!calm.includes('LOW'), 'sub-threshold usage should not show LOW');
+  assert.ok(lim(97).includes('LOW'), 'critical usage should show LOW');
+  assert.ok(!lim(30).includes('LOW'), 'sub-threshold usage should not show LOW');
 });
 
 // 7. State layer — per-session ring buffer persists context % across repaints.

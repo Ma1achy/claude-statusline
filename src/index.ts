@@ -17,7 +17,7 @@ import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistor
   HISTORY_BUCKET_MS, BURN_BASELINE_MIN_MS, BURN_MIN_SESSION_MS } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
 import { st } from './style';
-import { runPreview, runDoctor, runReport } from './cli';
+import { runPreview, runDoctor, runReport, runMigrate } from './cli';
 import type { StatuslineInput, RateLimit, Role } from './types';
 
 // Pet faces by style, ordered calm → stressed (5 levels). All ASCII, width-safe.
@@ -644,6 +644,7 @@ const cliArg = process.argv[2];
 if (cliArg === '--preview') runPreview();
 else if (cliArg === '--doctor') runDoctor();
 else if (cliArg === '--report') runReport();
+else if (cliArg === '--migrate') runMigrate();
 else if (cliArg === '--git-refresh') {
   // Detached background invocation: warm the git cache, print nothing.
   refreshGitCache(readInput());
@@ -652,9 +653,11 @@ else if (cliArg && cliArg.startsWith('-')) {
   process.stdout.write('claude-statusline — a statusline command for Claude Code.\n\n'
     + 'Usage: reads Claude Code JSON on stdin and prints the statusline.\n\n'
     + 'Commands:\n  --preview   render every theme / bar style / shimmer\n'
-    + '  --doctor    report terminal capabilities, active SL_* vars, and conflicts\n'
-    + '  --report    summarise cross-session usage history\n  --help      this message\n\n'
-    + 'Configure with SL_* environment variables — see the README.\n');
+    + '  --doctor    report terminal capabilities, active config, and conflicts\n'
+    + '  --report    summarise cross-session usage history\n'
+    + '  --migrate   translate a legacy SL_* env block to JSON config (on stdout)\n'
+    + '  --help      this message\n\n'
+    + 'Configure via ~/.claude/statusline.json (or $SL_CONFIG) — see the README.\n');
 } else {
   try {
     const out = build();
