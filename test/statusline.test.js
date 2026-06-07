@@ -86,6 +86,19 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6i. CLI — --doctor / --report / --preview run and produce sensible output.
+test('cli: doctor, report, preview', () => {
+  const sub = (arg, env) => execFileSync('node', [STATUSLINE, arg], {
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TERM: 'xterm-256color', ...env },
+  });
+  const doc = stripAnsi(sub('--doctor', { COLORTERM: 'truecolor' }));
+  assert.ok(doc.includes('node') && doc.includes('truecolor') && doc.includes('git'), 'doctor reports environment');
+  assert.ok(stripAnsi(sub('--report', {})).toLowerCase().includes('history') || stripAnsi(sub('--report', {})).includes('samples'), 'report runs');
+  const prev = stripAnsi(sub('--preview', {}));
+  assert.ok(prev.includes('Themes') && prev.includes('Bar styles') && prev.includes('Shimmer'), 'preview has all sections');
+  assert.ok(prev.includes('catppuccin-mocha') && prev.includes('braille'), 'preview lists themes and bar styles');
+});
+
 // 6h. Pet + bell — styles render; bell rings once per threshold crossing.
 test('pet styles + bell de-dup', () => {
   // a style swaps the face glyphs (PCT 42 → neutral level for default & cat).

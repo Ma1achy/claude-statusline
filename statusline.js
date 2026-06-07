@@ -1017,6 +1017,118 @@ function weatherWord(pct, target) {
   return "clear";
 }
 
+// src/cli.ts
+var import_child_process3 = require("child_process");
+var SAMPLE = JSON.stringify({
+  session_id: "preview",
+  model: { id: "claude-opus-4-8", display_name: "Opus" },
+  workspace: { current_dir: process.cwd() },
+  context_window: { used_percentage: 58, context_window_size: 2e5, current_usage: { cache_read_input_tokens: 61e3, input_tokens: 380, output_tokens: 210 } },
+  cost: { total_cost_usd: 0.34, total_duration_ms: 186e4, total_lines_added: 124, total_lines_removed: 18 },
+  fast_mode: true,
+  rate_limits: { five_hour: { used_percentage: 63, resets_at: 9999999999 }, seven_day: { used_percentage: 38, resets_at: 9999999999 } }
+});
+function renderBar(env2) {
+  try {
+    const out = (0, import_child_process3.execFileSync)(process.execPath, [process.argv[1]], {
+      input: SAMPLE,
+      encoding: "utf8",
+      env: { ...process.env, COLUMNS: "120", SL_FRAME_MS: "1700000000123", SL_COLOR_MODE: "truecolor", ...env2 }
+    });
+    return out.split("\n")[1] || "";
+  } catch {
+    return `${DIM}(error)${R}`;
+  }
+}
+function runPreview() {
+  const pad = (s) => (s + " ".repeat(22)).slice(0, 22);
+  const section = (title, rows) => {
+    process.stdout.write(`
+${BOLD}${title}${R}
+`);
+    for (const [label, env2] of rows)
+      process.stdout.write(`  ${DIM}${pad(label)}${R} ${renderBar(env2)}
+`);
+  };
+  section("Themes (SL_THEME)", Object.keys(THEMES_DATA).map((t) => [t, { SL_THEME: t }]));
+  section("Bar styles (SL_BAR_STYLE)", ["blocks", "pacman", "snake", "matrix", "braille", "battery", "thermo", "shade", "lines", "rule", "equalizer", "dna", "train"].map((b) => [b, { SL_BAR_STYLE: b }]));
+  section("Shimmer (SL_SHIMMER)", ["sweep", "wave", "comet", "breathe", "scan", "drift", "plasma", "lumin", "heartbeat", "twinkle", "storm", "glitch", "off"].map((s) => [s, { SL_SHIMMER: s }]));
+  process.stdout.write("\n");
+}
+function runDoctor() {
+  const ok = (b) => b ? `${ESC}[32m\u2713${R}` : `${ESC}[31m\u2717${R}`;
+  const line = (k, v) => {
+    process.stdout.write(`  ${DIM}${(k + " ".repeat(16)).slice(0, 16)}${R} ${v}
+`);
+  };
+  process.stdout.write(`${BOLD}claude-statusline --doctor${R}
+`);
+  const ct = (process.env.COLORTERM || "").toLowerCase();
+  const truecolor = ct.includes("truecolor") || ct.includes("24bit");
+  let gitVer = "";
+  try {
+    gitVer = (0, import_child_process3.execFileSync)("git", ["--version"], { encoding: "utf8" }).trim();
+  } catch {
+  }
+  line("node", process.version);
+  line("truecolor", `${ok(truecolor)} ${DIM}(COLORTERM=${process.env.COLORTERM || "unset"})${R}`);
+  line("resolved mode", cfg.colorMode);
+  line("TERM", process.env.TERM || "unset");
+  line("tmux", process.env.TMUX ? `${ok(true)} (multiplexer \u2014 truecolor may need passthrough)` : "no");
+  line("git", gitVer ? `${ok(true)} ${gitVer}` : `${ok(false)} not found`);
+  line("NO_COLOR", process.env.NO_COLOR ? "set (forces mono)" : "unset");
+  const active = Object.keys(process.env).filter((k) => k.startsWith("SL_")).sort();
+  process.stdout.write(`
+${BOLD}Active SL_* vars${R}
+`);
+  if (!active.length)
+    process.stdout.write(`  ${DIM}(none)${R}
+`);
+  for (const k of active)
+    process.stdout.write(`  ${DIM}${k}${R}=${process.env[k]}
+`);
+  const warn = [];
+  if (process.env.NO_COLOR && process.env.SL_THEME)
+    warn.push("NO_COLOR forces mono \u2014 SL_THEME has no visible effect.");
+  if (cfg.colorMode === "mono" && cfg.shimmer === "disco")
+    warn.push("disco needs colour but SL_COLOR_MODE=mono \u2014 animation will be invisible.");
+  if (cfg.colorMode !== "truecolor" && process.env.SL_THEME)
+    warn.push(`Colour mode is ${cfg.colorMode}; themes are approximated below truecolor.`);
+  if (warn.length) {
+    process.stdout.write(`
+${BOLD}Notes${R}
+`);
+    for (const w of warn)
+      process.stdout.write(`  ${ESC}[33m!${R} ${w}
+`);
+  }
+  process.stdout.write("\n");
+}
+function runReport() {
+  process.stdout.write(`${BOLD}claude-statusline --report${R}
+`);
+  const hist = readHistory();
+  if (!hist.length) {
+    process.stdout.write(`  ${DIM}no cross-session history yet (enable SL_BURN to start recording)${R}
+`);
+    return;
+  }
+  const rates = hist.filter((h) => h.dur >= 6e4 && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
+  const totalCost = hist.reduce((m, h) => Math.max(m, h.cost), 0);
+  const line = (k, v) => {
+    process.stdout.write(`  ${DIM}${(k + " ".repeat(18)).slice(0, 18)}${R} ${v}
+`);
+  };
+  line("samples", String(hist.length));
+  line("peak cost seen", `$${totalCost.toFixed(2)}`);
+  if (rates.length) {
+    line("median burn", `$${median(rates).toFixed(2)}/hr`);
+    line("fastest burn", `$${Math.max(...rates).toFixed(2)}/hr`);
+  }
+  line("peak context", `${Math.max(...hist.map((h) => h.ctx))}%`);
+  process.stdout.write("\n");
+}
+
 // src/index.ts
 var PET_FACES = {
   default: ["[^_^]", "[._.]", "[o_o]", "[>_<]", "[$_$]"],
@@ -1581,9 +1693,20 @@ function build() {
   }
   return BELL + lines.join("\n") + "\n";
 }
-try {
-  process.stdout.write(build());
-} catch (e) {
-  process.stdout.write(`${DIM}claude-statusline: ${e && e.message || "error"}${R}
+var cliArg = process.argv[2];
+if (cliArg === "--preview")
+  runPreview();
+else if (cliArg === "--doctor")
+  runDoctor();
+else if (cliArg === "--report")
+  runReport();
+else if (cliArg && cliArg.startsWith("-")) {
+  process.stdout.write("claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active SL_* vars, and conflicts\n  --report    summarise cross-session usage history\n  --help      this message\n\nConfigure with SL_* environment variables \u2014 see the README.\n");
+} else {
+  try {
+    process.stdout.write(build());
+  } catch (e) {
+    process.stdout.write(`${DIM}claude-statusline: ${e && e.message || "error"}${R}
 `);
+  }
 }

@@ -14,6 +14,7 @@ import { cfg } from './config';
 import { idiv } from './util';
 import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory } from './state';
 import { sparkline, etaMinutes, median, weatherWord } from './insight';
+import { runPreview, runDoctor, runReport } from './cli';
 import type { StatuslineInput } from './types';
 
 // Pet faces by style, ordered calm → stressed (5 levels). All ASCII, width-safe.
@@ -516,9 +517,22 @@ function build(): string {
   return BELL + lines.join('\n') + '\n';
 }
 
-try {
-  process.stdout.write(build());
-} catch (e) {
-  // Never blank the statusline — emit one minimal line.
-  process.stdout.write(`${DIM}claude-statusline: ${(e && (e as Error).message) || 'error'}${R}\n`);
+const cliArg = process.argv[2];
+if (cliArg === '--preview') runPreview();
+else if (cliArg === '--doctor') runDoctor();
+else if (cliArg === '--report') runReport();
+else if (cliArg && cliArg.startsWith('-')) {
+  process.stdout.write('claude-statusline — a statusline command for Claude Code.\n\n'
+    + 'Usage: reads Claude Code JSON on stdin and prints the statusline.\n\n'
+    + 'Commands:\n  --preview   render every theme / bar style / shimmer\n'
+    + '  --doctor    report terminal capabilities, active SL_* vars, and conflicts\n'
+    + '  --report    summarise cross-session usage history\n  --help      this message\n\n'
+    + 'Configure with SL_* environment variables — see the README.\n');
+} else {
+  try {
+    process.stdout.write(build());
+  } catch (e) {
+    // Never blank the statusline — emit one minimal line.
+    process.stdout.write(`${DIM}claude-statusline: ${(e && (e as Error).message) || 'error'}${R}\n`);
+  }
 }
