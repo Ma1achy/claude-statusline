@@ -75,7 +75,7 @@ const SL_MAP = {
   SL_LIMITS: ['limits', 'b'], SL_PRIVACY: ['privacy', 'b'], SL_SYSINFO: ['sysinfo', 'b'],
   SL_ACCESSIBLE: ['accessible', 'b'], SL_RESPONSIVE: ['responsive', 'b'], SL_GIT_RISK: ['gitRisk', 'b'],
   SL_DANGER: ['danger', 'b'], SL_BELL: ['bell', 'b'], SL_NERDFONT: ['nerdfont', 'b'], SL_TMUX_PASSTHROUGH: ['tmuxPassthrough', 'b'],
-  SL_WARNING_LINE: ['warningLine', 'b'],
+  SL_WARNING_LINE: ['warningLine', 'b'], SL_ACTIVITY_LINE: ['activityLine', 'b'], SL_CONVERSATION_LINE: ['conversationLine', 'b'],
 };
 // Bootstrap stays in the environment (deterministic; not part of the JSON config).
 const BOOTSTRAP = new Set(['SL_FRAME_MS', 'SL_CLOCK_MS', 'SL_COLOR_MODE', 'NO_COLOR', 'COLUMNS', 'TMPDIR']);
