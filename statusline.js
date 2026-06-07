@@ -1550,11 +1550,12 @@ function buildPet(COST, DIRTY, PCT) {
   return `${st("pet", faces[lvl], { role })} `;
 }
 
-// src/bar.ts
-var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
-var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
-var SHADE = "\u2591\u2592\u2593\u2588".split("");
+// src/anim/shimmers.ts
 var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
+var torus = (sx, c) => {
+  const d = Math.abs(sx - c.posc);
+  return Math.min(d, c.wrap - d);
+};
 var MORSE = { C: "-.-.", L: ".-..", A: ".-", U: "..-", D: "-..", E: "." };
 var MORSE_SEQ = (() => {
   const out = [];
@@ -1574,6 +1575,87 @@ var MORSE_SEQ = (() => {
   });
   return out;
 })();
+var HUE_SHIMMERS = {
+  sweep(sx, c) {
+    const dc = torus(sx, c);
+    return dc < c.glow ? idiv(c.waveHue * (c.glow - dc) * (c.glow - dc), c.glow * c.glow) : 0;
+  },
+  wave(sx, c) {
+    const dc = torus(sx, c);
+    return dc < 450 ? idiv(c.waveHue * (450 - dc), 450) : 0;
+  },
+  comet(sx, c) {
+    let hoff = 0;
+    const lead = mod(c.posc - sx, c.wrap);
+    if (lead < 420)
+      hoff = idiv(c.waveHue * (420 - lead), 420);
+    if (torus(sx, c) < 70)
+      hoff = c.waveHue;
+    return hoff;
+  },
+  scan(sx, c) {
+    const dc = Math.abs(sx - c.posc);
+    return dc < 140 ? idiv(c.waveHue * (140 - dc), 140) : 0;
+  },
+  breathe(_sx, c) {
+    return c.hglob;
+  },
+  drift(sx, c) {
+    return idiv(c.waveHue * c.tri(idiv(sx, 8) + idiv(c.t * c.speed, 25)), 100);
+  },
+  plasma(sx, c) {
+    return idiv(c.waveHue * (c.tri(idiv(sx, 6) + idiv(c.t, 30)) + c.tri(idiv(sx, 11) - idiv(c.t, 45))), 200);
+  },
+  glitch(sx, c) {
+    const bk = idiv(c.t, 220);
+    if (hashI(sx * 13 + bk) % 100 < 12)
+      return hashI(sx + bk) % 2 ? c.waveHue * 3 : -c.waveHue * 2;
+    return 0;
+  }
+};
+HUE_SHIMMERS.aurora = HUE_SHIMMERS.drift;
+var BRIGHT_SHIMMERS = {
+  lumin(_sx, c) {
+    return 55 + idiv(45 * c.tri(idiv(c.t, 12)), 100);
+  },
+  heartbeat(_sx, c) {
+    const m = mod(c.t, 1400);
+    const bump = (k, w) => {
+      const d = Math.abs(m - k);
+      return d < w ? w - d : 0;
+    };
+    return 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150);
+  },
+  twinkle(sx, c) {
+    return hashI(sx * 29 + idiv(c.t, 180)) % 100 < 14 ? 165 : 75;
+  },
+  storm(sx, c) {
+    const flash = mod(idiv(c.t * c.speed, 8), c.wrap);
+    const d = Math.abs(sx - flash);
+    const dd = Math.min(d, c.wrap - d);
+    let bf = dd < 120 ? 150 : 68;
+    if (hashI(idiv(c.t, 400)) % 100 < 8)
+      bf = 185;
+    return bf;
+  },
+  morse(_sx, c) {
+    return MORSE_SEQ[idiv(c.t, 160) % MORSE_SEQ.length] ? 100 : 22;
+  },
+  flash(_sx, c) {
+    return c.event ? 175 : 100;
+  },
+  // bright pulse the tick the % changes
+  ripple(sx, c) {
+    return c.event ? Math.abs(sx - c.filled * 100) < 250 ? 175 : 88 : 88;
+  }
+  // ring at the fill edge on update
+};
+
+// src/bar.ts
+var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
+var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
+var SHADE = "\u2591\u2592\u2593\u2588".split("");
+var hashI2 = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
 function scaleCells(pct, width) {
   const p = Math.max(0, Math.min(100, pct));
   if (cfg.barScale === "log" || cfg.barScale === "compact")
@@ -1620,6 +1702,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
     hglob = idiv(waveHue * trib, 1300);
   }
   const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
+  const sctx = { t, speed, wrap, glow, waveHue, posc, hglob, filled, event: cfg.event, tri };
   const px = (sx) => {
     if (shimmer2 === "disco")
       return hsv(idiv(sx * 3, 10) + idiv(t, 30), 95, 92);
@@ -1628,55 +1711,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       posp = 100;
     if (posp < 0)
       posp = 0;
-    let hoff = 0;
-    const torus = () => {
-      const d = Math.abs(sx - posc);
-      return Math.min(d, wrap - d);
-    };
-    switch (shimmer2) {
-      case "sweep": {
-        const dc = torus();
-        if (dc < glow)
-          hoff = idiv(waveHue * (glow - dc) * (glow - dc), glow * glow);
-        break;
-      }
-      case "wave": {
-        const dc = torus();
-        if (dc < 450)
-          hoff = idiv(waveHue * (450 - dc), 450);
-        break;
-      }
-      case "comet": {
-        const lead = mod(posc - sx, wrap);
-        if (lead < 420)
-          hoff = idiv(waveHue * (420 - lead), 420);
-        if (torus() < 70)
-          hoff = waveHue;
-        break;
-      }
-      case "scan": {
-        const dc = Math.abs(sx - posc);
-        if (dc < 140)
-          hoff = idiv(waveHue * (140 - dc), 140);
-        break;
-      }
-      case "breathe":
-        hoff = hglob;
-        break;
-      case "drift":
-      case "aurora":
-        hoff = idiv(waveHue * tri(idiv(sx, 8) + idiv(t * speed, 25)), 100);
-        break;
-      case "plasma":
-        hoff = idiv(waveHue * (tri(idiv(sx, 6) + idiv(t, 30)) + tri(idiv(sx, 11) - idiv(t, 45))), 200);
-        break;
-      case "glitch": {
-        const bk = idiv(t, 220);
-        if (hashI(sx * 13 + bk) % 100 < 12)
-          hoff = hashI(sx + bk) % 2 ? waveHue * 3 : -waveHue * 2;
-        break;
-      }
-    }
+    const hoff = HUE_SHIMMERS[shimmer2]?.(sx, sctx) ?? 0;
     let base;
     if (TH.cmap) {
       const c = cmapSample(TH.cmap, posp);
@@ -1686,31 +1721,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
       base = hsv(bh + hoff, TH.sat, vv);
     }
-    let bf = 100;
-    if (shimmer2 === "lumin")
-      bf = 55 + idiv(45 * tri(idiv(t, 12)), 100);
-    else if (shimmer2 === "heartbeat") {
-      const m = mod(t, 1400);
-      const bump = (c, w) => {
-        const d = Math.abs(m - c);
-        return d < w ? w - d : 0;
-      };
-      bf = 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150);
-    } else if (shimmer2 === "twinkle")
-      bf = hashI(sx * 29 + idiv(t, 180)) % 100 < 14 ? 165 : 75;
-    else if (shimmer2 === "storm") {
-      const flash = mod(idiv(t * speed, 8), wrap);
-      const d = Math.abs(sx - flash);
-      const dd = Math.min(d, wrap - d);
-      bf = dd < 120 ? 150 : 68;
-      if (hashI(idiv(t, 400)) % 100 < 8)
-        bf = 185;
-    } else if (shimmer2 === "morse")
-      bf = MORSE_SEQ[idiv(t, 160) % MORSE_SEQ.length] ? 100 : 22;
-    else if (shimmer2 === "flash")
-      bf = cfg.event ? 175 : 100;
-    else if (shimmer2 === "ripple")
-      bf = cfg.event ? Math.abs(sx - filled * 100) < 250 ? 175 : 88 : 88;
+    const bf = BRIGHT_SHIMMERS[shimmer2]?.(sx, sctx) ?? 100;
     if (bf !== 100)
       base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
     return base;
@@ -1746,7 +1757,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       if (isFill)
         out += `${fg(i * 100 + 50)}\u2588${R}`;
       else
-        out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
+        out += `${dimFg(0, 120, 0)}${MATRIX_CHARS[hashI2(i * 131 + baseFrame) % MATRIX_CHARS.length]}${R}`;
       continue;
     }
     if (barStyle === "braille") {
@@ -1781,7 +1792,7 @@ function drawBar(width, filled, marker, phaseMs = 0) {
     }
     if (barStyle === "equalizer" || barStyle === "waveform") {
       if (isFill)
-        out += `${fg(i * 100 + 50)}${EQ[hashI(i * 17 + idiv(nowMs2, 140)) % 8]}${R}`;
+        out += `${fg(i * 100 + 50)}${EQ[hashI2(i * 17 + idiv(nowMs2, 140)) % 8]}${R}`;
       else
         out += `${ROLES.muted}\u2581${R}`;
       continue;
