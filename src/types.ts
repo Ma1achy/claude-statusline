@@ -63,7 +63,6 @@ export interface Config {
   nerdfont: boolean; customSegment: string;
   event: boolean;   // set at runtime: the context % changed since the last tick
   tmuxPassthrough: boolean;
-  gitRefresh: boolean;   // true when this process is the detached git-cache refresher
   nowMs: number;
   clockMs: number;
   baseFrame: number;

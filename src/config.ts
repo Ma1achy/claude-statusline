@@ -134,11 +134,9 @@ export const cfg: Config = {
   tmuxPassthrough: pbool('SL_TMUX_PASSTHROUGH'),
   // Git always runs off the hot path: the foreground render paints from a cached
   // git snapshot and a detached background process (this same binary, run with
-  // --git-refresh) re-execs git and rewrites the cache. The render itself never
-  // execs git, so a large/slow repo can't push a repaint past refreshInterval
-  // (which would get the in-flight run cancelled, freezing the clock). This flag
-  // marks the background refresher — the one process that is allowed to exec git.
-  gitRefresh: process.argv.includes('--git-refresh'),
+  // --git-refresh → refreshGitCache) re-execs git and rewrites the cache. The
+  // render itself never execs git, so a large/slow repo can't push a repaint past
+  // refreshInterval (which would get the in-flight run cancelled, freezing the clock).
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1000),
