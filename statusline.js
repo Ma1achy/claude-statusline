@@ -170,6 +170,7 @@ function loadConfig() {
     layout: jstr("layout", "3line"),
     separator: jstr("separator", ""),
     hide: jlist("hide"),
+    frame: jstr("frame", ""),
     privacy: jbool("privacy"),
     privacyHide: jlist("privacyHide"),
     projectAliases: projAliases ? JSON.stringify(projAliases) : jstr("projectAliases", ""),
@@ -2455,6 +2456,29 @@ function assembleLayout(p, sh) {
   }
 }
 
+// src/render/frame.ts
+function applyFrame(lines, mode) {
+  if (!lines.length)
+    return lines;
+  const m = ROLES.muted;
+  const w = Math.max(...lines.map(printLen));
+  if (mode === "rule") {
+    const rule = `${m}${"\u2500".repeat(w)}${R}`;
+    const out = [];
+    lines.forEach((l, i) => {
+      out.push(l);
+      if (i < lines.length - 1)
+        out.push(rule);
+    });
+    return out;
+  }
+  if (mode === "box") {
+    const pad = (l) => `${m}\u2502${R}${l}${" ".repeat(Math.max(0, w - printLen(l)))}${m}\u2502${R}`;
+    return [`${m}\u250C${"\u2500".repeat(w)}\u2510${R}`, ...lines.map(pad), `${m}\u2514${"\u2500".repeat(w)}\u2518${R}`];
+  }
+  return lines;
+}
+
 // src/build.ts
 function build() {
   const data = readInput();
@@ -2573,6 +2597,8 @@ function build() {
     if (c)
       lines.push(c);
   }
+  if (cfg.frame)
+    lines = applyFrame(lines, cfg.frame);
   if (kickRefresh) {
     try {
       const child = (0, import_child_process5.spawn)(process.execPath, [__filename, "--git-refresh"], {
