@@ -33,6 +33,16 @@ test('alignment: every line fits a wide terminal', () => {
   }
 });
 
+// 2b. Accessibility strips a theme's pseudo-fonts (gothic uses small-caps; under
+//     SL_ACCESSIBLE the text returns to plain, on every element).
+test('accessible mode removes a theme\'s pseudo-fonts', () => {
+  const normal = stripAnsi(run(fix, { SL_THEME: 'gothic' }));
+  assert.ok(/ᴀ|ꜱ|ᴘ/.test(normal), 'gothic should render small-caps normally');
+  const a11y = stripAnsi(run(fix, { SL_THEME: 'gothic', SL_ACCESSIBLE: 'on' }));
+  assert.ok(a11y.includes('Malachy') && a11y.includes('Opus'), 'accessible restores plain text');
+  assert.ok(!/ᴀ|ꜱ|ᴘ/.test(a11y), 'accessible removes small-caps glyphs');
+});
+
 // 3. Smoke — each opt-in toggle adds its expected marker without errors.
 test('toggles: pet / crest / git-extras / cost-flair appear when enabled', () => {
   const plain = stripAnsi(run(fix, {}));
