@@ -6,7 +6,7 @@ import { execFileSync } from 'child_process';
 import { ESC, R, DIM, BOLD } from './ansi';
 import { cfg } from './config';
 import { THEMES_DATA } from './themes.data';
-import { readHistory } from './state';
+import { readHistory, REPORT_MIN_SESSION_MS } from './state';
 import { median } from './insight';
 
 const SAMPLE = JSON.stringify({
@@ -75,7 +75,7 @@ export function runReport(): void {
   process.stdout.write(`${BOLD}claude-statusline --report${R}\n`);
   const hist = readHistory();
   if (!hist.length) { process.stdout.write(`  ${DIM}no cross-session history yet (enable SL_BURN to start recording)${R}\n`); return; }
-  const rates = hist.filter((h) => h.dur >= 60000 && h.cost > 0).map((h) => h.cost / (h.dur / 3600000));
+  const rates = hist.filter((h) => h.dur >= REPORT_MIN_SESSION_MS && h.cost > 0).map((h) => h.cost / (h.dur / 3600000));
   const totalCost = hist.reduce((m, h) => Math.max(m, h.cost), 0);
   const line = (k: string, v: string): void => { process.stdout.write(`  ${DIM}${(k + ' '.repeat(18)).slice(0, 18)}${R} ${v}\n`); };
   line('samples', String(hist.length));

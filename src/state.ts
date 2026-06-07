@@ -18,6 +18,15 @@ const SPARK_CAP = 30;            // context-% ring buffer length
 const ETA_CAP = 20;              // [ms, pct] samples for ETA regression
 const HISTORY_CAP = 1000;        // cross-session records kept
 
+// Duration thresholds for the burn-rate / history features (shared so the two
+// consumers can't silently drift). Note the intentional difference: the
+// cross-session baseline only trusts settled sessions (≥5 min), while --report
+// summarises anything that ran long enough to have a meaningful rate (≥1 min).
+export const HISTORY_BUCKET_MS = 300000;      // one history record per 5-min duration bucket
+export const BURN_BASELINE_MIN_MS = 300000;   // min session length to feed the burn baseline
+export const BURN_MIN_SESSION_MS = 60000;     // min session length before showing a $/hr rate
+export const REPORT_MIN_SESSION_MS = 60000;   // min session length included in --report
+
 export interface SessionState {
   v: number;
   updated: number;

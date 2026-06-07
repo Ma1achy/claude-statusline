@@ -473,7 +473,16 @@ var THEMES_DATA = {
   nonbinary: { cmap: [[252, 244, 52], [240, 240, 240], [156, 89, 209], [80, 80, 88]], mix: 5 },
   // crisp silver normally; pairs with the danger wash (deep safelight red when
   // context/limits are critical — the darkroom convention). See SL_DANGER.
-  "silver-halide": { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 }
+  "silver-halide": { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 },
+  // Accessibility palette (SL_ACCESSIBLE). Maximum-luminance primaries on the dark
+  // terminal bg, no blending (mix:0), and a stark green→yellow→red gauge — chosen
+  // for strong contrast and to degrade cleanly to the 16-colour primaries. Paired
+  // with motion off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
+  "high-contrast": {
+    cmap: [[0, 255, 0], [255, 255, 0], [255, 0, 0]],
+    mix: 0,
+    palRgb: { RED: [255, 60, 60], GREEN: [0, 255, 0], AMBER: [255, 215, 0], BLUE: [90, 170, 255], CYAN: [0, 255, 255], WHITE: [255, 255, 255], GOLD: [255, 235, 60] }
+  }
 };
 
 // src/themes.ts
@@ -578,7 +587,7 @@ function loadCustom() {
   return null;
 }
 var CUSTOM = cfg.themeName === "custom" ? loadCustom() : null;
-var TH = CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
+var TH = cfg.accessible ? THEMES["high-contrast"] : CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
 var PAL = cfg.colorMode === "mono" ? EMPTY_PAL : TH.pal || deriveCmapPal(TH.cmap);
 var { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD } = PAL;
 var RAINBOW_MIX = cfg.rainbowMixRaw != null ? cfg.rainbowMixRaw : TH.mix != null ? TH.mix : 50;
@@ -914,6 +923,10 @@ var TTL_MS = 7 * 864e5;
 var SPARK_CAP = 30;
 var ETA_CAP = 20;
 var HISTORY_CAP = 1e3;
+var HISTORY_BUCKET_MS = 3e5;
+var BURN_BASELINE_MIN_MS = 3e5;
+var BURN_MIN_SESSION_MS = 6e4;
+var REPORT_MIN_SESSION_MS = 6e4;
 var now = () => cfg.nowMs;
 var fresh = () => ({ v: 1, updated: 0, spark: [], compactions: 0 });
 function hash(s) {
@@ -1173,7 +1186,7 @@ function runReport() {
 `);
     return;
   }
-  const rates = hist.filter((h) => h.dur >= 6e4 && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
+  const rates = hist.filter((h) => h.dur >= REPORT_MIN_SESSION_MS && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
   const totalCost = hist.reduce((m, h) => Math.max(m, h.cost), 0);
   const line = (k, v) => {
     process.stdout.write(`  ${DIM}${(k + " ".repeat(18)).slice(0, 18)}${R} ${v}
@@ -1236,8 +1249,7 @@ function readTail(file, maxBytes) {
     let s = buf.toString("utf8");
     if (size > maxBytes) {
       const nl = s.indexOf("\n");
-      if (nl >= 0)
-        s = s.slice(nl + 1);
+      s = nl >= 0 ? s.slice(nl + 1) : "";
     }
     return s;
   } catch {
@@ -1332,7 +1344,7 @@ function build() {
         st.compactions += 1;
       pushSpark(st, PCT);
       st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
-      const bucket = idiv(DURATION_MS, 3e5);
+      const bucket = idiv(DURATION_MS, HISTORY_BUCKET_MS);
       if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
         st.histBucket = bucket;
         appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
@@ -1672,11 +1684,11 @@ function build() {
     COST_SEG = cfg.rainbowStats ? rainbow(price) : `${COST_COLOUR}${price}${R}`;
     BAR_PREFIX = "";
   }
-  if (cfg.burn && DURATION_MS >= 6e4 && costNum > 0) {
+  if (cfg.burn && DURATION_MS >= BURN_MIN_SESSION_MS && costNum > 0) {
     const ratePerHr = COST / (DURATION_MS / 36e5);
     COST_SEG += ` ${DIM}$${ratePerHr.toFixed(2)}/hr${R}`;
     try {
-      const rates = readHistory().filter((h) => h.dur >= 3e5 && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
+      const rates = readHistory().filter((h) => h.dur >= BURN_BASELINE_MIN_MS && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
       if (rates.length >= 5) {
         const med = median(rates);
         if (med > 0) {

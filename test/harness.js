@@ -77,7 +77,8 @@ function run(fix, envOverrides) {
 const CASES = [
   ['plain', {}],
   ...['sweep', 'wave', 'comet', 'breathe', 'scan', 'off', 'disco',
-      'drift', 'aurora', 'plasma', 'glitch', 'lumin', 'heartbeat', 'twinkle', 'storm', 'morse'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
+      'drift', 'aurora', 'plasma', 'glitch', 'lumin', 'heartbeat', 'twinkle', 'storm', 'morse',
+      'flash', 'ripple'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
   ['easing-ease', { SL_SHIMMER: 'sweep', SL_EASING: 'ease' }],
   ...['heat', 'synthwave', 'matrix', 'mono', 'pastel', 'dracula', 'nord', 'gruvbox', 'tokyonight', 'rosepine',
       'viridis', 'inferno', 'magma', 'plasma', 'cividis',
@@ -98,6 +99,7 @@ const CASES = [
   ['separator', { SL_SEPARATOR: '|' }],
   ['privacy', { SL_PRIVACY: 'on', SL_GIT_EXTRA: 'on' }],
   ['nerdfont', { SL_NERDFONT: 'on' }],
+  ['accessible', { SL_ACCESSIBLE: 'on' }],
   ['git-risk', { SL_GIT_RISK: 'on' }],
   ...['cat', 'frog', 'robot', 'ghost', 'slime', 'dog'].map((s) => [`pet-${s}`, { SL_PET: 'on', SL_PET_STYLE: s }]),
   ['loaded', { SL_PET: 'on', SL_CREST: 'on', SL_MOON: 'on', SL_DAYNIGHT: 'on', SL_COST_FLAIR: 'on', SL_BURN: 'on', SL_GIT_EXTRA: 'on', SL_RAINBOW_STATS: 'on', SL_SHIMMER: 'wave' }],

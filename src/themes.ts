@@ -90,7 +90,11 @@ function loadCustom(): Theme | null {
 }
 
 const CUSTOM = cfg.themeName === 'custom' ? loadCustom() : null;
-export const TH: Theme = CUSTOM || THEMES[cfg.themeName] || THEMES.heat;
+// SL_ACCESSIBLE forces the high-contrast theme over everything (incl. custom);
+// accessibility should win regardless of the chosen theme. (Motion is also off.)
+export const TH: Theme = cfg.accessible
+  ? THEMES['high-contrast']
+  : (CUSTOM || THEMES[cfg.themeName] || THEMES.heat);
 export const PAL: Palette = cfg.colorMode === 'mono'
   ? EMPTY_PAL
   : (TH.pal || deriveCmapPal(TH.cmap as RGB[]));

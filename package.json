@@ -12,6 +12,7 @@
     "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=statusline.js --banner:js=\"#!/usr/bin/env node\"",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test",
+    "goldens": "npm run build && node scripts/gen-goldens.js",
     "render": "python3 scripts/render-demos.py",
     "render:themes": "python3 scripts/render-demos.py themes",
     "render:colormaps": "python3 scripts/render-demos.py colormaps",
