@@ -86,6 +86,42 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6b. Trend — sparkline accumulates and a sharp context drop counts a compaction.
+test('trend: sparkline grows; sharp context drop counts a compaction', () => {
+  const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-th-'));
+  fs.mkdirSync(path.join(home, '.claude'));
+  fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-tt-'));
+  const at = (pct) => {
+    const out = execFileSync('node', [STATUSLINE], {
+      input: JSON.stringify({ session_id: 'trendsess', model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: pct }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+      encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_TREND: 'on', TMPDIR: tmp },
+    });
+    return stripAnsi(out).split('\n')[1];
+  };
+  at(20); at(40); const line = at(60);
+  assert.match(line, /[▁▂▃▄▅▆▇█]/, 'sparkline blocks should appear');
+  const dropped = at(10);   // 60 → 10 is a sharp drop → +1 compaction
+  assert.match(dropped, /↺1/, 'a compaction should be counted and shown');
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// 6c. Limit warnings — a usage bar past the crit threshold flags LOW.
+test('limits: usage past SL_LIMIT_CRIT shows LOW', () => {
+  const line2 = stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 50 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 }, rate_limits: { five_hour: { used_percentage: 97, resets_at: 1700008100 }, seven_day: { used_percentage: 38, resets_at: 1700280800 } } }),
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_LIMITS: 'on' },
+  }).split('\n')[1]);
+  assert.ok(line2.includes('LOW'), 'critical usage should show LOW');
+  // below thresholds → no LOW.
+  const calm = stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 50 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 }, rate_limits: { five_hour: { used_percentage: 30, resets_at: 1700008100 }, seven_day: { used_percentage: 38, resets_at: 1700280800 } } }),
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_LIMITS: 'on' },
+  }).split('\n')[1]);
+  assert.ok(!calm.includes('LOW'), 'sub-threshold usage should not show LOW');
+});
+
 // 7. State layer — per-session ring buffer persists context % across repaints.
 test('state: per-session ring buffer accumulates context %', () => {
   const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-state-'));

@@ -11,7 +11,8 @@ import { fmtK, fmtCountdown } from './format';
 import { gitOut, countLines } from './git';
 import { cfg } from './config';
 import { idiv } from './util';
-import { sessionKey, readState, writeState, pushSpark } from './state';
+import { sessionKey, readState, writeState, pushSpark, readHistory, appendHistory } from './state';
+import { sparkline, etaMinutes, median, weatherWord } from './insight';
 import type { StatuslineInput } from './types';
 
 function build(): string {
@@ -44,13 +45,26 @@ function build(): string {
   const CU_OUT = (cu && cu.output_tokens) || 0;
   const rl = data.rate_limits;
 
-  // ── persist this tick's context % (substrate for the sparkline / ETA / ──────
-  //    compaction count in later phases; produces no visible output yet) ───────
+  // ── persist this tick: context-% history, compaction detection, ETA samples,
+  //    and a throttled cross-session history record for burn baselines ─────────
+  let SPARK: number[] = [], COMPACTIONS = 0, ETA_SAMPLES: [number, number][] = [];
   try {
     const sk = sessionKey(data);
     const st = readState(sk);
+    const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+    if (prev >= 0 && PCT <= prev - 25) st.compactions += 1;        // sharp drop = an autocompact
     pushSpark(st, PCT);
+    st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
+    // one cross-session record per 5-minute duration bucket (keeps the log small).
+    const bucket = idiv(DURATION_MS, 300000);
+    if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
+      st.histBucket = bucket;
+      appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+    }
     writeState(sk, st);
+    SPARK = st.spark.slice();
+    COMPACTIONS = st.compactions;
+    ETA_SAMPLES = st.etaSamples;
   } catch { /* state is best-effort */ }
 
   // ── model: tier + version ─────────────────────────────────────────────────
@@ -212,6 +226,23 @@ function build(): string {
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
   const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;   // lerps along the theme gradient
 
+  // ── trend (SL_TREND): sparkline of recent context %, ETA to autocompact, ─────
+  //    and a count of compactions detected this session ─────────────────────────
+  let TREND_SEG = '';
+  if (cfg.trend) {
+    const parts: string[] = [];
+    const spark = sparkline(SPARK);
+    if (spark) parts.push(`${DIM}${spark}${R}`);
+    if (!COMPACT_OFF && COMPACT_PCT_VAL > 0) {
+      const eta = etaMinutes(ETA_SAMPLES, COMPACT_PCT_VAL, PCT);
+      if (eta >= 0) parts.push(`${gradientColor(PCT)}~${fmtCountdown(eta * 60)}${R}`);
+    }
+    if (COMPACTIONS > 0) parts.push(`${DIM}↺${COMPACTIONS}${R}`);
+    TREND_SEG = parts.join(' ');
+  }
+  // ── weather (SL_WEATHER): a one-word reading of context pressure ─────────────
+  const WEATHER_SEG = cfg.weather ? `${gradientColor(PCT)}${weatherWord(PCT, COMPACT_OFF ? 0 : COMPACT_PCT_VAL)}${R}` : '';
+
   // ── per-turn token breakdown ────────────────────────────────────────────────
   let TURN_SEG = '';
   if (cu != null) {
@@ -244,8 +275,20 @@ function build(): string {
     BAR_PREFIX = '';
   }
   if (cfg.burn && DURATION_MS >= 60000 && costNum > 0) {
-    const rate = (COST / (DURATION_MS / 3600000)).toFixed(2);
-    COST_SEG += ` ${DIM}$${rate}/hr${R}`;
+    const ratePerHr = COST / (DURATION_MS / 3600000);
+    COST_SEG += ` ${DIM}$${ratePerHr.toFixed(2)}/hr${R}`;
+    // cross-session baseline: how this session's burn compares to your own median.
+    try {
+      const rates = readHistory().filter((h) => h.dur >= 300000 && h.cost > 0).map((h) => h.cost / (h.dur / 3600000));
+      if (rates.length >= 5) {
+        const med = median(rates);
+        if (med > 0) {
+          const ratio = ratePerHr / med;
+          const rc = ratio >= 1.5 ? RED : ratio >= 1.1 ? AMBER : DIM;
+          COST_SEG += ` ${rc}${ratio.toFixed(1)}x${R}`;
+        }
+      }
+    } catch { /* baseline is best-effort */ }
   }
 
   // ── session age ─────────────────────────────────────────────────────────────
@@ -272,12 +315,18 @@ function build(): string {
       let pct = Math.floor(pctIn || 0); if (pct > 100) pct = 100;
       const filled = idiv(pct * 10, 100);
       const bar = drawBar(10, filled, -1, phase);
-      const pc = gradientColor(pct);   // lerps along the theme gradient
+      let pc = gradientColor(pct);   // lerps along the theme gradient
+      let warn = '';
+      // limit warnings (SL_LIMITS): force amber past warn, bold red + LOW past crit.
+      if (cfg.limits) {
+        if (pct >= cfg.limitCrit) { pc = `${BOLD}${RED}`; warn = ` ${BOLD}${RED}LOW${R}`; }
+        else if (pct >= cfg.limitWarn) { pc = AMBER; }
+      }
       let secsLeft = 0;
       const ra = typeof resetsAt === 'number' ? resetsAt : parseInt(String(resetsAt), 10);
       if (Number.isFinite(ra) && ra > 0) secsLeft = ra - NOW;
       const cd = secsLeft <= 0 ? `${DIM}now${R}` : `${DIM}${fmtCountdown(secsLeft)}${R}`;
-      return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R} ${cd}`;
+      return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R}${warn} ${cd}`;
     };
     const fh = rl.five_hour || {}, sd = rl.seven_day || {};
     USAGE_SEG = `${rlSeg('5h', fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg('7d', sd.used_percentage, sd.resets_at, 3000)}`;
@@ -293,9 +342,11 @@ function build(): string {
   const L1_LEFT = `${LEAD} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
   const L1_RIGHT = `${MOON}${CLOCK_SEG}`;
 
+  const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${WEATHER_SEG}` : PCT_SEG;
   let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
   if (TURN_SEG) CTX_STATS += ` ${TURN_SEG}`;
-  const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_SEG}${COMPACT_LABEL}  ${CTX_STATS}`;
+  if (TREND_SEG) CTX_STATS += `  ${TREND_SEG}`;
+  const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_FULL}${COMPACT_LABEL}  ${CTX_STATS}`;
   const L2_RIGHT = USAGE_SEG;
 
   let L3_LEFT = `${DIR_SEG}${FILE_SEG}`;

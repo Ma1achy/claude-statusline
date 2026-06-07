@@ -51,6 +51,8 @@ export interface Config {
   base16: string;
   pet: boolean; crest: boolean; moon: boolean; daynight: boolean;
   costFlair: boolean; burn: boolean; gitExtra: boolean; rainbowStats: boolean;
+  trend: boolean; weather: boolean; limits: boolean;
+  limitWarn: number; limitCrit: number;
   nowMs: number;
   clockMs: number;
   baseFrame: number;

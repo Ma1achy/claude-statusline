@@ -108,6 +108,11 @@ var cfg = {
   burn: pbool("SL_BURN"),
   gitExtra: pbool("SL_GIT_EXTRA"),
   rainbowStats: pbool("SL_RAINBOW_STATS"),
+  trend: pbool("SL_TREND"),
+  weather: pbool("SL_WEATHER"),
+  limits: pbool("SL_LIMITS"),
+  limitWarn: pint("SL_LIMIT_WARN", 80),
+  limitCrit: pint("SL_LIMIT_CRIT", 95),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -652,6 +657,7 @@ var HISTORY = path.join(os2.homedir(), ".claude", "statusline-history.jsonl");
 var TTL_MS = 7 * 864e5;
 var SPARK_CAP = 30;
 var ETA_CAP = 20;
+var HISTORY_CAP = 1e3;
 var now = () => cfg.nowMs;
 var fresh = () => ({ v: 1, updated: 0, spark: [], compactions: 0 });
 function hash(s) {
@@ -724,6 +730,95 @@ function janitor() {
   } catch {
   }
 }
+function appendHistory(rec) {
+  try {
+    fs2.mkdirSync(path.dirname(HISTORY), { recursive: true });
+    fs2.appendFileSync(HISTORY, JSON.stringify(rec) + "\n");
+    if (now() % 50 < 1) {
+      const kept = readHistory();
+      if (kept.length >= HISTORY_CAP)
+        fs2.writeFileSync(HISTORY, kept.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    }
+  } catch {
+  }
+}
+function readHistory() {
+  try {
+    const out = [];
+    for (const l of fs2.readFileSync(HISTORY, "utf8").split("\n")) {
+      if (!l)
+        continue;
+      try {
+        const r = JSON.parse(l);
+        if (r && typeof r.cost === "number")
+          out.push(r);
+      } catch {
+      }
+    }
+    return out.slice(-HISTORY_CAP);
+  } catch {
+    return [];
+  }
+}
+
+// src/insight.ts
+var SPARK = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
+function sparkline(values, width = 12) {
+  const v = values.slice(-width);
+  if (!v.length)
+    return "";
+  return v.map((x) => {
+    const c = Math.max(0, Math.min(100, x));
+    return SPARK[Math.min(7, idiv(c * 8, 100))];
+  }).join("");
+}
+function etaMinutes(samples, target, cur) {
+  if (cur >= target)
+    return -1;
+  const pts = samples.filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (pts.length < 3)
+    return -1;
+  const n = pts.length;
+  let sx = 0, sy = 0;
+  for (const [x, y] of pts) {
+    sx += x;
+    sy += y;
+  }
+  const mx = sx / n, my = sy / n;
+  let num = 0, den = 0;
+  for (const [x, y] of pts) {
+    num += (x - mx) * (y - my);
+    den += (x - mx) * (x - mx);
+  }
+  if (den === 0)
+    return -1;
+  const slope = num / den;
+  if (slope <= 0)
+    return -1;
+  const ms = (target - cur) / slope;
+  if (!Number.isFinite(ms) || ms <= 0)
+    return -1;
+  const mins = Math.round(ms / 6e4);
+  return mins > 1e5 ? -1 : mins;
+}
+function median(nums) {
+  if (!nums.length)
+    return 0;
+  const s = nums.slice().sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function weatherWord(pct, target) {
+  if (target > 0 && pct >= target)
+    return "compacting";
+  if (pct >= 85)
+    return "stormy";
+  if (pct >= 65)
+    return "dense";
+  if (pct >= 40)
+    return "breezy";
+  return "clear";
+}
 
 // src/index.ts
 function build() {
@@ -760,11 +855,24 @@ function build() {
   const CU_INPUT = cu && cu.input_tokens || 0;
   const CU_OUT = cu && cu.output_tokens || 0;
   const rl = data.rate_limits;
+  let SPARK2 = [], COMPACTIONS = 0, ETA_SAMPLES = [];
   try {
     const sk = sessionKey(data);
     const st = readState(sk);
+    const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+    if (prev >= 0 && PCT <= prev - 25)
+      st.compactions += 1;
     pushSpark(st, PCT);
+    st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
+    const bucket = idiv(DURATION_MS, 3e5);
+    if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
+      st.histBucket = bucket;
+      appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+    }
     writeState(sk, st);
+    SPARK2 = st.spark.slice();
+    COMPACTIONS = st.compactions;
+    ETA_SAMPLES = st.etaSamples;
   } catch {
   }
   const idl = MODEL_ID.toLowerCase();
@@ -956,6 +1064,22 @@ function build() {
   const MARKER_POS = COMPACT_OFF ? -1 : idiv(COMPACT_PCT_VAL * BAR_WIDTH, 100);
   const BAR = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
   const PCT_SEG = `${gradientColor(PCT)}${PCT}%${R}`;
+  let TREND_SEG = "";
+  if (cfg.trend) {
+    const parts = [];
+    const spark = sparkline(SPARK2);
+    if (spark)
+      parts.push(`${DIM}${spark}${R}`);
+    if (!COMPACT_OFF && COMPACT_PCT_VAL > 0) {
+      const eta = etaMinutes(ETA_SAMPLES, COMPACT_PCT_VAL, PCT);
+      if (eta >= 0)
+        parts.push(`${gradientColor(PCT)}~${fmtCountdown(eta * 60)}${R}`);
+    }
+    if (COMPACTIONS > 0)
+      parts.push(`${DIM}\u21BA${COMPACTIONS}${R}`);
+    TREND_SEG = parts.join(" ");
+  }
+  const WEATHER_SEG = cfg.weather ? `${gradientColor(PCT)}${weatherWord(PCT, COMPACT_OFF ? 0 : COMPACT_PCT_VAL)}${R}` : "";
   let TURN_SEG = "";
   if (cu != null) {
     const total = CU_INPUT + CU_WRITE + CU_READ;
@@ -985,8 +1109,20 @@ function build() {
     BAR_PREFIX = "";
   }
   if (cfg.burn && DURATION_MS >= 6e4 && costNum > 0) {
-    const rate = (COST / (DURATION_MS / 36e5)).toFixed(2);
-    COST_SEG += ` ${DIM}$${rate}/hr${R}`;
+    const ratePerHr = COST / (DURATION_MS / 36e5);
+    COST_SEG += ` ${DIM}$${ratePerHr.toFixed(2)}/hr${R}`;
+    try {
+      const rates = readHistory().filter((h) => h.dur >= 3e5 && h.cost > 0).map((h) => h.cost / (h.dur / 36e5));
+      if (rates.length >= 5) {
+        const med = median(rates);
+        if (med > 0) {
+          const ratio = ratePerHr / med;
+          const rc = ratio >= 1.5 ? RED : ratio >= 1.1 ? AMBER : DIM;
+          COST_SEG += ` ${rc}${ratio.toFixed(1)}x${R}`;
+        }
+      }
+    } catch {
+    }
   }
   const DUR_S = idiv(DURATION_MS, 1e3);
   let AGE_C, AGE_LABEL;
@@ -1018,13 +1154,22 @@ function build() {
         pct = 100;
       const filled = idiv(pct * 10, 100);
       const bar = drawBar(10, filled, -1, phase);
-      const pc = gradientColor(pct);
+      let pc = gradientColor(pct);
+      let warn = "";
+      if (cfg.limits) {
+        if (pct >= cfg.limitCrit) {
+          pc = `${BOLD}${RED}`;
+          warn = ` ${BOLD}${RED}LOW${R}`;
+        } else if (pct >= cfg.limitWarn) {
+          pc = AMBER;
+        }
+      }
       let secsLeft = 0;
       const ra = typeof resetsAt === "number" ? resetsAt : parseInt(String(resetsAt), 10);
       if (Number.isFinite(ra) && ra > 0)
         secsLeft = ra - NOW;
       const cd = secsLeft <= 0 ? `${DIM}now${R}` : `${DIM}${fmtCountdown(secsLeft)}${R}`;
-      return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R} ${cd}`;
+      return `${DIM}${label}${R} ${bar} ${pc}${pct}%${R}${warn} ${cd}`;
     };
     const fh = rl.five_hour || {}, sd = rl.seven_day || {};
     USAGE_SEG = `${rlSeg("5h", fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg("7d", sd.used_percentage, sd.resets_at, 3e3)}`;
@@ -1039,10 +1184,13 @@ function build() {
     BRACKET += ` ${THINKING_WORD}`;
   const L1_LEFT = `${LEAD} ${PET}${DIM}[${R}${BRACKET}${DIM}]${R}`;
   const L1_RIGHT = `${MOON}${CLOCK_SEG}`;
+  const PCT_FULL = WEATHER_SEG ? `${PCT_SEG} ${WEATHER_SEG}` : PCT_SEG;
   let CTX_STATS = `${DIM}${CTX_SIZE_K}${R}`;
   if (TURN_SEG)
     CTX_STATS += ` ${TURN_SEG}`;
-  const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_SEG}${COMPACT_LABEL}  ${CTX_STATS}`;
+  if (TREND_SEG)
+    CTX_STATS += `  ${TREND_SEG}`;
+  const L2_LEFT = `${BAR_PREFIX}${BAR}  ${PCT_FULL}${COMPACT_LABEL}  ${CTX_STATS}`;
   const L2_RIGHT = USAGE_SEG;
   let L3_LEFT = `${DIR_SEG}${FILE_SEG}`;
   if (BRANCH)

@@ -26,6 +26,7 @@ export interface SessionState {
   burnBaseline?: number;
   lastBellMs?: number;
   etaSamples?: [number, number][];
+  histBucket?: number;             // last 5-min duration bucket appended to history
 }
 
 export interface HistoryRecord { t: number; cost: number; ctx: number; dur: number; }

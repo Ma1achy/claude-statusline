@@ -188,9 +188,12 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_MOON` | Moon-phase glyph (`●◐○◑`) before the clock |
 | `SL_DAYNIGHT` | Clock color shifts with the real hour (dawn → midday → dusk → night) |
 | `SL_COST_FLAIR` | Spend-tier prefix on cost: `·` `$` `$$` `!$` |
-| `SL_BURN` | Append `$/hr` burn rate after cost (once session ≥ 60s) |
+| `SL_BURN` | Append `$/hr` burn rate after cost (once session ≥ 60s); adds a `1.4x`-vs-your-median deviation once you have history |
 | `SL_GIT_EXTRA` | Ahead/behind `↑2↓1`, last-commit age `·3m`, untracked `?N`, stash `s:N`, branch-mood tag `[wip]/[fix]/[feat]/[test]` |
 | `SL_RAINBOW_STATS` | Rainbow the cost and session-age segments, like the account name |
+| `SL_TREND` | Context-% sparkline `▁▂▃▄`, ETA to autocompact `~11m`, and a compaction counter `↺2` |
+| `SL_WEATHER` | One-word context-pressure reading: `clear → breezy → dense → stormy → compacting` |
+| `SL_LIMITS` | Flag the 5h/7d usage bars: amber past `SL_LIMIT_WARN`, bold-red `LOW` past `SL_LIMIT_CRIT` |
 
 ### Tuning
 
@@ -205,6 +208,8 @@ no emoji), so right-alignment stays exact on every terminal.
 | `SL_MARGIN` | `6` | Right-edge margin in columns (raise if content clips) |
 | `SL_PRESET` | — | Bundle of settings (see Presets); individual vars override it |
 | `SL_COLOR_MODE` | `auto` | Colour depth: `truecolor` / `256` / `16` / `mono` / `auto` |
+| `SL_LIMIT_WARN` | `80` | Usage % at which `SL_LIMITS` colours a bar amber |
+| `SL_LIMIT_CRIT` | `95` | Usage % at which `SL_LIMITS` shows bold-red `LOW` |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | — | Sets the white `┃` autocompact marker position on the context bar |
 
 ### Colour depth & accessibility
