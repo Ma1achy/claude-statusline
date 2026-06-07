@@ -24,9 +24,8 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 ));
 
 // src/index.ts
-var fs5 = __toESM(require("fs"));
-var os5 = __toESM(require("os"));
-var path2 = __toESM(require("path"));
+var fs7 = __toESM(require("fs"));
+var os6 = __toESM(require("os"));
 var import_child_process4 = require("child_process");
 
 // src/ansi.ts
@@ -1545,41 +1544,21 @@ function runReport() {
   process.stdout.write("\n");
 }
 
-// src/index.ts
-var PET_FACES = {
-  default: ["[^_^]", "[._.]", "[o_o]", "[>_<]", "[$_$]"],
-  cat: ["=^_^=", "=._.=", "=o_o=", "=>_<=", "=$_$="],
-  frog: ["(^_^)", "(o_o)", "(._.)", "(O_O)", "(>_<)"],
-  robot: ["[0_0]", "[o_o]", "[._.]", "[!_!]", "[x_x]"],
-  ghost: ["<^_^>", "<o_o>", "<._.>", "<!_!>", "<x_x>"],
-  slime: ["(~_~)", "(o_o)", "(._.)", "(>_<)", "(@_@)"],
-  dog: ["[^o^]", "[^.^]", "[-.-]", "[>n<]", "[ToT]"]
-};
-function displayPath(cwd) {
-  if (!cwd)
-    return cwd;
-  let p = cwd;
-  if (cfg.projectAliases) {
-    try {
-      const map = JSON.parse(cfg.projectAliases);
-      let best = "";
-      for (const k of Object.keys(map))
-        if ((p === k || p.startsWith(k + "/")) && k.length > best.length)
-          best = k;
-      if (best)
-        p = map[best] + p.slice(best.length);
-    } catch {
-    }
+// src/io/input.ts
+var fs5 = __toESM(require("fs"));
+function readInput() {
+  if (preInput)
+    return preInput;
+  let input = "";
+  try {
+    input = fs5.readFileSync(0, "utf8");
+  } catch {
   }
-  if (cfg.path === "full")
-    return p;
-  const home = os5.homedir();
-  if (home && (p === home || p.startsWith(home + "/")))
-    p = "~" + p.slice(home.length);
-  const parts = p.split("/").filter(Boolean);
-  if (parts.length > 5)
-    p = `${p.startsWith("/") ? "/" : ""}${parts[0]}/\u2026/${parts.slice(-2).join("/")}`;
-  return p;
+  try {
+    return JSON.parse(input) || {};
+  } catch {
+    return {};
+  }
 }
 function readTail(file, maxBytes) {
   let fd = -1;
@@ -1605,20 +1584,10 @@ function readTail(file, maxBytes) {
       }
   }
 }
-function readInput() {
-  if (preInput)
-    return preInput;
-  let input = "";
-  try {
-    input = fs5.readFileSync(0, "utf8");
-  } catch {
-  }
-  try {
-    return JSON.parse(input) || {};
-  } catch {
-    return {};
-  }
-}
+
+// src/io/gitcache.ts
+var fs6 = __toESM(require("fs"));
+var path2 = __toESM(require("path"));
 function readGit(CWD, gc) {
   const branch = gc(["rev-parse", "--abbrev-ref", "HEAD"]);
   const g = {
@@ -1648,11 +1617,11 @@ function readGit(CWD, gc) {
       if (gd) {
         if (!path2.isAbsolute(gd))
           gd = path2.join(CWD, gd);
-        if (fs5.existsSync(path2.join(gd, "MERGE_HEAD")))
+        if (fs6.existsSync(path2.join(gd, "MERGE_HEAD")))
           g.state = "merge";
-        else if (fs5.existsSync(path2.join(gd, "rebase-merge")) || fs5.existsSync(path2.join(gd, "rebase-apply")))
+        else if (fs6.existsSync(path2.join(gd, "rebase-merge")) || fs6.existsSync(path2.join(gd, "rebase-apply")))
           g.state = "rebase";
-        else if (fs5.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
+        else if (fs6.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
           g.state = "cherry";
       }
     } catch {
@@ -1713,6 +1682,46 @@ function refreshGitCache(data) {
   } catch {
   }
 }
+
+// src/segments/path.ts
+var os5 = __toESM(require("os"));
+function displayPath(cwd) {
+  if (!cwd)
+    return cwd;
+  let p = cwd;
+  if (cfg.projectAliases) {
+    try {
+      const map = JSON.parse(cfg.projectAliases);
+      let best = "";
+      for (const k of Object.keys(map))
+        if ((p === k || p.startsWith(k + "/")) && k.length > best.length)
+          best = k;
+      if (best)
+        p = map[best] + p.slice(best.length);
+    } catch {
+    }
+  }
+  if (cfg.path === "full")
+    return p;
+  const home = os5.homedir();
+  if (home && (p === home || p.startsWith(home + "/")))
+    p = "~" + p.slice(home.length);
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length > 5)
+    p = `${p.startsWith("/") ? "/" : ""}${parts[0]}/\u2026/${parts.slice(-2).join("/")}`;
+  return p;
+}
+
+// src/segments/pet.ts
+var PET_FACES = {
+  default: ["[^_^]", "[._.]", "[o_o]", "[>_<]", "[$_$]"],
+  cat: ["=^_^=", "=._.=", "=o_o=", "=>_<=", "=$_$="],
+  frog: ["(^_^)", "(o_o)", "(._.)", "(O_O)", "(>_<)"],
+  robot: ["[0_0]", "[o_o]", "[._.]", "[!_!]", "[x_x]"],
+  ghost: ["<^_^>", "<o_o>", "<._.>", "<!_!>", "<x_x>"],
+  slime: ["(~_~)", "(o_o)", "(._.)", "(>_<)", "(@_@)"],
+  dog: ["[^o^]", "[^.^]", "[-.-]", "[>n<]", "[ToT]"]
+};
 function buildPet(COST, DIRTY, PCT) {
   if (!cfg.pet)
     return "";
@@ -1742,6 +1751,8 @@ function buildPet(COST, DIRTY, PCT) {
   const role = ["ok", "fg", "warn", "bad", "gold"][lvl];
   return `${st("pet", faces[lvl], { role })} `;
 }
+
+// src/segments/usage.ts
 function buildUsage(rl) {
   const NOW = cfg.baseFrame;
   const rlSeg = (label, pctIn, resetsAt, phase) => {
@@ -1767,6 +1778,8 @@ function buildUsage(rl) {
   const fh = rl.five_hour || {}, sd = rl.seven_day || {};
   return `${rlSeg("5h", fh.used_percentage, fh.resets_at, 1500)}   ${rlSeg("7d", sd.used_percentage, sd.resets_at, 3e3)}`;
 }
+
+// src/index.ts
 function build() {
   const data = readInput();
   const ws = data.workspace || {};
@@ -1950,13 +1963,13 @@ function build() {
   const PET = buildPet(COST, DIRTY, PCT);
   let CLAUDE_USER = "";
   try {
-    const cj = JSON.parse(fs5.readFileSync(`${os5.homedir()}/.claude.json`, "utf8"));
+    const cj = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude.json`, "utf8"));
     CLAUDE_USER = cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
   } catch {
   }
   let LAST_FILE = "";
   try {
-    if (TRANSCRIPT && fs5.existsSync(TRANSCRIPT)) {
+    if (TRANSCRIPT && fs7.existsSync(TRANSCRIPT)) {
       const lines2 = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
       const re = /write|edit|read|str_replace|create/i;
       for (const line of lines2) {
@@ -1982,7 +1995,7 @@ function build() {
   const FILE_SEG = LAST_FILE ? ` ${st("file", `\u203A ${LAST_FILE}`)}` : "";
   let COMPACT_PCT = "", COMPACT_OFF = false;
   try {
-    const st2 = JSON.parse(fs5.readFileSync(`${os5.homedir()}/.claude/settings.json`, "utf8"));
+    const st2 = JSON.parse(fs7.readFileSync(`${os6.homedir()}/.claude/settings.json`, "utf8"));
     if (st2.env && st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
       COMPACT_PCT = String(st2.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
     if (st2.autoCompactEnabled === false || st2.autoCompact === false)
@@ -2097,7 +2110,7 @@ function build() {
   const SEP = cfg.separator ? ` ${st("separator", cfg.separator)} ` : "  ";
   let SYS_SEG = "";
   if (cfg.sysinfo) {
-    const la = os5.loadavg()[0];
+    const la = os6.loadavg()[0];
     if (la > 0)
       SYS_SEG = `${st("sysinfo", `\u21AF${la.toFixed(2)}`)} `;
   }
