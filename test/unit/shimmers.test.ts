@@ -33,3 +33,24 @@ test('ripple rings the fill edge on update, dims otherwise', () => {
   assert.equal(BRIGHT_SHIMMERS.ripple(0, ctx({ event: true, filled: 14 })), 88);      // far from edge
   assert.equal(BRIGHT_SHIMMERS.ripple(1400, ctx({ event: false, filled: 14 })), 88);  // no event
 });
+
+test('tide is a bounded hue offset (two interfering waves)', () => {
+  for (const sx of [0, 350, 700, 1400, 2100]) {
+    const h = HUE_SHIMMERS.tide(sx, ctx({ waveHue: 60, t: 1234 }));
+    assert.ok(h >= 0 && h <= 60, `tide hue offset in range, got ${h}`);
+  }
+});
+
+test('lightning is flat except during a brief strike window', () => {
+  assert.equal(BRIGHT_SHIMMERS.lightning(0, ctx({ t: 5000 })), 100);   // between strikes → static
+  // during the strike (phase < 240) a bright streak crosses the bar
+  const peak = BRIGHT_SHIMMERS.lightning(0, ctx({ t: 0, wrap: 2800 }));  // pos≈0 at phase 0
+  assert.equal(peak, 210);
+});
+
+test('smoulder stays in the dim..bright ember range', () => {
+  for (const sx of [0, 100, 700, 1400]) {
+    const b = BRIGHT_SHIMMERS.smoulder(sx, ctx({ t: 4321 }));
+    assert.ok([78, 116, 165].includes(b), `smoulder level valid, got ${b}`);
+  }
+});

@@ -118,7 +118,7 @@ const CASES = [
   ['plain', {}],
   ...['sweep', 'wave', 'comet', 'breathe', 'scan', 'off', 'disco',
       'drift', 'aurora', 'plasma', 'glitch', 'lumin', 'heartbeat', 'twinkle', 'storm', 'morse',
-      'flash', 'ripple'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
+      'flash', 'ripple', 'tide', 'smoulder', 'lightning'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
   ['easing-ease', { SL_SHIMMER: 'sweep', SL_EASING: 'ease' }],
   ...['heat', 'synthwave', 'matrix', 'mono', 'pastel', 'dracula', 'nord', 'gruvbox', 'tokyonight', 'rosepine',
       'viridis', 'inferno', 'magma', 'plasma', 'cividis',
