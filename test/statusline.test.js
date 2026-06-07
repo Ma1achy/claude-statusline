@@ -431,6 +431,8 @@ test('preset: SL_PRESET bundles settings, explicit vars win', () => {
     'explicit var should override preset');
   // chaos preset turns the pet on → its face appears (PCT 42 → neutral face).
   assert.ok(stripAnsi(run(fix, { SL_PRESET: 'chaos' })).includes('[._.]'), 'chaos preset should enable pet');
+  // a persona preset bundles a full look — observatory turns the crest on.
+  assert.ok(stripAnsi(run(fix, { SL_PRESET: 'observatory' })).includes('★'), 'observatory persona should enable crest');
 });
 
 // 8. Colour degradation — modes downgrade cleanly and NO_COLOR wins.
