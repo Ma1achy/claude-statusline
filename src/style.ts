@@ -35,8 +35,8 @@ function modBright(esc: string, f: number): string {
  *  (for multi-state elements); opts.pct drives a `gradient` fill. */
 export function st(id: ElementId, text: string, opts: StOpts = {}): string {
   if (text === '') return '';
-  // cascade: built-in default ← active theme's per-element override ← per-call opts
-  const d: Style = { ...ELEMENT_DEFAULTS[id], ...(TH.elements && TH.elements[id]) };
+  // cascade: built-in default ← theme override ← user config ← per-call opts
+  const d: Style = { ...ELEMENT_DEFAULTS[id], ...(TH.elements && TH.elements[id]), ...(cfg.elements && cfg.elements[id]) };
   // accessibility profile: top of the cascade — kill motion + pseudo-fonts and
   // demote the colour-only rainbow to plain fg, on EVERY element. (Roles already
   // resolve to the AAA palette via themes.ts.) Case/weight/attrs are a11y-safe.

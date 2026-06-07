@@ -1,38 +1,51 @@
-// Parse every SL_* env var (and the wall-clock frame) into one typed config.
+// Parse the JSON config (~/.claude/statusline.json, or $SL_CONFIG) into one typed
+// `cfg`. Single source of truth — the old ~50 SL_* env vars are gone (hard
+// migration; `statusline.js --migrate` translates a legacy env block to JSON).
+// Only timing/bootstrap still come from the environment, to keep tests/renders
+// deterministic: SL_CONFIG (path), SL_FRAME_MS, SL_CLOCK_MS, SL_COLOR_MODE, NO_COLOR.
 import * as fs from 'fs';
+import * as os from 'os';
 import { env, idiv } from './util';
 import { PRESETS } from './presets';
 import { gitOut } from './git';
-import type { Config, ColorMode, StatuslineInput } from './types';
+import type { Config, ColorMode, StatuslineInput, Style } from './types';
 
-// When SL_AUTO_THEME=branch we must read stdin here (to learn the cwd/branch
-// before the theme is resolved). The parsed input is shared so index.ts doesn't
-// read stdin a second time. Null unless branch-theming actually consumed it.
+// When config.autoTheme === 'branch' we read stdin here (to learn the cwd/branch
+// before the theme resolves). The parsed input is shared so index.ts doesn't read
+// stdin twice. Null unless branch-theming actually consumed it.
 export let preInput: StatuslineInput | null = null;
 
-// A named preset (SL_PRESET) supplies fallback values for any SL_* var. The
-// three preset-aware readers below enforce: explicit env > preset > default.
-const preset = PRESETS[(process.env.SL_PRESET || '').toLowerCase()] || {};
-const penv = (k: string, d: string): string => {
-  const e = process.env[k];
-  if (e !== undefined && e !== '') return e;       // an explicit env var always wins
-  if (preset[k] !== undefined) return preset[k];   // then the active preset
-  return d;                                         // then the hardcoded default
-};
-const pbool = (k: string): boolean => /^(on|1|true|yes)$/i.test(penv(k, ''));
-const pint = (k: string, d: number): number => {
-  const v = parseInt(penv(k, ''), 10);
-  return Number.isFinite(v) ? v : d;
-};
+// ── bootstrap (env only — deterministic for tests/renders) ────────────────────
+const nowMs = parseInt(env('SL_FRAME_MS', ''), 10) || Date.now();
+const clockMs = parseInt(env('SL_CLOCK_MS', ''), 10) || nowMs;
 
-// Colour depth: honour the NO_COLOR convention, then an explicit SL_COLOR_MODE,
-// then auto-detect from COLORTERM/TERM. When uncertain we assume truecolor —
-// Claude Code targets modern terminals, and this keeps the default output (and
-// the golden snapshots) on the full-colour path.
+// ── load + merge config: preset bundle < explicit file ────────────────────────
+function loadJson(): Record<string, any> {
+  try {
+    const p = process.env.SL_CONFIG || `${os.homedir()}/.claude/statusline.json`;
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return j && typeof j === 'object' ? j : {};
+  } catch { return {}; }                              // missing/bad config → all defaults
+}
+const raw = loadJson();
+const preset = (typeof raw.preset === 'string' && PRESETS[raw.preset.toLowerCase()]) || {};
+const J: Record<string, any> = { ...preset, ...raw };
+
+// Typed readers — never throw, fall back per field (clamp/validate where needed).
+const jstr = (k: string, d: string): string => (typeof J[k] === 'string' ? J[k] : d);
+const jbool = (k: string): boolean => J[k] === true;
+const jint = (k: string, d: number): number => (typeof J[k] === 'number' && Number.isFinite(J[k]) ? J[k] : d);
+const jobj = (k: string): Record<string, any> | undefined =>
+  (J[k] && typeof J[k] === 'object' && !Array.isArray(J[k]) ? J[k] : undefined);
+const jlist = (k: string): string =>                 // hide / privacyHide: array or string
+  (Array.isArray(J[k]) ? J[k].join(' ') : typeof J[k] === 'string' ? J[k] : '');
+
+// Colour depth: NO_COLOR → mono; else SL_COLOR_MODE env; else config.colorMode;
+// else auto-detect, defaulting to truecolor when uncertain.
 function resolveColorMode(): ColorMode {
   if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== '') return 'mono';
-  const m = penv('SL_COLOR_MODE', 'auto').toLowerCase();
-  if (m === 'truecolor' || m === '256' || m === '16' || m === 'mono') return m;
+  const m = (process.env.SL_COLOR_MODE || jstr('colorMode', 'auto')).toLowerCase();
+  if (m === 'truecolor' || m === '256' || m === '16' || m === 'mono') return m as ColorMode;
   const ct = (process.env.COLORTERM || '').toLowerCase();
   if (ct.includes('truecolor') || ct.includes('24bit')) return 'truecolor';
   const term = (process.env.TERM || '').toLowerCase();
@@ -41,103 +54,89 @@ function resolveColorMode(): ColorMode {
   return 'truecolor';
 }
 
-let shimmer = penv('SL_SHIMMER', 'sweep');
-if (shimmer === 'pulse') shimmer = 'breathe';   // aliases
+let shimmer = jstr('shimmer', 'sweep');
+if (shimmer === 'pulse') shimmer = 'breathe';        // aliases
 if (shimmer === 'march') shimmer = 'scan';
-// Accessibility: kill motion (reduces distraction / flashing). Pairs well with
-// NO_COLOR or SL_COLOR_MODE=mono and the CVD-safe colormaps.
-if (pbool('SL_ACCESSIBLE')) shimmer = 'off';
+if (jbool('accessible')) shimmer = 'off';            // accessibility kills motion
 
-// Claude Code repaints at most once/second (refreshInterval is in seconds, min 1),
-// so ms timing can't make motion sub-second-smooth — it just keeps the animation
-// phase honest and drives the rainbow. SL_FRAME_MS overrides for tests/renders.
-// Timing vars read process.env directly (never a preset) to keep tests deterministic.
-const nowMs = parseInt(env('SL_FRAME_MS', ''), 10) || Date.now();
-// SL_CLOCK_MS freezes the clock/day-night display independently of the animation
-// frame — used by the demo renderer to make GIFs loop without the clock ticking.
-const clockMs = parseInt(env('SL_CLOCK_MS', ''), 10) || nowMs;
-
-// Clock-driven auto-theme (SL_AUTO_THEME). daynight/seasonal resolve from the
-// frame clock here; branch-based theming would need stdin and isn't done yet.
-let themeName = penv('SL_THEME', 'heat');
-const autoTheme = penv('SL_AUTO_THEME', '');
+// Clock-driven / branch auto-theme.
+let themeName = jstr('theme', 'heat');
+const autoTheme = jstr('autoTheme', '');
 if (autoTheme === 'daynight') {
   const h = new Date(clockMs).getHours();
-  themeName = h >= 7 && h < 19 ? penv('SL_DAY_THEME', 'heat') : penv('SL_NIGHT_THEME', 'tokyonight');
+  themeName = h >= 7 && h < 19 ? jstr('dayTheme', 'heat') : jstr('nightTheme', 'tokyonight');
 } else if (autoTheme === 'seasonal') {
   const m = new Date(clockMs).getMonth();
   themeName = m <= 1 || m === 11 ? 'void' : m <= 4 ? 'everforest' : m <= 7 ? 'oceanic' : 'verdigris';
 } else if (autoTheme === 'branch') {
-  // Read stdin now (only when piped — never block an interactive TTY), find the
-  // git branch, and map it to a theme. Branch prefixes are overridable.
   try {
     if (!process.stdin.isTTY) {
       preInput = JSON.parse(fs.readFileSync(0, 'utf8')) as StatuslineInput;
       const cwd = (preInput && preInput.workspace && preInput.workspace.current_dir) || '';
       const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-      if (/^(main|master)$/i.test(br)) themeName = penv('SL_BRANCH_MAIN', 'nord');
-      else if (/^(feat|feature)\//i.test(br)) themeName = penv('SL_BRANCH_FEAT', 'everforest');
-      else if (/^hotfix\//i.test(br)) themeName = penv('SL_BRANCH_HOTFIX', 'heat');
-      else if (/^(fix|bugfix)\//i.test(br)) themeName = penv('SL_BRANCH_FIX', 'gruvbox');
-      else if (/^(exp|experiment)\//i.test(br)) themeName = penv('SL_BRANCH_EXP', 'tokyonight');
+      const bt = jobj('branchThemes') || {};
+      if (/^(main|master)$/i.test(br)) themeName = bt.main || 'nord';
+      else if (/^(feat|feature)\//i.test(br)) themeName = bt.feat || 'everforest';
+      else if (/^hotfix\//i.test(br)) themeName = bt.hotfix || 'heat';
+      else if (/^(fix|bugfix)\//i.test(br)) themeName = bt.fix || 'gruvbox';
+      else if (/^(exp|experiment)\//i.test(br)) themeName = bt.exp || 'tokyonight';
     }
-  } catch { /* ignore — fall back to SL_THEME */ }
+  } catch { /* ignore — fall back to config.theme */ }
 }
 
-const rainbowMix = penv('SL_RAINBOW_MIX', '');
+const projAliases = jobj('projectAliases');
 
 export const cfg: Config = {
   shimmer,
-  speed: pint('SL_SPEED', 3),
-  glow: pint('SL_GLOW', 240),
-  waveHue: pint('SL_WAVE_HUE', 32),
-  easing: penv('SL_EASING', ''),
+  speed: jint('speed', 3),
+  glow: jint('glow', 240),
+  waveHue: jint('waveHue', 32),
+  easing: jstr('easing', ''),
   themeName,
-  barStyle: penv('SL_BAR_STYLE', 'blocks'),
-  barScale: penv('SL_BAR_SCALE', 'linear'),
-  rainbowMixRaw: rainbowMix !== '' ? parseInt(rainbowMix, 10) : null,
-  margin: pint('SL_MARGIN', 6),
+  barStyle: jstr('barStyle', 'blocks'),
+  barScale: jstr('barScale', 'linear'),
+  rainbowMixRaw: typeof J.rainbowMix === 'number' ? J.rainbowMix : null,
+  margin: jint('margin', 6),
   colorMode: resolveColorMode(),
-  themeFile: penv('SL_THEME_FILE', ''),
-  base16: penv('SL_BASE16', ''),
-  pet: pbool('SL_PET'),
-  crest: pbool('SL_CREST'),
-  moon: pbool('SL_MOON'),
-  daynight: pbool('SL_DAYNIGHT'),
-  costFlair: pbool('SL_COST_FLAIR'),
-  burn: pbool('SL_BURN'),
-  gitExtra: pbool('SL_GIT_EXTRA'),
-  rainbowStats: pbool('SL_RAINBOW_STATS'),
-  trend: pbool('SL_TREND'),
-  weather: pbool('SL_WEATHER'),
-  limits: pbool('SL_LIMITS'),
-  limitWarn: pint('SL_LIMIT_WARN', 80),
-  limitCrit: pint('SL_LIMIT_CRIT', 95),
-  layout: penv('SL_LAYOUT', '3line'),
-  separator: penv('SL_SEPARATOR', ''),
-  hide: penv('SL_HIDE', ''),
-  privacy: pbool('SL_PRIVACY'),
-  privacyHide: penv('SL_PRIVACY_HIDE', ''),
-  projectAliases: penv('SL_PROJECT_ALIASES', ''),
-  path: penv('SL_PATH', 'auto'),
-  sysinfo: pbool('SL_SYSINFO'),
-  accessible: pbool('SL_ACCESSIBLE'),
-  accessibleGauge: penv('SL_ACCESSIBLE_GAUGE', 'cvd'),   // cvd | traffic | grayscale
-  responsive: pbool('SL_RESPONSIVE'),
-  gitRisk: pbool('SL_GIT_RISK'),
-  danger: pbool('SL_DANGER'),
-  petStyle: penv('SL_PET_STYLE', 'default'),
-  petReactsTo: penv('SL_PET_REACTS_TO', ''),
-  bell: pbool('SL_BELL'),
-  nerdfont: pbool('SL_NERDFONT'),
-  customSegment: penv('SL_CUSTOM_SEGMENT', ''),
+  themeFile: jstr('themeFile', ''),
+  base16: jstr('base16', ''),
+  pet: jbool('pet'),
+  crest: jbool('crest'),
+  moon: jbool('moon'),
+  daynight: jbool('daynight'),
+  costFlair: jbool('costFlair'),
+  burn: jbool('burn'),
+  gitExtra: jbool('gitExtra'),
+  rainbowStats: jbool('rainbowStats'),
+  trend: jbool('trend'),
+  weather: jbool('weather'),
+  limits: jbool('limits'),
+  limitWarn: jint('limitWarn', 80),
+  limitCrit: jint('limitCrit', 95),
+  layout: jstr('layout', '3line'),
+  separator: jstr('separator', ''),
+  hide: jlist('hide'),
+  privacy: jbool('privacy'),
+  privacyHide: jlist('privacyHide'),
+  projectAliases: projAliases ? JSON.stringify(projAliases) : jstr('projectAliases', ''),
+  path: jstr('path', 'auto'),
+  sysinfo: jbool('sysinfo'),
+  accessible: jbool('accessible'),
+  accessibleGauge: jstr('accessibleGauge', 'cvd'),
+  responsive: jbool('responsive'),
+  gitRisk: jbool('gitRisk'),
+  danger: jbool('danger'),
+  petStyle: jstr('petStyle', 'default'),
+  petReactsTo: jstr('petReactsTo', ''),
+  bell: jbool('bell'),
+  nerdfont: jbool('nerdfont'),
+  customSegment: jstr('customSegment', ''),
   event: false,
-  tmuxPassthrough: pbool('SL_TMUX_PASSTHROUGH'),
-  // Git always runs off the hot path: the foreground render paints from a cached
-  // git snapshot and a detached background process (this same binary, run with
-  // --git-refresh → refreshGitCache) re-execs git and rewrites the cache. The
-  // render itself never execs git, so a large/slow repo can't push a repaint past
-  // refreshInterval (which would get the in-flight run cancelled, freezing the clock).
+  tmuxPassthrough: jbool('tmuxPassthrough'),
+  elements: jobj('elements') as Record<string, Style> | undefined,
+  glyphs: jobj('glyphs') as Record<string, string> | undefined,
+  labels: jobj('labels') as Record<string, string> | undefined,
+  customTheme: jobj('customTheme'),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1000),

@@ -98,6 +98,11 @@ export interface Config {
   nerdfont: boolean; customSegment: string;
   event: boolean;   // set at runtime: the context % changed since the last tick
   tmuxPassthrough: boolean;
+  // user per-element style / glyph / label overrides + inline custom theme (JSON config)
+  elements?: Record<string, Style>;
+  glyphs?: Record<string, string>;
+  labels?: Record<string, string>;
+  customTheme?: Record<string, any>;
   nowMs: number;
   clockMs: number;
   baseFrame: number;

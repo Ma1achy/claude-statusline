@@ -123,6 +123,37 @@ def clear_state():
     shutil.rmtree(os.path.join(tempfile.gettempdir(), "claude-statusline"), ignore_errors=True)
 
 
+# SL_* shorthand → JSON config keys (config now lives in ~/.claude/statusline.json).
+SL_MAP = {
+    "SL_THEME": ("theme", "s"), "SL_SHIMMER": ("shimmer", "s"), "SL_SPEED": ("speed", "i"),
+    "SL_GLOW": ("glow", "i"), "SL_WAVE_HUE": ("waveHue", "i"), "SL_EASING": ("easing", "s"),
+    "SL_AUTO_THEME": ("autoTheme", "s"), "SL_DAY_THEME": ("dayTheme", "s"), "SL_NIGHT_THEME": ("nightTheme", "s"),
+    "SL_BAR_STYLE": ("barStyle", "s"), "SL_BAR_SCALE": ("barScale", "s"), "SL_RAINBOW_MIX": ("rainbowMix", "i"),
+    "SL_MARGIN": ("margin", "i"), "SL_LAYOUT": ("layout", "s"), "SL_SEPARATOR": ("separator", "s"),
+    "SL_HIDE": ("hide", "s"), "SL_PRIVACY_HIDE": ("privacyHide", "s"), "SL_PATH": ("path", "s"),
+    "SL_ACCESSIBLE_GAUGE": ("accessibleGauge", "s"), "SL_PET_STYLE": ("petStyle", "s"),
+    "SL_PET_REACTS_TO": ("petReactsTo", "s"), "SL_PRESET": ("preset", "s"),
+    "SL_LIMIT_WARN": ("limitWarn", "i"), "SL_LIMIT_CRIT": ("limitCrit", "i"),
+    "SL_PET": ("pet", "b"), "SL_CREST": ("crest", "b"), "SL_MOON": ("moon", "b"), "SL_DAYNIGHT": ("daynight", "b"),
+    "SL_COST_FLAIR": ("costFlair", "b"), "SL_BURN": ("burn", "b"), "SL_GIT_EXTRA": ("gitExtra", "b"),
+    "SL_RAINBOW_STATS": ("rainbowStats", "b"), "SL_TREND": ("trend", "b"), "SL_WEATHER": ("weather", "b"),
+    "SL_LIMITS": ("limits", "b"), "SL_PRIVACY": ("privacy", "b"), "SL_SYSINFO": ("sysinfo", "b"),
+    "SL_ACCESSIBLE": ("accessible", "b"), "SL_RESPONSIVE": ("responsive", "b"), "SL_GIT_RISK": ("gitRisk", "b"),
+    "SL_DANGER": ("danger", "b"), "SL_NERDFONT": ("nerdfont", "b"),
+}
+
+
+def to_config(d):
+    conf = {}
+    for k, v in d.items():
+        m = SL_MAP.get(k)
+        if not m:
+            continue
+        key, t = m
+        conf[key] = (str(v).lower() in ("on", "1", "true", "yes")) if t == "b" else int(v) if t == "i" else str(v)
+    return conf
+
+
 def make_gif(home, repo, name, frames, duration):
     rendered = []
     for env_extra, fms, cap in frames:
@@ -130,10 +161,11 @@ def make_gif(home, repo, name, frames, duration):
         pct, cost, dur = env_extra.pop("_pct", 42), env_extra.pop("_cost", 0.23), env_extra.pop("_dur", 1860000)
         sid = env_extra.pop("_sid", None)
         env_extra.pop("_cap", None)
-        # SL_CLOCK_MS freezes the clock so GIFs loop without the seconds ticking.
+        # Write the per-frame JSON config; SL_CLOCK_MS freezes the clock so GIFs loop.
+        with open(os.path.join(home, ".claude", "statusline.json"), "w") as f:
+            json.dump(to_config(env_extra), f)
         env = {"HOME": home, "PATH": os.environ["PATH"], "COLUMNS": COLS, "TZ": "Europe/London",
                "SL_FRAME_MS": str(fms), "SL_CLOCK_MS": str(BASE_MS)}
-        env.update({k: str(v) for k, v in env_extra.items()})
         sample = {"workspace": {"current_dir": repo},
                   "model": {"id": "claude-opus-4-8", "display_name": "Opus"},
                   "context_window": {"used_percentage": pct, "context_window_size": 200000,

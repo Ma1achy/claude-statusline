@@ -2,6 +2,7 @@
 // preview re-runs THIS script as a child with different SL_* env (so it shows the
 // real rendered output); doctor/report just inspect the environment and history.
 import * as fs from 'fs';
+import * as os from 'os';
 import { execFileSync } from 'child_process';
 import { ESC, R, DIM, BOLD } from './ansi';
 import { cfg } from './config';
@@ -58,23 +59,59 @@ export function runDoctor(): void {
   line('git', gitVer ? `${ok(true)} ${gitVer}` : `${ok(false)} not found`);
   line('git mode', `${DIM}cached + background refresh (off the hot path; refreshInterval-safe)${R}`);
   line('NO_COLOR', process.env.NO_COLOR ? 'set (forces mono)' : 'unset');
-  const active = Object.keys(process.env).filter((k) => k.startsWith('SL_')).sort();
-  process.stdout.write(`\n${BOLD}Active SL_* vars${R}\n`);
-  if (!active.length) process.stdout.write(`  ${DIM}(none)${R}\n`);
-  for (const k of active) process.stdout.write(`  ${DIM}${k}${R}=${process.env[k]}\n`);
-  // conflicts
+  const cfgPath = process.env.SL_CONFIG || `${os.homedir()}/.claude/statusline.json`;
+  let cfgFound = false;
+  try { cfgFound = fs.existsSync(cfgPath); } catch { /* ignore */ }
+  line('config', `${ok(cfgFound)} ${DIM}${cfgPath}${cfgFound ? '' : ' (using defaults)'}${R}`);
+  line('theme', cfg.themeName);
+  line('layout', cfg.layout);
+  // conflicts + the legacy-env warning (config is JSON now; SL_* feature vars are ignored)
   const warn: string[] = [];
-  if (process.env.NO_COLOR && process.env.SL_THEME) warn.push('NO_COLOR forces mono — SL_THEME has no visible effect.');
-  if (cfg.colorMode === 'mono' && cfg.shimmer === 'disco') warn.push('disco needs colour but SL_COLOR_MODE=mono — animation will be invisible.');
-  if (cfg.colorMode !== 'truecolor' && process.env.SL_THEME) warn.push(`Colour mode is ${cfg.colorMode}; themes are approximated below truecolor.`);
+  const legacy = Object.keys(process.env).filter((k) => /^SL_/.test(k)
+    && !['SL_CONFIG', 'SL_FRAME_MS', 'SL_CLOCK_MS', 'SL_COLOR_MODE'].includes(k));
+  if (legacy.length) warn.push(`Legacy ${legacy.join(', ')} ${legacy.length > 1 ? 'are' : 'is'} ignored — config moved to JSON. Run \`statusline.js --migrate\` to convert.`);
+  if (cfg.colorMode === 'mono' && cfg.shimmer === 'disco') warn.push('disco needs colour but the mode is mono — animation will be invisible.');
+  if (cfg.colorMode !== 'truecolor' && cfg.themeName !== 'heat') warn.push(`Colour mode is ${cfg.colorMode}; themes are approximated below truecolor.`);
   if (warn.length) { process.stdout.write(`\n${BOLD}Notes${R}\n`); for (const w of warn) process.stdout.write(`  ${ESC}[33m!${R} ${w}\n`); }
   process.stdout.write('\n');
+}
+
+// --migrate: translate a legacy SL_* environment block into a JSON config printed
+// to stdout (redirect it to ~/.claude/statusline.json). One-shot upgrade helper.
+const MIGRATE: Record<string, [string, 'b' | 'i' | 's' | 'j']> = {
+  SL_THEME: ['theme', 's'], SL_SHIMMER: ['shimmer', 's'], SL_SPEED: ['speed', 'i'], SL_GLOW: ['glow', 'i'],
+  SL_WAVE_HUE: ['waveHue', 'i'], SL_EASING: ['easing', 's'], SL_AUTO_THEME: ['autoTheme', 's'],
+  SL_DAY_THEME: ['dayTheme', 's'], SL_NIGHT_THEME: ['nightTheme', 's'], SL_BAR_STYLE: ['barStyle', 's'],
+  SL_BAR_SCALE: ['barScale', 's'], SL_RAINBOW_MIX: ['rainbowMix', 'i'], SL_MARGIN: ['margin', 'i'],
+  SL_THEME_FILE: ['themeFile', 's'], SL_BASE16: ['base16', 's'], SL_LAYOUT: ['layout', 's'],
+  SL_SEPARATOR: ['separator', 's'], SL_HIDE: ['hide', 's'], SL_PRIVACY_HIDE: ['privacyHide', 's'],
+  SL_PROJECT_ALIASES: ['projectAliases', 'j'], SL_PATH: ['path', 's'], SL_ACCESSIBLE_GAUGE: ['accessibleGauge', 's'],
+  SL_PET_STYLE: ['petStyle', 's'], SL_PET_REACTS_TO: ['petReactsTo', 's'], SL_CUSTOM_SEGMENT: ['customSegment', 's'],
+  SL_PRESET: ['preset', 's'], SL_LIMIT_WARN: ['limitWarn', 'i'], SL_LIMIT_CRIT: ['limitCrit', 'i'],
+  SL_PET: ['pet', 'b'], SL_CREST: ['crest', 'b'], SL_MOON: ['moon', 'b'], SL_DAYNIGHT: ['daynight', 'b'],
+  SL_COST_FLAIR: ['costFlair', 'b'], SL_BURN: ['burn', 'b'], SL_GIT_EXTRA: ['gitExtra', 'b'],
+  SL_RAINBOW_STATS: ['rainbowStats', 'b'], SL_TREND: ['trend', 'b'], SL_WEATHER: ['weather', 'b'],
+  SL_LIMITS: ['limits', 'b'], SL_PRIVACY: ['privacy', 'b'], SL_SYSINFO: ['sysinfo', 'b'],
+  SL_ACCESSIBLE: ['accessible', 'b'], SL_RESPONSIVE: ['responsive', 'b'], SL_GIT_RISK: ['gitRisk', 'b'],
+  SL_DANGER: ['danger', 'b'], SL_BELL: ['bell', 'b'], SL_NERDFONT: ['nerdfont', 'b'], SL_TMUX_PASSTHROUGH: ['tmuxPassthrough', 'b'],
+};
+export function runMigrate(): void {
+  const conf: Record<string, any> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === undefined) continue;
+    if (k.startsWith('SL_BRANCH_')) { (conf.branchThemes || (conf.branchThemes = {}))[k.slice(10).toLowerCase()] = v; continue; }
+    const m = MIGRATE[k];
+    if (!m) continue;
+    const [key, t] = m;
+    try { conf[key] = t === 'b' ? /^(on|1|true|yes)$/i.test(v) : t === 'i' ? parseInt(v, 10) : t === 'j' ? JSON.parse(v) : v; } catch { /* skip bad value */ }
+  }
+  process.stdout.write(JSON.stringify(conf, null, 2) + '\n');
 }
 
 export function runReport(): void {
   process.stdout.write(`${BOLD}claude-statusline --report${R}\n`);
   const hist = readHistory();
-  if (!hist.length) { process.stdout.write(`  ${DIM}no cross-session history yet (enable SL_BURN to start recording)${R}\n`); return; }
+  if (!hist.length) { process.stdout.write(`  ${DIM}no cross-session history yet (enable "burn" in your config to start recording)${R}\n`); return; }
   const rates = hist.filter((h) => h.dur >= REPORT_MIN_SESSION_MS && h.cost > 0).map((h) => h.cost / (h.dur / 3600000));
   const totalCost = hist.reduce((m, h) => Math.max(m, h.cost), 0);
   const line = (k: string, v: string): void => { process.stdout.write(`  ${DIM}${(k + ' '.repeat(18)).slice(0, 18)}${R} ${v}\n`); };
