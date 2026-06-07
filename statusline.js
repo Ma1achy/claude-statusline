@@ -26,6 +26,7 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 // src/index.ts
 var fs3 = __toESM(require("fs"));
 var os3 = __toESM(require("os"));
+var path2 = __toESM(require("path"));
 
 // src/ansi.ts
 var import_child_process = require("child_process");
@@ -125,6 +126,7 @@ var cfg = {
   sysinfo: pbool("SL_SYSINFO"),
   accessible: pbool("SL_ACCESSIBLE"),
   responsive: pbool("SL_RESPONSIVE"),
+  gitRisk: pbool("SL_GIT_RISK"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -1016,7 +1018,32 @@ function build() {
   const STAGED = countLines(gitOut(CWD, ["diff", "--cached", "--name-only"]));
   const GIT_ID = gitOut(CWD, ["config", "user.email"]);
   let GIT_AB = "", GIT_AGE = "", GIT_UNTRACKED = "", GIT_STASH = "", BRANCH_MOOD = "";
+  let BRANCH_LABEL = BRANCH, GIT_STATE = "", GIT_TODAY = "", GIT_RISK = "";
   if (cfg.gitExtra && BRANCH) {
+    if (BRANCH === "HEAD") {
+      const sha = gitOut(CWD, ["rev-parse", "--short", "HEAD"]);
+      if (sha)
+        BRANCH_LABEL = `:${sha}`;
+    }
+    try {
+      let gd = gitOut(CWD, ["rev-parse", "--git-dir"]);
+      if (gd) {
+        if (!path2.isAbsolute(gd))
+          gd = path2.join(CWD, gd);
+        if (fs3.existsSync(path2.join(gd, "MERGE_HEAD")))
+          GIT_STATE = "merge";
+        else if (fs3.existsSync(path2.join(gd, "rebase-merge")) || fs3.existsSync(path2.join(gd, "rebase-apply")))
+          GIT_STATE = "rebase";
+        else if (fs3.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
+          GIT_STATE = "cherry";
+      }
+    } catch {
+    }
+    const mid = new Date(cfg.clockMs);
+    mid.setHours(0, 0, 0, 0);
+    const ct2 = parseInt(gitOut(CWD, ["rev-list", "--count", `--since=${idiv(mid.getTime(), 1e3)}`, "HEAD"]), 10);
+    if (Number.isFinite(ct2) && ct2 > 0)
+      GIT_TODAY = ` ${GREEN}${txt("\u2713")}${ct2}${R}`;
     const ab = gitOut(CWD, ["rev-list", "--count", "--left-right", "@{upstream}...HEAD"]);
     const m = ab.match(/^(\d+)\s+(\d+)$/);
     if (m) {
@@ -1044,6 +1071,25 @@ function build() {
     const tag = /^wip\//i.test(BRANCH) ? "wip" : /^(hotfix|fix)\//i.test(BRANCH) ? "fix" : /^(feat|feature)\//i.test(BRANCH) ? "feat" : /^test\//i.test(BRANCH) ? "test" : "";
     if (tag)
       BRANCH_MOOD = `${DIM}[${tag}]${R} `;
+  }
+  if (cfg.gitRisk && BRANCH) {
+    let s = 0;
+    if (DIRTY > 0)
+      s += DIRTY >= 10 ? 2 : 1;
+    if (countLines(gitOut(CWD, ["stash", "list"])) > 0)
+      s += 1;
+    const rm = gitOut(CWD, ["rev-list", "--count", "--left-right", "@{upstream}...HEAD"]).match(/^(\d+)\s+(\d+)$/);
+    if (rm) {
+      if (+rm[1] > 0)
+        s += 1;
+      if (+rm[2] >= 5)
+        s += 1;
+    }
+    if (GIT_STATE)
+      s += 2;
+    const level = s >= 4 ? "high" : s >= 2 ? "med" : "low";
+    const rc = level === "high" ? RED : level === "med" ? AMBER : GREEN;
+    GIT_RISK = `  ${rc}risk:${level}${R}`;
   }
   let CLAUDE_USER = "";
   try {
@@ -1247,8 +1293,12 @@ function build() {
   const L2_RIGHT = sh("usage", USAGE_SEG);
   let L3_LEFT = `${sh("dir", DIR_SEG)}${sh("file", FILE_SEG)}`;
   let GIT_SEG = "";
-  if (BRANCH)
-    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}\u2387 ${BRANCH}${R}`;
+  if (BRANCH) {
+    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}\u2387 ${BRANCH_LABEL}${R}`;
+    if (GIT_STATE)
+      GIT_SEG += ` ${BOLD}${RED}${GIT_STATE}!${R}`;
+    GIT_SEG += GIT_TODAY;
+  }
   GIT_SEG += GIT_AB + GIT_AGE;
   if (GIT_ID && !HIDE.has("email"))
     GIT_SEG += `  ${DIM}${GIT_ID}${R}`;
@@ -1258,7 +1308,7 @@ function build() {
     GIT_SEG += `  ${AMBER}~${DIRTY}${R}`;
   if (STAGED > 0)
     GIT_SEG += ` ${GREEN}\u25CF${STAGED}${R}`;
-  GIT_SEG += GIT_UNTRACKED + GIT_STASH;
+  GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh("git", GIT_SEG);
   let L3_RIGHT = "";
   if (CLAUDE_USER)

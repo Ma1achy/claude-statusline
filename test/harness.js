@@ -78,6 +78,7 @@ const CASES = [
   ['hide', { SL_HIDE: 'clock,usage,name' }],
   ['separator', { SL_SEPARATOR: '|' }],
   ['privacy', { SL_PRIVACY: 'on', SL_GIT_EXTRA: 'on' }],
+  ['git-risk', { SL_GIT_RISK: 'on' }],
   ['loaded', { SL_PET: 'on', SL_CREST: 'on', SL_MOON: 'on', SL_DAYNIGHT: 'on', SL_COST_FLAIR: 'on', SL_BURN: 'on', SL_GIT_EXTRA: 'on', SL_RAINBOW_STATS: 'on', SL_SHIMMER: 'wave' }],
 ];
 

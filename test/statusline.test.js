@@ -86,6 +86,32 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6e. Git — detached HEAD shows a sha; a merge in progress flags merge!.
+test('git: detached HEAD + merge state', () => {
+  const os = require('os');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-git-'));
+  const home = path.join(base, 'home');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+  const repo = path.join(base, 'repo');
+  fs.mkdirSync(repo);
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'ignore' });
+  g('init', '-q'); g('config', 'user.email', 'x@y.z'); g('config', 'user.name', 'x'); g('config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(repo, 'f'), '1\n'); g('add', 'f'); g('commit', '-q', '-m', 'c1');
+  const l3 = (extra) => stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_GIT_EXTRA: 'on', ...extra },
+  }).split('\n')[2]);
+  // a merge in progress (just the marker file) → merge!
+  fs.writeFileSync(path.join(repo, '.git', 'MERGE_HEAD'), '0'.repeat(40) + '\n');
+  assert.match(l3({}), /merge!/, 'merge in progress should be flagged');
+  fs.unlinkSync(path.join(repo, '.git', 'MERGE_HEAD'));
+  // detached HEAD → branch label becomes a short sha
+  g('checkout', '--detach', '-q');
+  assert.match(l3({}), /⎇ :[0-9a-f]{7}/, 'detached HEAD should show a short sha');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 // 6d. Privacy — SL_PRIVACY hides email / account / cost; aliasing + truncation.
 test('privacy: SL_PRIVACY hides sensitive segments', () => {
   const plain = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));

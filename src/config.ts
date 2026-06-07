@@ -87,6 +87,7 @@ export const cfg: Config = {
   sysinfo: pbool('SL_SYSINFO'),
   accessible: pbool('SL_ACCESSIBLE'),
   responsive: pbool('SL_RESPONSIVE'),
+  gitRisk: pbool('SL_GIT_RISK'),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1000),
