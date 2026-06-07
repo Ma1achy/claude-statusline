@@ -330,6 +330,9 @@ var A11Y_GAUGES = {
   // Pure luminance — unambiguous for every CVD type and on monochrome displays.
   grayscale: [[160, 160, 160], [205, 205, 205], [255, 255, 255]]
 };
+var LOUD = { "model.tier": { case: "upper", weight: "bold" }, effort: { case: "upper" }, "usage.warn": { weight: "bold" } };
+var RETRO = { "model.tier": { font: "smallcaps" }, "git.branch": { font: "smallcaps" } };
+var MINIMAL = { "tokens.in": { weight: "dim" }, "tokens.out": { weight: "dim" }, "model.version": { weight: "dim" } };
 var THEMES_DATA = {
   // hue-ramp themes
   heat: {
@@ -343,8 +346,26 @@ var THEMES_DATA = {
     // RGB approximations of the literals above, used only when degrading (256/16).
     palRgb: { RED: [205, 0, 0], GREEN: [0, 205, 0], AMBER: [205, 205, 0], BLUE: [0, 0, 238], CYAN: [0, 205, 205], WHITE: [229, 229, 229], GOLD: [255, 215, 0] }
   },
-  synthwave: { hueHi: 300, hueLo: 180, sat: 92, valLo: 75, valHi: 92, mix: 30, palRgb: { RED: [255, 55, 135], GREEN: [0, 255, 170], AMBER: [255, 170, 70], BLUE: [150, 90, 255], CYAN: [0, 229, 255], WHITE: [235, 225, 255], GOLD: [255, 95, 205] } },
-  matrix: { hueHi: 128, hueLo: 100, sat: 95, valLo: 45, valHi: 92, mix: null, palRgb: { RED: [0, 150, 45], GREEN: [0, 255, 65], AMBER: [120, 235, 40], BLUE: [0, 200, 95], CYAN: [0, 225, 120], WHITE: [170, 255, 170], GOLD: [120, 255, 90] } },
+  synthwave: {
+    hueHi: 300,
+    hueLo: 180,
+    sat: 92,
+    valLo: 75,
+    valHi: 92,
+    mix: 30,
+    palRgb: { RED: [255, 55, 135], GREEN: [0, 255, 170], AMBER: [255, 170, 70], BLUE: [150, 90, 255], CYAN: [0, 229, 255], WHITE: [235, 225, 255], GOLD: [255, 95, 205] },
+    elements: { name: { font: "script" }, "cost.amount": { attrs: ["italic"] }, "model.tier": { weight: "bold" } }
+  },
+  matrix: {
+    hueHi: 128,
+    hueLo: 100,
+    sat: 95,
+    valLo: 45,
+    valHi: 92,
+    mix: null,
+    palRgb: { RED: [0, 150, 45], GREEN: [0, 255, 65], AMBER: [120, 235, 40], BLUE: [0, 200, 95], CYAN: [0, 225, 120], WHITE: [170, 255, 170], GOLD: [120, 255, 90] },
+    elements: { "model.tier": { case: "upper" }, "git.branch": { case: "upper" }, name: { font: "smallcaps" } }
+  },
   mono: { hueHi: 0, hueLo: 0, sat: 0, valLo: 38, valHi: 95, mix: null, palRgb: { RED: [120, 120, 120], GREEN: [190, 190, 190], AMBER: [155, 155, 155], BLUE: [165, 165, 165], CYAN: [205, 205, 205], WHITE: [228, 228, 228], GOLD: [238, 238, 238] } },
   pastel: { hueHi: 120, hueLo: 0, sat: 52, valLo: 88, valHi: 88, mix: 70, palRgb: { RED: [255, 150, 150], GREEN: [150, 230, 160], AMBER: [240, 210, 140], BLUE: [165, 185, 240], CYAN: [150, 215, 230], WHITE: [238, 238, 238], GOLD: [240, 220, 160] } },
   // matplotlib colormaps (palette auto-derived)
@@ -388,27 +409,44 @@ var THEMES_DATA = {
   "ayu-light": { cmap: [[57, 158, 230], [76, 191, 153], [134, 179, 0], [255, 153, 64], [240, 113, 113]], mix: 18, palRgb: { RED: [240, 113, 113], GREEN: [134, 179, 0], AMBER: [255, 153, 64], BLUE: [57, 158, 230], CYAN: [76, 191, 153], WHITE: [92, 97, 102], GOLD: [255, 153, 64] } },
   "github-dark": { cmap: [[88, 166, 255], [57, 197, 207], [63, 185, 80], [210, 153, 34], [219, 109, 40], [248, 81, 73]], mix: 28, palRgb: { RED: [248, 81, 73], GREEN: [63, 185, 80], AMBER: [210, 153, 34], BLUE: [88, 166, 255], CYAN: [57, 197, 207], WHITE: [201, 209, 217], GOLD: [210, 153, 34] } },
   "github-light": { cmap: [[9, 105, 218], [27, 124, 131], [26, 127, 55], [154, 103, 0], [207, 34, 46]], mix: 18, palRgb: { RED: [207, 34, 46], GREEN: [26, 127, 55], AMBER: [154, 103, 0], BLUE: [9, 105, 218], CYAN: [27, 124, 131], WHITE: [36, 41, 47], GOLD: [154, 103, 0] } },
-  monokai: { cmap: [[102, 217, 239], [166, 226, 46], [230, 219, 116], [253, 151, 31], [249, 38, 114]], mix: 22, palRgb: { RED: [249, 38, 114], GREEN: [166, 226, 46], AMBER: [230, 219, 116], BLUE: [174, 129, 255], CYAN: [102, 217, 239], WHITE: [248, 248, 242], GOLD: [253, 151, 31] } },
-  "monokai-pro": { cmap: [[120, 220, 232], [169, 220, 118], [255, 216, 102], [252, 152, 103], [255, 97, 136]], mix: 22, palRgb: { RED: [255, 97, 136], GREEN: [169, 220, 118], AMBER: [255, 216, 102], BLUE: [171, 157, 242], CYAN: [120, 220, 232], WHITE: [252, 252, 250], GOLD: [255, 216, 102] } },
+  monokai: {
+    cmap: [[102, 217, 239], [166, 226, 46], [230, 219, 116], [253, 151, 31], [249, 38, 114]],
+    mix: 22,
+    palRgb: { RED: [249, 38, 114], GREEN: [166, 226, 46], AMBER: [230, 219, 116], BLUE: [174, 129, 255], CYAN: [102, 217, 239], WHITE: [248, 248, 242], GOLD: [253, 151, 31] },
+    elements: { ...LOUD, name: { weight: "bold" } }
+  },
+  "monokai-pro": {
+    cmap: [[120, 220, 232], [169, 220, 118], [255, 216, 102], [252, 152, 103], [255, 97, 136]],
+    mix: 22,
+    palRgb: { RED: [255, 97, 136], GREEN: [169, 220, 118], AMBER: [255, 216, 102], BLUE: [171, 157, 242], CYAN: [120, 220, 232], WHITE: [252, 252, 250], GOLD: [255, 216, 102] },
+    elements: { ...LOUD, name: { weight: "bold" } }
+  },
   cyberpunk: {
     cmap: [[0, 240, 255], [0, 255, 159], [243, 230, 0], [255, 0, 160]],
     mix: 0,
     palRgb: { RED: [255, 0, 160], GREEN: [0, 255, 159], AMBER: [243, 230, 0], BLUE: [0, 184, 255], CYAN: [0, 240, 255], WHITE: [240, 240, 240], GOLD: [243, 230, 0] },
-    // theme-v2 showcase: this theme restyles individual elements (proving the cascade)
-    elements: { clock: { fill: "accent" }, "cost.amount": { weight: "bold" } }
+    // loud + neon: bold/UPPER model, bold cost, bold name.
+    elements: { ...LOUD, "cost.amount": { weight: "bold" }, name: { weight: "bold" } }
   },
   // ── monochrome CRT phosphors (cmap-only → auto-derived accents) ──────────────
-  phosphor: { cmap: [[40, 22, 0], [120, 70, 0], [200, 130, 0], [255, 176, 0], [255, 214, 130]], mix: 10 },
-  "phosphor-green": { cmap: [[0, 30, 0], [0, 90, 0], [0, 160, 0], [0, 230, 40], [150, 255, 150]], mix: 10 },
-  "phosphor-white": { cmap: [[24, 24, 24], [80, 80, 80], [150, 150, 150], [220, 220, 220], [255, 255, 255]], mix: 10 },
+  phosphor: { cmap: [[40, 22, 0], [120, 70, 0], [200, 130, 0], [255, 176, 0], [255, 214, 130]], mix: 10, elements: { "model.tier": { case: "upper" }, "git.branch": { case: "upper" }, name: { case: "upper" } } },
+  "phosphor-green": { cmap: [[0, 30, 0], [0, 90, 0], [0, 160, 0], [0, 230, 40], [150, 255, 150]], mix: 10, elements: { "model.tier": { case: "upper" }, "git.branch": { case: "upper" }, name: { case: "upper" } } },
+  "phosphor-white": { cmap: [[24, 24, 24], [80, 80, 80], [150, 150, 150], [220, 220, 220], [255, 255, 255]], mix: 10, elements: { "model.tier": { case: "upper" }, "git.branch": { case: "upper" }, name: { case: "upper" } } },
   // ── muted / aesthetic (cmap-only) ───────────────────────────────────────────
-  verdigris: { cmap: [[193, 154, 107], [184, 115, 51], [125, 140, 74], [67, 150, 140], [94, 140, 106]], mix: 22 },
-  "sumi-e": { cmap: [[40, 38, 34], [90, 86, 78], [150, 144, 130], [210, 202, 184], [239, 232, 216]], mix: 15 },
-  stealth: { cmap: [[30, 32, 36], [60, 64, 70], [90, 96, 104], [130, 138, 148]], mix: 10 },
-  zen: { cmap: [[120, 130, 125], [150, 160, 150], [180, 185, 170], [205, 200, 185]], mix: 40 },
-  void: { cmap: [[20, 18, 30], [40, 36, 60], [70, 60, 100], [110, 96, 150], [150, 140, 190]], mix: 18 },
-  gothic: { cmap: [[24, 24, 26], [60, 60, 64], [110, 110, 114], [176, 176, 176]], mix: 5, palRgb: { RED: [138, 3, 3], GREEN: [150, 150, 150], AMBER: [160, 160, 160], BLUE: [130, 130, 134], CYAN: [150, 150, 154], WHITE: [200, 200, 200], GOLD: [176, 176, 176] } },
-  oceanic: { cmap: [[8, 24, 48], [12, 60, 90], [20, 100, 120], [30, 150, 160], [90, 230, 210]], mix: 20 },
+  verdigris: { cmap: [[193, 154, 107], [184, 115, 51], [125, 140, 74], [67, 150, 140], [94, 140, 106]], mix: 22, elements: { "model.tier": { case: "title" }, name: { attrs: ["italic"] } } },
+  "sumi-e": { cmap: [[40, 38, 34], [90, 86, 78], [150, 144, 130], [210, 202, 184], [239, 232, 216]], mix: 15, elements: { "model.tier": { case: "lower" }, "git.branch": { case: "lower" }, name: { attrs: ["italic"] } } },
+  stealth: { cmap: [[30, 32, 36], [60, 64, 70], [90, 96, 104], [130, 138, 148]], mix: 10, elements: { name: { weight: "dim" }, "cost.amount": { weight: "dim" }, "git.branch": { weight: "dim" }, "model.tier": { weight: "dim" } } },
+  zen: { cmap: [[120, 130, 125], [150, 160, 150], [180, 185, 170], [205, 200, 185]], mix: 40, elements: { ...MINIMAL, "model.tier": { case: "lower" }, name: { attrs: ["italic"] } } },
+  void: { cmap: [[20, 18, 30], [40, 36, 60], [70, 60, 100], [110, 96, 150], [150, 140, 190]], mix: 18, elements: { name: { font: "script", fill: "gradient", anim: { kind: "gradient-cycle" } }, "model.tier": { font: "script" } } },
+  gothic: {
+    cmap: [[24, 24, 26], [60, 60, 64], [110, 110, 114], [176, 176, 176]],
+    mix: 5,
+    palRgb: { RED: [138, 3, 3], GREEN: [150, 150, 150], AMBER: [160, 160, 160], BLUE: [130, 130, 134], CYAN: [150, 150, 154], WHITE: [200, 200, 200], GOLD: [176, 176, 176] },
+    elements: { ...RETRO, name: { font: "smallcaps" }, "model.tier": { font: "smallcaps", weight: "bold" } },
+    glyphs: { "git.branch": "\u2020" },
+    labels: { "usage.warn": "DOOM", "git.risk": "doom:" }
+  },
+  oceanic: { cmap: [[8, 24, 48], [12, 60, 90], [20, 100, 120], [30, 150, 160], [90, 230, 210]], mix: 20, elements: { name: { fill: "gradient", anim: { kind: "wave" } }, "model.tier": { case: "lower" } } },
   // ── identity palettes (vivid; cmap = the flag) ──────────────────────────────
   pride: { cmap: [[228, 3, 3], [255, 140, 0], [255, 237, 0], [0, 128, 38], [0, 77, 255], [117, 7, 135]], mix: 0 },
   trans: { cmap: [[91, 206, 250], [245, 169, 184], [240, 240, 240], [245, 169, 184], [91, 206, 250]], mix: 0 },
@@ -417,7 +455,7 @@ var THEMES_DATA = {
   nonbinary: { cmap: [[252, 244, 52], [240, 240, 240], [156, 89, 209], [80, 80, 88]], mix: 5 },
   // crisp silver normally; pairs with the danger wash (deep safelight red when
   // context/limits are critical — the darkroom convention). See SL_DANGER.
-  "silver-halide": { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8 },
+  "silver-halide": { cmap: [[40, 42, 46], [90, 94, 100], [150, 154, 160], [210, 214, 220], [245, 247, 250]], mix: 8, elements: { ...RETRO, name: { attrs: ["italic"] } } },
   // Accessibility palette (SL_ACCESSIBLE) — see A11Y_PAL below. Default gauge is
   // the CVD-safe ramp; SL_ACCESSIBLE_GAUGE swaps it (themes.ts). Paired with motion
   // off (config.ts forces shimmer='off' under SL_ACCESSIBLE).
