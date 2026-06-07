@@ -61,6 +61,8 @@ export interface Config {
   gitRisk: boolean; danger: boolean;
   petStyle: string; petReactsTo: string; bell: boolean;
   nerdfont: boolean; customSegment: string;
+  event: boolean;   // set at runtime: the context % changed since the last tick
+  tmuxPassthrough: boolean; gitCache: boolean;
   nowMs: number;
   clockMs: number;
   baseFrame: number;

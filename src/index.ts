@@ -93,6 +93,7 @@ function build(): string {
       st.bellLevel = lvl;
     }
     const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+    if (prev >= 0 && PCT !== prev) cfg.event = true;               // drives flash/ripple shimmers
     if (prev >= 0 && PCT <= prev - 25) st.compactions += 1;        // sharp drop = an autocompact
     pushSpark(st, PCT);
     st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
@@ -546,7 +547,10 @@ else if (cliArg && cliArg.startsWith('-')) {
     + 'Configure with SL_* environment variables — see the README.\n');
 } else {
   try {
-    process.stdout.write(build());
+    const out = build();
+    // SL_TMUX_PASSTHROUGH: wrap in the tmux DCS so truecolor survives the
+    // multiplexer (requires `set -g allow-passthrough on` in tmux ≥3.3).
+    process.stdout.write(cfg.tmuxPassthrough ? `\x1bPtmux;${out.replace(/\x1b/g, '\x1b\x1b')}\x1b\\` : out);
   } catch (e) {
     // Never blank the statusline — emit one minimal line.
     process.stdout.write(`${DIM}claude-statusline: ${(e && (e as Error).message) || 'error'}${R}\n`);

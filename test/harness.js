@@ -69,7 +69,7 @@ function run(fix, envOverrides) {
 const CASES = [
   ['plain', {}],
   ...['sweep', 'wave', 'comet', 'breathe', 'scan', 'off', 'disco',
-      'drift', 'aurora', 'plasma', 'glitch', 'lumin', 'heartbeat', 'twinkle', 'storm'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
+      'drift', 'aurora', 'plasma', 'glitch', 'lumin', 'heartbeat', 'twinkle', 'storm', 'morse'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
   ['easing-ease', { SL_SHIMMER: 'sweep', SL_EASING: 'ease' }],
   ...['heat', 'synthwave', 'matrix', 'mono', 'pastel', 'dracula', 'nord', 'gruvbox', 'tokyonight', 'rosepine',
       'viridis', 'inferno', 'magma', 'plasma', 'cividis',

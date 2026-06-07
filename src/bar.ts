@@ -14,6 +14,21 @@ const EQ = '▁▂▃▄▅▆▇█'.split('');
 const SHADE = '░▒▓█'.split('');
 const hashI = (n: number): number => Math.imul(n >>> 0, 2654435761) >>> 0;
 
+// Morse on/off timeline (1 unit/dot, 3/dash, 1 gap between symbols, 3 between
+// letters, 7 at the end) — used by the `morse` shimmer to blink "CLAUDE".
+const MORSE: Record<string, string> = { C: '-.-.', L: '.-..', A: '.-', U: '..-', D: '-..', E: '.' };
+const MORSE_SEQ: boolean[] = (() => {
+  const out: boolean[] = [];
+  const push = (on: boolean, n: number): void => { for (let i = 0; i < n; i++) out.push(on); };
+  const word = 'CLAUDE'.split('');
+  word.forEach((ch, li) => {
+    const code = MORSE[ch] || '';
+    code.split('').forEach((sym, si) => { push(true, sym === '-' ? 3 : 1); if (si < code.length - 1) push(false, 1); });
+    push(false, li < word.length - 1 ? 3 : 7);
+  });
+  return out;
+})();
+
 /** Cells to fill for a percentage. Linear is the original idiv (byte-stable);
  *  log/compact squares the fraction so the danger zone occupies more cells. */
 export function scaleCells(pct: number, width: number): number {
@@ -122,7 +137,9 @@ export function drawBar(width: number, filled: number, marker: number, phaseMs =
     else if (shimmer === 'storm') {
       const flash = mod(idiv(t * speed, 8), wrap); const d = Math.abs(sx - flash); const dd = Math.min(d, wrap - d);
       bf = dd < 120 ? 150 : 68; if (hashI(idiv(t, 400)) % 100 < 8) bf = 185;
-    }
+    } else if (shimmer === 'morse') bf = MORSE_SEQ[idiv(t, 160) % MORSE_SEQ.length] ? 100 : 22;
+    else if (shimmer === 'flash') bf = cfg.event ? 175 : 100;            // bright pulse the tick the % changes
+    else if (shimmer === 'ripple') bf = cfg.event ? (Math.abs(sx - filled * 100) < 250 ? 175 : 88) : 88;   // ring at the fill edge on update
     if (bf !== 100) base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
     return base;
   };

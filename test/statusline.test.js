@@ -117,6 +117,31 @@ test('cli: doctor, report, preview', () => {
   assert.ok(prev.includes('catppuccin-mocha') && prev.includes('braille'), 'preview lists themes and bar styles');
 });
 
+// 6l. tmux passthrough — output wrapped in the tmux DCS with doubled escapes.
+test('tmux: SL_TMUX_PASSTHROUGH wraps output', () => {
+  const out = run(fix, { SL_TMUX_PASSTHROUGH: 'on' });
+  assert.ok(out.startsWith('\x1bPtmux;'), 'starts with the tmux DCS');
+  assert.ok(out.endsWith('\x1b\\'), 'ends with ST');
+  assert.ok(out.includes('\x1b\x1b['), 'inner escapes are doubled');
+  assert.ok(!run(fix, {}).startsWith('\x1bPtmux;'), 'off by default');
+});
+
+// 6k. Flash shimmer — brighter on the tick the context % changes (event-driven).
+test('flash: renders differently when % changes vs holds', () => {
+  const sess = (id) => {
+    const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-fl-'));
+    fs.mkdirSync(path.join(home, '.claude')); fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+    const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-fld-'));
+    return (pct, fm) => execFileSync('node', [STATUSLINE], {
+      input: JSON.stringify({ session_id: id, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: pct }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+      encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '120', SL_FRAME_MS: fm, SL_COLOR_MODE: 'truecolor', SL_SHIMMER: 'flash', TMPDIR: tmp },
+    }).split('\n')[1];
+  };
+  const a = sess('A'); a(50, '1700000000000'); const held = a(50, '1700000000001');     // prev 50 → no change
+  const b = sess('B'); b(60, '1700000000000'); const changed = b(50, '1700000000001');   // prev 60 → changed, same fill (50%)
+  assert.notStrictEqual(held, changed, 'flash should brighten on a context-% change');
+});
+
 // 6h. Pet + bell — styles render; bell rings once per threshold crossing.
 test('pet styles + bell de-dup', () => {
   // a style swaps the face glyphs (PCT 42 → neutral level for default & cat).

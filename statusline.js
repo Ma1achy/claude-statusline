@@ -145,6 +145,9 @@ var cfg = {
   bell: pbool("SL_BELL"),
   nerdfont: pbool("SL_NERDFONT"),
   customSegment: penv("SL_CUSTOM_SEGMENT", ""),
+  event: false,
+  tmuxPassthrough: pbool("SL_TMUX_PASSTHROUGH"),
+  gitCache: pbool("SL_GIT_CACHE"),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -556,6 +559,25 @@ var MATRIX_CHARS = "01<>{}[]/\\|=+*".split("");
 var EQ = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588".split("");
 var SHADE = "\u2591\u2592\u2593\u2588".split("");
 var hashI = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
+var MORSE = { C: "-.-.", L: ".-..", A: ".-", U: "..-", D: "-..", E: "." };
+var MORSE_SEQ = (() => {
+  const out = [];
+  const push = (on, n) => {
+    for (let i = 0; i < n; i++)
+      out.push(on);
+  };
+  const word = "CLAUDE".split("");
+  word.forEach((ch, li) => {
+    const code = MORSE[ch] || "";
+    code.split("").forEach((sym, si) => {
+      push(true, sym === "-" ? 3 : 1);
+      if (si < code.length - 1)
+        push(false, 1);
+    });
+    push(false, li < word.length - 1 ? 3 : 7);
+  });
+  return out;
+})();
 function scaleCells(pct, width) {
   const p = Math.max(0, Math.min(100, pct));
   if (cfg.barScale === "log" || cfg.barScale === "compact")
@@ -687,7 +709,12 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       bf = dd < 120 ? 150 : 68;
       if (hashI(idiv(t, 400)) % 100 < 8)
         bf = 185;
-    }
+    } else if (shimmer2 === "morse")
+      bf = MORSE_SEQ[idiv(t, 160) % MORSE_SEQ.length] ? 100 : 22;
+    else if (shimmer2 === "flash")
+      bf = cfg.event ? 175 : 100;
+    else if (shimmer2 === "ripple")
+      bf = cfg.event ? Math.abs(sx - filled * 100) < 250 ? 175 : 88 : 88;
     if (bf !== 100)
       base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
     return base;
@@ -1213,6 +1240,8 @@ function build() {
       st.bellLevel = lvl;
     }
     const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+    if (prev >= 0 && PCT !== prev)
+      cfg.event = true;
     if (prev >= 0 && PCT <= prev - 25)
       st.compactions += 1;
     pushSpark(st, PCT);
@@ -1723,7 +1752,8 @@ else if (cliArg && cliArg.startsWith("-")) {
   process.stdout.write("claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active SL_* vars, and conflicts\n  --report    summarise cross-session usage history\n  --help      this message\n\nConfigure with SL_* environment variables \u2014 see the README.\n");
 } else {
   try {
-    process.stdout.write(build());
+    const out = build();
+    process.stdout.write(cfg.tmuxPassthrough ? `\x1BPtmux;${out.replace(/\x1b/g, "\x1B\x1B")}\x1B\\` : out);
   } catch (e) {
     process.stdout.write(`${DIM}claude-statusline: ${e && e.message || "error"}${R}
 `);
