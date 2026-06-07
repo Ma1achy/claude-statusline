@@ -37,14 +37,19 @@ export function st(id: ElementId, text: string, opts: StOpts = {}): string {
   if (text === '') return '';
   // cascade: built-in default ← active theme's per-element override ← per-call opts
   const d: Style = { ...ELEMENT_DEFAULTS[id], ...(TH.elements && TH.elements[id]) };
-  const fill = opts.role ?? d.fill ?? 'fg';
+  // accessibility profile: top of the cascade — kill motion + pseudo-fonts and
+  // demote the colour-only rainbow to plain fg, on EVERY element. (Roles already
+  // resolve to the AAA palette via themes.ts.) Case/weight/attrs are a11y-safe.
+  const a11y = cfg.accessible;
+  let fill = opts.role ?? d.fill ?? 'fg';
+  if (a11y && fill === 'rainbow') fill = 'fg';
   const weight = opts.weight ?? d.weight ?? 'normal';
-  const anim = (d.anim && d.anim.kind) || 'none';
+  const anim = a11y ? 'none' : ((d.anim && d.anim.kind) || 'none');
   const speed = (d.anim && d.anim.speed) || 1;
 
-  // text transforms: case fold, then opt-in pseudo-font
+  // text transforms: case fold, then opt-in pseudo-font (off under accessibility)
   let t = toCase(text, d.case);
-  if (d.font && d.font !== 'none') t = pseudoFont(t, d.font);
+  if (!a11y && d.font && d.font !== 'none') t = pseudoFont(t, d.font);
 
   // weight + attribute prefix
   let pre = weight === 'bold' ? BOLD : weight === 'dim' ? DIM : '';

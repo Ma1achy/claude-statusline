@@ -563,10 +563,9 @@ function build(): string {
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh('git', GIT_SEG) + sh('custom', CUSTOM_SEG);
   let L3_RIGHT = '';
-  // The `name` element defaults to a rainbow fill; accessible mode overrides it to
-  // plain bright white (rainbow is low-contrast and colour-only).
-  const NAME_STR = st('name', CLAUDE_USER, cfg.accessible ? { role: 'fg' } : {});
-  if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${NAME_STR}  `)}`;
+  // `name` defaults to a rainbow fill; the accessibility profile (style.ts) demotes
+  // it to plain fg automatically, so no special-case is needed here.
+  if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${st('name', CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh('cost', COST_SEG)}  ${sh('age', AGE_SEG)}`;
 
   // Layout: which lines to emit. Compact forms reuse the segments already built.

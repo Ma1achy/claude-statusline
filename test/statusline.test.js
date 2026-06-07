@@ -454,6 +454,17 @@ test('style: case / pseudo-font / italic per element', () => {
   }
 });
 
+// 8c. Accessibility profile reaches EVERY element across themes: no bare-DIM, no
+// per-letter rainbow on the name, and pseudo-fonts/animation suppressed.
+test('accessible: profile overrides every element across themes', () => {
+  for (const theme of ['heat', 'cyberpunk', 'showcase']) {
+    const out = run(fix, { SL_ACCESSIBLE: 'on', SL_THEME: theme });
+    assert.ok(!out.includes('\x1b[2m'), `${theme}: no bare DIM under accessible`);
+    assert.match(out, /\x1b\[38;2;255;255;255mMalachy\x1b\[0m/, `${theme}: name solid white (rainbow demoted)`);
+    assert.ok(!out.includes('ꜰᴇᴀᴛ'), `${theme}: pseudo-font suppressed under accessible`);
+  }
+});
+
 // 8. Privacy guard — the fixture's dummy email appears; nothing else leaks.
 test('privacy: dummy email rendered, no real address', () => {
   const out = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));

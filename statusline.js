@@ -1315,12 +1315,15 @@ function st(id, text, opts = {}) {
   if (text === "")
     return "";
   const d = { ...ELEMENT_DEFAULTS[id], ...TH.elements && TH.elements[id] };
-  const fill = opts.role ?? d.fill ?? "fg";
+  const a11y = cfg.accessible;
+  let fill = opts.role ?? d.fill ?? "fg";
+  if (a11y && fill === "rainbow")
+    fill = "fg";
   const weight = opts.weight ?? d.weight ?? "normal";
-  const anim = d.anim && d.anim.kind || "none";
+  const anim = a11y ? "none" : d.anim && d.anim.kind || "none";
   const speed = d.anim && d.anim.speed || 1;
   let t = toCase(text, d.case);
-  if (d.font && d.font !== "none")
+  if (!a11y && d.font && d.font !== "none")
     t = pseudoFont(t, d.font);
   let pre = weight === "bold" ? BOLD : weight === "dim" ? DIM : "";
   if (d.attrs)
@@ -2045,9 +2048,8 @@ function build() {
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
   L3_LEFT += sh("git", GIT_SEG) + sh("custom", CUSTOM_SEG);
   let L3_RIGHT = "";
-  const NAME_STR = st("name", CLAUDE_USER, cfg.accessible ? { role: "fg" } : {});
   if (CLAUDE_USER)
-    L3_RIGHT = `${sh("name", `${NAME_STR}  `)}`;
+    L3_RIGHT = `${sh("name", `${st("name", CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh("cost", COST_SEG)}  ${sh("age", AGE_SEG)}`;
   const J = justified;
   let lines;
