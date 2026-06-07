@@ -62,7 +62,8 @@ export interface Config {
   petStyle: string; petReactsTo: string; bell: boolean;
   nerdfont: boolean; customSegment: string;
   event: boolean;   // set at runtime: the context % changed since the last tick
-  tmuxPassthrough: boolean; gitCache: boolean;
+  tmuxPassthrough: boolean;
+  gitRefresh: boolean;   // true when this process is the detached git-cache refresher
   nowMs: number;
   clockMs: number;
   baseFrame: number;

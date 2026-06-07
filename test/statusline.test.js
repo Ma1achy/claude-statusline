@@ -203,8 +203,10 @@ test('reactive: daynight + silver-halide danger wash', () => {
   assert.ok(at({ SL_THEME: 'silver-halide', _pct: 95 }).includes(';18;18m'), 'red wash when critical');
 });
 
-// 6n. Git cache — SL_GIT_CACHE serves stale branch within TTL, refreshes after.
-test('git cache: stale within TTL, refresh after', () => {
+// 6n. Git cache (default async path) — the foreground never blocks on git: it
+// paints from the cache, and a detached `--git-refresh` child warms it. Cold =
+// no git; within TTL the cached value is served even after the branch changes.
+test('git cache: foreground serves cache, refresher warms it', () => {
   const base = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-gc-'));
   const home = path.join(base, 'home'); fs.mkdirSync(path.join(home, '.claude'), { recursive: true }); fs.writeFileSync(path.join(home, '.claude.json'), '{}');
   const tmp = path.join(base, 'tmp'); fs.mkdirSync(tmp);
@@ -212,14 +214,24 @@ test('git cache: stale within TTL, refresh after', () => {
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'ignore' });
   g('init', '-q'); g('config', 'user.email', 'x@y.z'); g('config', 'user.name', 'x'); g('config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(repo, 'f'), '1\n'); g('add', 'f'); g('commit', '-q', '-m', 'c'); g('branch', '-m', 'one');
-  const l3 = (fm) => stripAnsi(execFileSync('node', [STATUSLINE], {
-    input: JSON.stringify({ session_id: 'gc', workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: String(fm), SL_COLOR_MODE: 'truecolor', SL_GIT_CACHE: 'on', TMPDIR: tmp },
-  })).split('\n')[2];
-  assert.match(l3(1700000000000), /one/, 'first tick shows the real branch');
+  const inp = (sid) => JSON.stringify({ session_id: sid, workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } });
+  const envFor = (fm) => ({ HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: String(fm), SL_COLOR_MODE: 'truecolor', TMPDIR: tmp });
+  // foreground render (line 3); the refresher runs the same binary with --git-refresh
+  // synchronously here so the test is deterministic (in production it is detached).
+  const fg = (sid, fm) => stripAnsi(execFileSync('node', [STATUSLINE], { input: inp(sid), encoding: 'utf8', env: envFor(fm) })).split('\n')[2];
+  const refresh = (sid, fm) => execFileSync('node', [STATUSLINE, '--git-refresh'], { input: inp(sid), encoding: 'utf8', env: envFor(fm) });
+  // Cold (its own session so its detached refresher can't race the main flow):
+  // no cache yet → the foreground paints no git rather than blocking on it.
+  assert.doesNotMatch(fg('gccold', 1700000000000), /⎇/, 'cold foreground blocks on nothing → no git segment');
+  // Warm the cache, then the foreground serves the cached branch.
+  refresh('gc', 1700000000000);
+  assert.match(fg('gc', 1700000000500), /one/, 'foreground paints the cached branch');
+  // Rename the branch; within TTL the foreground keeps serving the cached value.
   g('branch', '-m', 'two');
-  assert.match(l3(1700000001000), /one/, 'within TTL still shows the cached branch');
-  assert.match(l3(1700000005000), /two/, 'past TTL refreshes to the new branch');
+  assert.match(fg('gc', 1700000001000), /one/, 'within TTL still shows the cached branch');
+  // A fresh refresh past TTL picks up the new branch for the next render.
+  refresh('gc', 1700000005000);
+  assert.match(fg('gc', 1700000005500), /two/, 'after a refresh it shows the new branch');
   fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -235,10 +247,15 @@ test('git: detached HEAD + merge state', () => {
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'ignore' });
   g('init', '-q'); g('config', 'user.email', 'x@y.z'); g('config', 'user.name', 'x'); g('config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(repo, 'f'), '1\n'); g('add', 'f'); g('commit', '-q', '-m', 'c1');
-  const l3 = (extra) => stripAnsi(execFileSync('node', [STATUSLINE], {
-    input: JSON.stringify({ workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
-    encoding: 'utf8', env: { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_GIT_EXTRA: 'on', ...extra },
-  }).split('\n')[2]);
+  const tmp = path.join(base, 'tmp'); fs.mkdirSync(tmp);
+  const input = JSON.stringify({ workspace: { current_dir: repo }, model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } });
+  // Git is off the hot path, so warm the cache (--git-refresh) then render. The git
+  // state changes between calls, so re-warm each time (same frame ts overwrites the cache).
+  const l3 = (extra) => {
+    const env = { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_GIT_EXTRA: 'on', TMPDIR: tmp, ...extra };
+    execFileSync('node', [STATUSLINE, '--git-refresh'], { input, encoding: 'utf8', env });
+    return stripAnsi(execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env })).split('\n')[2];
+  };
   // a merge in progress (just the marker file) → merge!
   fs.writeFileSync(path.join(repo, '.git', 'MERGE_HEAD'), '0'.repeat(40) + '\n');
   assert.match(l3({}), /merge!/, 'merge in progress should be flagged');

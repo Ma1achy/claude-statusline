@@ -57,12 +57,20 @@ const SAMPLE = {
 
 function run(fix, envOverrides) {
   const sample = { ...SAMPLE, workspace: { current_dir: fix.repo } };
-  const out = execFileSync('node', [STATUSLINE], {
-    input: JSON.stringify(sample),
-    encoding: 'utf8',
-    env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: FRAME_MS, SL_COLOR_MODE: 'truecolor', ...envOverrides },
-  });
-  return out;   // fixed fixture path → output is already deterministic & portable
+  const input = JSON.stringify(sample);
+  // Git runs only in the detached refresher, so warm the cache first, then render —
+  // this makes the (otherwise background) git output deterministic for goldens.
+  // A unique TMPDIR per call isolates the session state file so concurrent tests
+  // can't race on the shared cache (state.ts keys off os.tmpdir(), which honours TMPDIR).
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-state-'));
+  const env = { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: FRAME_MS, SL_COLOR_MODE: 'truecolor', TMPDIR: stateDir, ...envOverrides };
+  try {
+    execFileSync('node', [STATUSLINE, '--git-refresh'], { input, encoding: 'utf8', env });
+    return execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env });
+  } finally {
+    try { fs.rmSync(stateDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  // fixed fixture path → output is already deterministic & portable
 }
 
 // The matrix of scenarios that get golden snapshots.

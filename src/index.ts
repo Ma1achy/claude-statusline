@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { ESC, R, DIM, BOLD, justified, stripAnsi, txt, tc, termCols } from './ansi';
 import { hueRgb } from './color';
 import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
@@ -50,6 +50,26 @@ function displayPath(cwd: string): string {
   return p;
 }
 
+// Read only the last `maxBytes` of a file (the tail), as a bounded alternative to
+// readFileSync on files that grow without limit. A transcript can reach tens of MB
+// over a long session; reading the whole thing every repaint is the kind of
+// unbounded hot-path I/O that can push a render past refreshInterval. 256 KB of
+// tail is far more than enough to find the most recent tool calls.
+function readTail(file: string, maxBytes: number): string {
+  let fd = -1;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, maxBytes);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    let s = buf.toString('utf8');
+    if (size > maxBytes) { const nl = s.indexOf('\n'); if (nl >= 0) s = s.slice(nl + 1); }  // drop the partial first line
+    return s;
+  } catch { return ''; }
+  finally { if (fd >= 0) try { fs.closeSync(fd); } catch { /* ignore */ } }
+}
+
 function build(): string {
   let data: StatuslineInput = {};
   if (preInput) {
@@ -86,14 +106,21 @@ function build(): string {
 
   // ── persist this tick: context-% history, compaction detection, ETA samples,
   //    and a throttled cross-session history record for burn baselines ─────────
-  // git-output cache (SL_GIT_CACHE): memoise within a render and, when fresh,
-  // across ticks — trades a little staleness for fewer git execs per repaint.
+  // git-output cache: the foreground paints from this; a detached background
+  // refresher (cfg.gitRefresh) rewrites it. TTL bounds how stale git can get.
   const GIT_TTL = 2500;
   let gitMemo: Record<string, string> = {}, gitMemoDirty = false;
   let sessionK = '', sessionSt: ReturnType<typeof readState> | null = null;
+  // gitFresh: cached git data exists and is within TTL → no refresh needed.
+  // kickRefresh: this (foreground) render should spawn a background refresher.
+  let gitFresh = false, kickRefresh = false;
+  // gc(): the FOREGROUND never execs git — it returns whatever the cache holds
+  // (possibly stale, possibly empty on a cold start) so the render can't be slowed
+  // below refreshInterval by a big/slow repo. Only the detached refresher execs.
   const gc = (args: string[]): string => {
     const key = args.join(' ');
     if (key in gitMemo) return gitMemo[key];
+    if (!cfg.gitRefresh) return '';   // foreground: never block on git
     const v = gitOut(CWD, args);
     gitMemo[key] = v; gitMemoDirty = true;
     return v;
@@ -105,35 +132,52 @@ function build(): string {
     sessionK = sk;
     const st = readState(sk);
     sessionSt = st;
-    if (cfg.gitCache && st.git && st.git.cwd === CWD && cfg.nowMs - st.git.ts < GIT_TTL) gitMemo = { ...st.git.data };
-    // SL_BELL: ring once each time context crosses into a higher band (de-dup via state).
-    if (cfg.bell) {
-      const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
-      if (lvl > (st.bellLevel ?? 0)) BELL = '\x07';
-      st.bellLevel = lvl;
+    // Reuse cached git for this render whenever it's for the same cwd — even when
+    // stale, so git never blanks between refreshes; gitFresh decides if we refresh.
+    if (!cfg.gitRefresh && st.git && st.git.cwd === CWD) {
+      gitMemo = { ...st.git.data };
+      gitFresh = cfg.nowMs - st.git.ts < GIT_TTL;
     }
-    const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
-    if (prev >= 0 && PCT !== prev) cfg.event = true;               // drives flash/ripple shimmers
-    if (prev >= 0 && PCT <= prev - 25) st.compactions += 1;        // sharp drop = an autocompact
-    pushSpark(st, PCT);
-    st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
-    // one cross-session record per 5-minute duration bucket (keeps the log small).
-    const bucket = idiv(DURATION_MS, 300000);
-    if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
-      st.histBucket = bucket;
-      appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+    if (cfg.gitRefresh) {
+      // Background refresher: don't touch per-tick state (spark/eta/history/bell);
+      // it only re-execs git and rewrites the git cache (below). Leaving the rest
+      // alone avoids clobbering the foreground's concurrent state writes.
+    } else {
+      // Kick a background git refresh when the cache is stale/missing, rate-limited
+      // to one per TTL so cold-start can't stampede overlapping refreshers.
+      if (CWD && !gitFresh && cfg.nowMs - (st.lastGitRefresh || 0) > GIT_TTL) {
+        kickRefresh = true;
+        st.lastGitRefresh = cfg.nowMs;
+      }
+      // SL_BELL: ring once each time context crosses into a higher band (de-dup via state).
+      if (cfg.bell) {
+        const lvl = PCT >= 95 ? 2 : PCT >= 80 ? 1 : 0;
+        if (lvl > (st.bellLevel ?? 0)) BELL = '\x07';
+        st.bellLevel = lvl;
+      }
+      const prev = st.spark.length ? st.spark[st.spark.length - 1] : -1;
+      if (prev >= 0 && PCT !== prev) cfg.event = true;               // drives flash/ripple shimmers
+      if (prev >= 0 && PCT <= prev - 25) st.compactions += 1;        // sharp drop = an autocompact
+      pushSpark(st, PCT);
+      st.etaSamples = (st.etaSamples || []).concat([[DURATION_MS, PCT]]).slice(-20);
+      // one cross-session record per 5-minute duration bucket (keeps the log small).
+      const bucket = idiv(DURATION_MS, 300000);
+      if (cfg.burn && COST > 0 && bucket > (st.histBucket ?? -1)) {
+        st.histBucket = bucket;
+        appendHistory({ t: cfg.nowMs, cost: COST, ctx: PCT, dur: DURATION_MS });
+      }
+      writeState(sk, st);
+      SPARK = st.spark.slice();
+      COMPACTIONS = st.compactions;
+      ETA_SAMPLES = st.etaSamples;
     }
-    writeState(sk, st);
-    SPARK = st.spark.slice();
-    COMPACTIONS = st.compactions;
-    ETA_SAMPLES = st.etaSamples;
   } catch { /* state is best-effort */ }
 
   // ── custom segment (SL_CUSTOM_SEGMENT) — run a user script as a child with the
   //    Claude Code JSON on stdin; take its first stdout line. Timeout + error
   //    isolated so a broken/slow plugin can never hang or blank the statusline. ─
   let CUSTOM_SEG = '';
-  if (cfg.customSegment) {
+  if (cfg.customSegment && !cfg.gitRefresh) {
     try {
       const out = execFileSync(process.execPath, [cfg.customSegment], {
         input: JSON.stringify(data), encoding: 'utf8', timeout: 250,
@@ -272,10 +316,24 @@ function build(): string {
     GIT_RISK = `  ${rc}risk:${level}${R}`;
   }
 
-  // persist the git cache for the next tick (second best-effort write; opt-in).
-  if (cfg.gitCache && gitMemoDirty && sessionSt) {
+  // persist the git cache for the next tick (best-effort). In the refresher this
+  // is the whole point of the run; re-read state first so we merge fresh git into
+  // the foreground's latest spark/eta rather than clobbering it.
+  if (gitMemoDirty && sessionSt) {
+    if (cfg.gitRefresh) { try { sessionSt = readState(sessionK); } catch { /* keep prior */ } }
     sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
     try { writeState(sessionK, sessionSt); } catch { /* best-effort */ }
+  }
+
+  // The background refresher exists only to warm the git cache above — it has no
+  // output and skips the rest of the render (segments, transcript, layout, etc.).
+  if (cfg.gitRefresh) {
+    // Stamp an empty cache for non-git cwds too, so the foreground sees a fresh
+    // (empty) entry and stops kicking refreshers in directories with no repo.
+    if (!gitMemoDirty && sessionSt) {
+      try { sessionSt = readState(sessionK); sessionSt.git = { cwd: CWD, ts: cfg.nowMs, data: {} }; writeState(sessionK, sessionSt); } catch { /* best-effort */ }
+    }
+    return '';
   }
 
   // ── pet (SL_PET) ────────────────────────────────────────────────────────────
@@ -309,8 +367,8 @@ function build(): string {
   let LAST_FILE = '';
   try {
     if (TRANSCRIPT && fs.existsSync(TRANSCRIPT)) {
-      const lines = fs.readFileSync(TRANSCRIPT, 'utf8').split('\n').filter(Boolean).slice(-80);
-      const re = /write|edit|read|str_replace|create/;
+      const lines = readTail(TRANSCRIPT, 262144).split('\n').filter(Boolean).slice(-80);
+      const re = /write|edit|read|str_replace|create/i;   // Claude tool names are capitalised (Edit/Read/Write)
       for (const line of lines) {
         let ev: any;
         try { ev = JSON.parse(line); } catch { continue; }
@@ -557,6 +615,22 @@ function build(): string {
     lines = lines.map((l) => recolor(l, (col) => tc(150 + pulse + (col % 3) * 12, 18, 18)));
   }
 
+  // Fire-and-forget the git-cache refresher: a detached child re-runs this binary
+  // with --git-refresh, execs git off the hot path, and writes the cache for the
+  // next tick. Detached + unref'd so it outlives this (cancellable) render — the
+  // mechanism that lets the cache populate at all when a render gets cancelled at
+  // the refreshInterval boundary. Best-effort: any failure just means stale git.
+  if (kickRefresh && !cfg.gitRefresh) {
+    try {
+      const child = spawn(process.execPath, [__filename, '--git-refresh'], {
+        detached: true, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'], env: process.env,
+      });
+      if (child.stdin) { child.stdin.write(JSON.stringify(data)); child.stdin.end(); }
+      child.on('error', () => { /* spawn failed → git just stays stale */ });
+      child.unref();
+    } catch { /* best-effort */ }
+  }
+
   return BELL + lines.join('\n') + '\n';
 }
 
@@ -564,6 +638,10 @@ const cliArg = process.argv[2];
 if (cliArg === '--preview') runPreview();
 else if (cliArg === '--doctor') runDoctor();
 else if (cliArg === '--report') runReport();
+else if (cliArg === '--git-refresh') {
+  // Detached background invocation: warm the git cache, print nothing.
+  try { build(); } catch { /* refresh is best-effort */ }
+}
 else if (cliArg && cliArg.startsWith('-')) {
   process.stdout.write('claude-statusline — a statusline command for Claude Code.\n\n'
     + 'Usage: reads Claude Code JSON on stdin and prints the statusline.\n\n'
