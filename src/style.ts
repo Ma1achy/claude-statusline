@@ -21,7 +21,8 @@ const hexRgb = (h: string): [number, number, number] =>
  *  (for multi-state elements); opts.pct drives a `gradient` fill. */
 export function st(id: ElementId, text: string, opts: StOpts = {}): string {
   if (text === '') return '';
-  const d = ELEMENT_DEFAULTS[id] || {};
+  // cascade: built-in default ← active theme's per-element override ← per-call opts
+  const d = { ...ELEMENT_DEFAULTS[id], ...(TH.elements && TH.elements[id]) };
   const fill = opts.role ?? d.fill ?? 'fg';
   const weight = opts.weight ?? d.weight ?? 'normal';
   const w = weight === 'bold' ? BOLD : weight === 'dim' ? DIM : '';

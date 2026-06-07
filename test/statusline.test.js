@@ -434,6 +434,14 @@ test('colour: mode downgrades and NO_COLOR forces mono', () => {
   }
 });
 
+// 7c. Theme v2 — a theme can restyle individual elements via theme.elements.
+test('theme v2: a theme restyles individual elements', () => {
+  const cyber = run(fix, { SL_THEME: 'cyberpunk' });
+  // cyberpunk pins cost.amount → bold (and clock → accent) through theme.elements
+  assert.match(cyber, /\x1b\[1m\x1b\[[0-9;]*m\$0\.234/, 'cost.amount should be bold under cyberpunk');
+  assert.doesNotMatch(run(fix, { SL_THEME: 'heat' }), /\x1b\[1m\x1b\[[0-9;]*m\$0\.234/, 'heat leaves cost unbold');
+});
+
 // 8. Privacy guard — the fixture's dummy email appears; nothing else leaks.
 test('privacy: dummy email rendered, no real address', () => {
   const out = stripAnsi(run(fix, { SL_GIT_EXTRA: 'on' }));
