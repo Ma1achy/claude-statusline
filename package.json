@@ -12,7 +12,14 @@
     "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=statusline.js --banner:js=\"#!/usr/bin/env node\"",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test",
-    "render": "python3 scripts/render-demos.py"
+    "render": "python3 scripts/render-demos.py",
+    "render:themes": "python3 scripts/render-demos.py themes",
+    "render:colormaps": "python3 scripts/render-demos.py colormaps",
+    "render:bars": "python3 scripts/render-demos.py bars",
+    "render:shimmer": "python3 scripts/render-demos.py shimmer",
+    "render:presets": "python3 scripts/render-demos.py presets",
+    "preview": "npm run build && node statusline.js --preview",
+    "doctor": "node statusline.js --doctor"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

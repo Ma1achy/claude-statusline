@@ -5,7 +5,7 @@ Self-contained: creates a throwaway fake home + git repo (with a DUMMY email),
 renders frames with PIL (Menlo, + Monaco for the ⎇ glyph), and writes GIFs.
 macOS-oriented (system font paths). Usage:  python3 scripts/render-demos.py
 """
-import json, os, shutil, subprocess, tempfile, re
+import json, os, shutil, subprocess, tempfile, re, sys
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -145,37 +145,52 @@ def make_gif(home, repo, name, frames, duration):
 
 
 def main():
+    # Optional target: all (default) | default | loaded | themes | colormaps | bars | shimmer | presets | disco
+    target = sys.argv[1] if len(sys.argv) > 1 else "all"
+    want = lambda *names: target == "all" or target in names
     base, home, repo = setup_fixture()
     try:
         # Seamless loops: clock frozen, span = one rainbow period (6480 ms) so the
         # name + crest return to their start; pct/cost held constant.
-        make_gif(home, repo, "demo-default.gif",
-                 [({"_pct": 48, "SL_SPEED": 2}, BASE_MS + k * 540, None) for k in range(12)], 280)
+        if want("default"):
+            make_gif(home, repo, "demo-default.gif",
+                     [({"_pct": 48, "SL_SPEED": 2}, BASE_MS + k * 540, None) for k in range(12)], 280)
 
         loaded = {"SL_PET": "on", "SL_CREST": "on", "SL_MOON": "on", "SL_DAYNIGHT": "on",
                   "SL_COST_FLAIR": "on", "SL_BURN": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on",
                   "SL_SHIMMER": "wave", "SL_SPEED": 2}
-        make_gif(home, repo, "demo-loaded.gif",
-                 [({**loaded, "_pct": 48, "_cost": 0.55}, BASE_MS + k * 540, None) for k in range(12)], 280)
+        if want("loaded"):
+            make_gif(home, repo, "demo-loaded.gif",
+                     [({**loaded, "_pct": 48, "_cost": 0.55}, BASE_MS + k * 540, None) for k in range(12)], 280)
 
         tb = {"SL_CREST": "on", "SL_GIT_EXTRA": "on", "SL_RAINBOW_STATS": "on", "SL_SHIMMER": "wave", "_pct": 58}
-        make_gif(home, repo, "demo-themes.gif",
-                 [({**tb, "SL_THEME": t}, BASE_MS + k * 1000, f"SL_THEME={t}")
-                  for t in ["heat", "synthwave", "matrix", "mono", "pastel", "dracula", "nord", "gruvbox", "tokyonight", "rosepine"]
-                  for k in range(3)], 520)
-        make_gif(home, repo, "demo-colormaps.gif",
-                 [({**tb, "SL_THEME": t}, BASE_MS + k * 1000, f"SL_THEME={t}")
-                  for t in ["viridis", "inferno", "magma", "plasma", "cividis"] for k in range(3)], 520)
-        make_gif(home, repo, "demo-bar-styles.gif",
-                 [({"SL_BAR_STYLE": b, "SL_SHIMMER": "sweep", "_pct": 62}, BASE_MS + k * 1000, f"SL_BAR_STYLE={b}")
-                  for b in ["blocks", "pacman", "snake", "matrix"] for k in range(4)], 360)
-        make_gif(home, repo, "demo-shimmer.gif",
-                 [({"SL_SHIMMER": s, "_pct": 66}, BASE_MS + k * 1000, f"SL_SHIMMER={s}")
-                  for s in ["sweep", "wave", "comet", "breathe", "scan"] for k in range(4)], 360)
+        if want("themes"):
+            make_gif(home, repo, "demo-themes.gif",
+                     [({**tb, "SL_THEME": t}, BASE_MS + k * 1000, f"SL_THEME={t}")
+                      for t in ["heat", "synthwave", "matrix", "mono", "pastel", "dracula", "nord", "gruvbox", "tokyonight", "rosepine",
+                                "catppuccin-mocha", "kanagawa", "everforest", "gruvbox", "tokyonight", "cyberpunk", "gothic", "verdigris"]
+                      for k in range(3)], 520)
+        if want("colormaps"):
+            make_gif(home, repo, "demo-colormaps.gif",
+                     [({**tb, "SL_THEME": t}, BASE_MS + k * 1000, f"SL_THEME={t}")
+                      for t in ["viridis", "inferno", "magma", "plasma", "cividis", "twilight", "cubehelix", "batlow", "turbo", "coolwarm"] for k in range(3)], 520)
+        if want("bars"):
+            make_gif(home, repo, "demo-bar-styles.gif",
+                     [({"SL_BAR_STYLE": b, "SL_SHIMMER": "sweep", "_pct": 62}, BASE_MS + k * 1000, f"SL_BAR_STYLE={b}")
+                      for b in ["blocks", "pacman", "snake", "matrix", "braille", "battery", "thermo", "shade", "lines", "rule", "equalizer", "dna", "train"] for k in range(4)], 360)
+        if want("shimmer"):
+            make_gif(home, repo, "demo-shimmer.gif",
+                     [({"SL_SHIMMER": s, "_pct": 66}, BASE_MS + k * 1000, f"SL_SHIMMER={s}")
+                      for s in ["sweep", "wave", "comet", "breathe", "scan", "drift", "plasma", "lumin", "heartbeat", "twinkle", "storm"] for k in range(4)], 360)
+        if want("presets"):
+            make_gif(home, repo, "demo-presets.gif",
+                     [({"SL_PRESET": p, "_pct": 58}, BASE_MS + k * 1000, f"SL_PRESET={p}")
+                      for p in ["minimal", "pretty", "focus", "chaos", "demo"] for k in range(3)], 520)
         # disco loops perfectly over 10800 ms (bar hue 1 cycle, name 5 cycles).
         disco = {"SL_SHIMMER": "disco", "SL_RAINBOW_STATS": "on", "SL_PET": "on", "SL_CREST": "on", "_pct": 64}
-        make_gif(home, repo, "demo-disco.gif",
-                 [({**disco}, BASE_MS + k * 900, None) for k in range(12)], 240)
+        if want("disco"):
+            make_gif(home, repo, "demo-disco.gif",
+                     [({**disco}, BASE_MS + k * 900, None) for k in range(12)], 240)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print("done")

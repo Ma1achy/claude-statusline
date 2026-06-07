@@ -297,6 +297,51 @@ toggled by shift+tab) in the statusline payload, so this slot shows:
 | `▫` (dim) | normal / slow mode |
 | ` N` / ` I` / ` V` | vim input mode (Normal / Insert / Visual) — only shown when vim mode is enabled |
 
+# **Tooling & recipes**
+---
+
+The same file doubles as a small CLI (it reads stdin only when given no arguments):
+
+```bash
+node statusline.js --preview   # render every theme / bar style / shimmer
+node statusline.js --doctor    # terminal capabilities, active SL_* vars, conflicts
+node statusline.js --report    # cross-session usage summary (needs SL_BURN history)
+```
+
+### Recipes
+
+Copy a block into the `env` of `settings.json`:
+
+```jsonc
+// Minimal — quiet and static
+{ "SL_PRESET": "minimal" }
+
+// Pretty + privacy-safe for screen-sharing
+{ "SL_PRESET": "pretty", "SL_PRIVACY": "on" }
+
+// Focused long session — calm, with burn rate, trend, and limit warnings
+{ "SL_PRESET": "focus", "SL_TREND": "on", "SL_LIMITS": "on" }
+
+// Accessible — high contrast, no motion
+{ "SL_ACCESSIBLE": "on", "SL_COLOR_MODE": "mono" }
+
+// Chaos
+{ "SL_PRESET": "chaos" }
+```
+
+### Terminal compatibility
+
+Truecolor + Unicode glyph width are terminal/font dependent. Where truecolor is missing, set
+`SL_COLOR_MODE=256|16|mono` (or it auto-detects from `COLORTERM`).
+
+| Terminal | Truecolor | Notes |
+|----------|-----------|-------|
+| iTerm2, WezTerm, Kitty, Ghostty, Alacritty | ✓ | Full support |
+| Windows Terminal | ✓ | Runs via Git Bash or PowerShell |
+| macOS Terminal.app | ✗ (256) | Use `SL_COLOR_MODE=256` |
+| VS Code integrated terminal | ✓ | Sets `COLORTERM=truecolor` |
+| tmux / screen | ✓* | May need truecolor passthrough; `--doctor` flags it |
+
 # **Development**
 ---
 
