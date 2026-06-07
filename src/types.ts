@@ -140,3 +140,17 @@ export interface StatuslineInput {
   output_style?: { name?: string };
   rate_limits?: { five_hour?: RateLimit; seven_day?: RateLimit } | null;
 }
+
+/** A single tool-use block inside a transcript assistant message — only the fields
+ *  the last-file scan reads. */
+export interface TranscriptToolUse {
+  type?: string;
+  name?: string;
+  input?: { path?: string; file_path?: string };
+}
+
+/** One JSONL line of the transcript (only the shape the last-file scan needs). */
+export interface TranscriptEvent {
+  type?: string;
+  message?: { content?: TranscriptToolUse[] };
+}
