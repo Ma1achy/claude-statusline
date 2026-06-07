@@ -25,7 +25,7 @@ export const ELEMENTS = [
   'git.age', 'git.email', 'git.added', 'git.removed', 'git.dirty', 'git.staged',
   'git.untracked', 'git.stash', 'git.risk',
   'name', 'cost.amount', 'cost.flair', 'cost.rate', 'cost.ratio', 'age',
-  'separator',
+  'separator', 'warning',
 ] as const;
 
 export type ElementId = typeof ELEMENTS[number];
@@ -53,5 +53,5 @@ export const ELEMENT_DEFAULTS: Record<ElementId, Style> = {
   'git.untracked': { fill: 'warn' }, 'git.stash': { fill: 'muted' }, 'git.risk': { fill: 'ok' },
   'name': { fill: 'rainbow' }, 'cost.amount': { fill: 'ok' }, 'cost.flair': { fill: 'ok' },
   'cost.rate': { fill: 'muted' }, 'cost.ratio': { fill: 'muted' }, 'age': { fill: 'ok' },
-  'separator': { fill: 'muted' },
+  'separator': { fill: 'muted' }, 'warning': { fill: 'bad', weight: 'bold' },
 };

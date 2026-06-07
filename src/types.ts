@@ -97,7 +97,7 @@ export interface Config {
   layout: string; separator: string; hide: string;
   privacy: boolean; privacyHide: string; projectAliases: string;
   path: string; sysinfo: boolean; accessible: boolean; accessibleGauge: string; responsive: boolean;
-  gitRisk: boolean; danger: boolean;
+  gitRisk: boolean; danger: boolean; warningLine: boolean;
   petStyle: string; petReactsTo: string; bell: boolean;
   nerdfont: boolean; customSegment: string;
   event: boolean;   // set at runtime: the context % changed since the last tick

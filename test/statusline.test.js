@@ -43,6 +43,17 @@ test('accessible mode removes a theme\'s pseudo-fonts', () => {
   assert.ok(!/ᴀ|ꜱ|ᴘ/.test(a11y), 'accessible removes small-caps glyphs');
 });
 
+// 2c. Warning line — a conditional 4th line that only appears past a threshold.
+test('warningLine surfaces only when a threshold is crossed', () => {
+  // default sample (42% context) → no warning, still 3 lines.
+  assert.strictEqual(run(fix, { SL_WARNING_LINE: 'on' }).split('\n').filter(Boolean).length, 3);
+  // high context → a 4th ⚠ line appears.
+  const hot = run(fix, { SL_WARNING_LINE: 'on' }, { context_window: { used_percentage: 88, context_window_size: 200000 } });
+  const lines = hot.split('\n').filter(Boolean);
+  assert.strictEqual(lines.length, 4, 'expected a 4th warning line');
+  assert.ok(stripAnsi(lines[3]).includes('⚠') && stripAnsi(lines[3]).includes('context 88%'), 'warning text missing');
+});
+
 // 3. Smoke — each opt-in toggle adds its expected marker without errors.
 test('toggles: pet / crest / git-extras / cost-flair appear when enabled', () => {
   const plain = stripAnsi(run(fix, {}));

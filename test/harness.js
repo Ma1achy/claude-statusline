@@ -75,6 +75,7 @@ const SL_MAP = {
   SL_LIMITS: ['limits', 'b'], SL_PRIVACY: ['privacy', 'b'], SL_SYSINFO: ['sysinfo', 'b'],
   SL_ACCESSIBLE: ['accessible', 'b'], SL_RESPONSIVE: ['responsive', 'b'], SL_GIT_RISK: ['gitRisk', 'b'],
   SL_DANGER: ['danger', 'b'], SL_BELL: ['bell', 'b'], SL_NERDFONT: ['nerdfont', 'b'], SL_TMUX_PASSTHROUGH: ['tmuxPassthrough', 'b'],
+  SL_WARNING_LINE: ['warningLine', 'b'],
 };
 // Bootstrap stays in the environment (deterministic; not part of the JSON config).
 const BOOTSTRAP = new Set(['SL_FRAME_MS', 'SL_CLOCK_MS', 'SL_COLOR_MODE', 'NO_COLOR', 'COLUMNS', 'TMPDIR']);
@@ -97,8 +98,8 @@ function writeConfig(homeDir, overrides) {
   return envExtra;
 }
 
-function run(fix, envOverrides) {
-  const sample = { ...SAMPLE, workspace: { current_dir: fix.repo } };
+function run(fix, envOverrides, sampleExtra) {
+  const sample = { ...SAMPLE, workspace: { current_dir: fix.repo }, ...(sampleExtra || {}) };
   const input = JSON.stringify(sample);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-state-'));
   const envExtra = writeConfig(fix.home, envOverrides);
