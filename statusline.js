@@ -105,6 +105,7 @@ var cfg = {
   speed: pint("SL_SPEED", 3),
   glow: pint("SL_GLOW", 240),
   waveHue: pint("SL_WAVE_HUE", 32),
+  easing: penv("SL_EASING", ""),
   themeName,
   barStyle: penv("SL_BAR_STYLE", "blocks"),
   barScale: penv("SL_BAR_SCALE", "linear"),
@@ -563,8 +564,24 @@ function drawBar(width, filled, marker, phaseMs = 0) {
     span = 1;
   let posc = 0, hglob = 0;
   const wrap = span * 100;
+  const tri = (x) => {
+    const m = mod(Math.round(x), 200);
+    return m < 100 ? m : 200 - m;
+  };
   if (shimmer2 === "sweep" || shimmer2 === "comet" || shimmer2 === "wave") {
     posc = mod(idiv(t * speed, 10), wrap);
+    if (cfg.easing) {
+      const f = posc / wrap;
+      let e = f;
+      if (cfg.easing === "ease")
+        e = f * f * (3 - 2 * f);
+      else if (cfg.easing === "bounce") {
+        const g = 1 - f;
+        e = 1 - g * g * Math.abs(Math.cos(g * 6));
+      } else if (cfg.easing === "elastic")
+        e = Math.max(0, Math.min(1, f + 0.12 * Math.sin(f * 12)));
+      posc = mod(Math.round(e * wrap), wrap);
+    }
   } else if (shimmer2 === "scan") {
     let cyclec = span * 200;
     if (cyclec < 1)
@@ -573,10 +590,10 @@ function drawBar(width, filled, marker, phaseMs = 0) {
     if (posc >= span * 100)
       posc = span * 200 - posc;
   } else if (shimmer2 === "breathe") {
-    let tri = mod(t, 2600);
-    if (tri >= 1300)
-      tri = 2600 - tri;
-    hglob = idiv(waveHue * tri, 1300);
+    let trib = mod(t, 2600);
+    if (trib >= 1300)
+      trib = 2600 - trib;
+    hglob = idiv(waveHue * trib, 1300);
   }
   const snakeHead = idiv(mod(idiv(t * speed, 10), span * 100), 100);
   const px = (sx) => {
@@ -622,14 +639,52 @@ function drawBar(width, filled, marker, phaseMs = 0) {
       case "breathe":
         hoff = hglob;
         break;
+      case "drift":
+      case "aurora":
+        hoff = idiv(waveHue * tri(idiv(sx, 8) + idiv(t * speed, 25)), 100);
+        break;
+      case "plasma":
+        hoff = idiv(waveHue * (tri(idiv(sx, 6) + idiv(t, 30)) + tri(idiv(sx, 11) - idiv(t, 45))), 200);
+        break;
+      case "glitch": {
+        const bk = idiv(t, 220);
+        if (hashI(sx * 13 + bk) % 100 < 12)
+          hoff = hashI(sx + bk) % 2 ? waveHue * 3 : -waveHue * 2;
+        break;
+      }
     }
+    let base;
     if (TH.cmap) {
       const c = cmapSample(TH.cmap, posp);
-      return hoff ? shiftHue(c, hoff) : c;
+      base = hoff ? shiftHue(c, hoff) : c;
+    } else {
+      const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
+      const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
+      base = hsv(bh + hoff, TH.sat, vv);
     }
-    const bh = TH.hueHi - idiv(posp * (TH.hueHi - TH.hueLo), 100);
-    const vv = TH.valLo + idiv((TH.valHi - TH.valLo) * posp, 100);
-    return hsv(bh + hoff, TH.sat, vv);
+    let bf = 100;
+    if (shimmer2 === "lumin")
+      bf = 55 + idiv(45 * tri(idiv(t, 12)), 100);
+    else if (shimmer2 === "heartbeat") {
+      const m = mod(t, 1400);
+      const bump = (c, w) => {
+        const d = Math.abs(m - c);
+        return d < w ? w - d : 0;
+      };
+      bf = 70 + idiv(60 * Math.max(bump(150, 150), bump(450, 120)), 150);
+    } else if (shimmer2 === "twinkle")
+      bf = hashI(sx * 29 + idiv(t, 180)) % 100 < 14 ? 165 : 75;
+    else if (shimmer2 === "storm") {
+      const flash = mod(idiv(t * speed, 8), wrap);
+      const d = Math.abs(sx - flash);
+      const dd = Math.min(d, wrap - d);
+      bf = dd < 120 ? 150 : 68;
+      if (hashI(idiv(t, 400)) % 100 < 8)
+        bf = 185;
+    }
+    if (bf !== 100)
+      base = [Math.min(255, idiv(base[0] * bf, 100)), Math.min(255, idiv(base[1] * bf, 100)), Math.min(255, idiv(base[2] * bf, 100))];
+    return base;
   };
   const fg = (sx) => {
     const [r, g, b] = px(sx);

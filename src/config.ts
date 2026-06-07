@@ -69,6 +69,7 @@ export const cfg: Config = {
   speed: pint('SL_SPEED', 3),
   glow: pint('SL_GLOW', 240),
   waveHue: pint('SL_WAVE_HUE', 32),
+  easing: penv('SL_EASING', ''),
   themeName,
   barStyle: penv('SL_BAR_STYLE', 'blocks'),
   barScale: penv('SL_BAR_SCALE', 'linear'),

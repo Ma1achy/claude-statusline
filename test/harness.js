@@ -68,7 +68,9 @@ function run(fix, envOverrides) {
 // The matrix of scenarios that get golden snapshots.
 const CASES = [
   ['plain', {}],
-  ...['sweep', 'wave', 'comet', 'breathe', 'scan', 'off', 'disco'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
+  ...['sweep', 'wave', 'comet', 'breathe', 'scan', 'off', 'disco',
+      'drift', 'aurora', 'plasma', 'glitch', 'lumin', 'heartbeat', 'twinkle', 'storm'].map((s) => [`shimmer-${s}`, { SL_SHIMMER: s }]),
+  ['easing-ease', { SL_SHIMMER: 'sweep', SL_EASING: 'ease' }],
   ...['heat', 'synthwave', 'matrix', 'mono', 'pastel', 'dracula', 'nord', 'gruvbox', 'tokyonight', 'rosepine',
       'viridis', 'inferno', 'magma', 'plasma', 'cividis',
       'twilight', 'twilight_shifted', 'cubehelix', 'batlow', 'turbo', 'coolwarm', 'rdbu', 'ice', 'deep'].map((t) => [`theme-${t}`, { SL_THEME: t }]),

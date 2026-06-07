@@ -42,6 +42,7 @@ export interface Config {
   speed: number;
   glow: number;
   waveHue: number;
+  easing: string;
   themeName: string;
   barStyle: string;
   barScale: string;

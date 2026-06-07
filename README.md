@@ -140,7 +140,17 @@ All styles rotate **hue** at a moving crest; they differ only in how the crest t
 | `comet` | Hue crest with a fading trail |
 | `breathe` | The whole fill shifts hue up and back in unison |
 | `scan` | A narrow crest bounces back and forth |
+| `drift` / `aurora` | Wide, slow hue undulation |
+| `plasma` | Overlapping crests — less periodic than `wave` |
+| `lumin` | Brightness breathes (hue held) |
+| `heartbeat` | A subtle double-pulse |
+| `twinkle` | Deterministic sparkle on scattered cells |
+| `storm` | A bright flash sweeps through, with occasional lightning |
+| `glitch` | Brief broken hue jumps |
 | `off` | Static |
+
+**`SL_EASING`** (`ease` / `bounce` / `elastic`) reshapes where the crest sits each tick — composes with
+`sweep`/`wave`/`comet`. Subtle at the ≤1fps repaint, by design.
 
 ### …and `disco`
 
