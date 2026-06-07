@@ -106,6 +106,8 @@ export const cfg: Config = {
   petStyle: penv('SL_PET_STYLE', 'default'),
   petReactsTo: penv('SL_PET_REACTS_TO', ''),
   bell: pbool('SL_BELL'),
+  nerdfont: pbool('SL_NERDFONT'),
+  customSegment: penv('SL_CUSTOM_SEGMENT', ''),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1000),

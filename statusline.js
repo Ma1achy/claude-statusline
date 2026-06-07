@@ -27,6 +27,7 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 var fs3 = __toESM(require("fs"));
 var os3 = __toESM(require("os"));
 var path2 = __toESM(require("path"));
+var import_child_process4 = require("child_process");
 
 // src/ansi.ts
 var import_child_process = require("child_process");
@@ -142,6 +143,8 @@ var cfg = {
   petStyle: penv("SL_PET_STYLE", "default"),
   petReactsTo: penv("SL_PET_REACTS_TO", ""),
   bell: pbool("SL_BELL"),
+  nerdfont: pbool("SL_NERDFONT"),
+  customSegment: penv("SL_CUSTOM_SEGMENT", ""),
   nowMs,
   clockMs,
   baseFrame: idiv(nowMs, 1e3)
@@ -1225,6 +1228,22 @@ function build() {
     ETA_SAMPLES = st.etaSamples;
   } catch {
   }
+  let CUSTOM_SEG = "";
+  if (cfg.customSegment) {
+    try {
+      const out = (0, import_child_process4.execFileSync)(process.execPath, [cfg.customSegment], {
+        input: JSON.stringify(data),
+        encoding: "utf8",
+        timeout: 250,
+        stdio: ["pipe", "pipe", "ignore"],
+        windowsHide: true
+      });
+      const first = (out.split("\n")[0] || "").slice(0, 240);
+      if (first)
+        CUSTOM_SEG = `  ${first}`;
+    } catch {
+    }
+  }
   const idl = MODEL_ID.toLowerCase();
   let TIER = "Sonnet", MODEL_COLOUR = CYAN;
   if (idl.includes("haiku")) {
@@ -1301,7 +1320,7 @@ function build() {
       return tc(235, 165, 90);
     return tc(150, 130, 180);
   };
-  const DIR_SEG = `${DIM}${displayPath(CWD)}${R}`;
+  const DIR_SEG = `${DIM}${cfg.nerdfont ? "\uF07B " : ""}${displayPath(CWD)}${R}`;
   const BRANCH = gitOut(CWD, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const DIRTY = countLines(gitOut(CWD, ["status", "--porcelain"]));
   const STAGED = countLines(gitOut(CWD, ["diff", "--cached", "--name-only"]));
@@ -1615,7 +1634,7 @@ function build() {
   let L3_LEFT = `${sh("dir", DIR_SEG)}${sh("file", FILE_SEG)}`;
   let GIT_SEG = "";
   if (BRANCH) {
-    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}\u2387 ${BRANCH_LABEL}${R}`;
+    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}${cfg.nerdfont ? "" : "\u2387"} ${BRANCH_LABEL}${R}`;
     if (GIT_STATE)
       GIT_SEG += ` ${BOLD}${RED}${GIT_STATE}!${R}`;
     GIT_SEG += GIT_TODAY;
@@ -1630,7 +1649,7 @@ function build() {
   if (STAGED > 0)
     GIT_SEG += ` ${GREEN}\u25CF${STAGED}${R}`;
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
-  L3_LEFT += sh("git", GIT_SEG);
+  L3_LEFT += sh("git", GIT_SEG) + sh("custom", CUSTOM_SEG);
   let L3_RIGHT = "";
   if (CLAUDE_USER)
     L3_RIGHT = `${sh("name", `${rainbow(CLAUDE_USER)}  `)}`;

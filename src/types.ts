@@ -60,6 +60,7 @@ export interface Config {
   path: string; sysinfo: boolean; accessible: boolean; responsive: boolean;
   gitRisk: boolean; danger: boolean;
   petStyle: string; petReactsTo: string; bell: boolean;
+  nerdfont: boolean; customSegment: string;
   nowMs: number;
   clockMs: number;
   baseFrame: number;

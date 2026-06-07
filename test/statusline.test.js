@@ -86,6 +86,24 @@ test('autocompact: marker hidden when autoCompactEnabled is false', () => {
   fs.rmSync(off, { recursive: true, force: true });
 });
 
+// 6j. Forks — Nerd Font glyph swap; custom-segment plugin with error isolation.
+test('forks: nerdfont + custom segment', () => {
+  // nerdfont swaps the ⎇ branch glyph for the powerline branch icon.
+  assert.ok(stripAnsi(run(fix, {})).includes('⎇'), 'default uses ⎇');
+  assert.ok(!stripAnsi(run(fix, { SL_NERDFONT: 'on' })).includes('⎇'), 'nerdfont replaces ⎇');
+  // a custom segment plugin: JSON in on stdin, first stdout line appended.
+  const plug = path.join(fix.base, 'plug.js');
+  fs.writeFileSync(plug, 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);process.stdout.write("PLUG:"+Math.floor(j.context_window.used_percentage))})');
+  const out = stripAnsi(execFileSync('node', [STATUSLINE], {
+    input: JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 42 }, cost: { total_cost_usd: 0.1, total_duration_ms: 120000 } }),
+    encoding: 'utf8', env: { HOME: fix.home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '160', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', SL_CUSTOM_SEGMENT: plug },
+  }));
+  assert.ok(out.includes('PLUG:42'), 'custom segment output appended');
+  // a missing plugin must not break the statusline (still 3 lines).
+  const safe = stripAnsi(run(fix, { SL_CUSTOM_SEGMENT: '/no/such/plugin.js' }));
+  assert.strictEqual(safe.split('\n').filter(Boolean).length, 3, 'broken plugin is isolated');
+});
+
 // 6i. CLI — --doctor / --report / --preview run and produce sensible output.
 test('cli: doctor, report, preview', () => {
   const sub = (arg, env) => execFileSync('node', [STATUSLINE, arg], {

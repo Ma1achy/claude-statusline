@@ -329,6 +329,23 @@ Copy a block into the `env` of `settings.json`:
 { "SL_PRESET": "chaos" }
 ```
 
+### Power-user lanes (off by default)
+
+Two opt-ins step outside the strict width-1 / single-file rules — both gated, both off by default:
+
+| Variable | What it does | The trade-off |
+|----------|--------------|---------------|
+| `SL_NERDFONT` | Swaps in Nerd Font glyphs ( branch,  folder) and lets `SL_SEPARATOR` use powerline arrows | **Requires a [Nerd Font](https://www.nerdfonts.com/).** Without one, those glyphs render as tofu / double-width and break alignment |
+| `SL_CUSTOM_SEGMENT=~/seg.js` | Runs your script each repaint (Claude Code JSON on stdin) and appends its first stdout line | Executes arbitrary code every repaint (~250 ms timeout, error-isolated, never blocks the bar). Only point it at scripts you trust |
+
+```js
+// ~/seg.js — a trivial custom segment
+let d = ''; process.stdin.on('data', c => d += c).on('end', () => {
+  const j = JSON.parse(d);
+  process.stdout.write('ctx:' + Math.floor(j.context_window.used_percentage) + '%');
+});
+```
+
 ### Terminal compatibility
 
 Truecolor + Unicode glyph width are terminal/font dependent. Where truecolor is missing, set

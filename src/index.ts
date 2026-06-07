@@ -3,6 +3,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { ESC, R, DIM, BOLD, justified, stripAnsi, txt, tc, termCols } from './ansi';
 import { hueRgb } from './color';
 import { RED, GREEN, AMBER, BLUE, CYAN, WHITE, GOLD, gradientColor } from './themes';
@@ -107,6 +108,21 @@ function build(): string {
     ETA_SAMPLES = st.etaSamples;
   } catch { /* state is best-effort */ }
 
+  // ── custom segment (SL_CUSTOM_SEGMENT) — run a user script as a child with the
+  //    Claude Code JSON on stdin; take its first stdout line. Timeout + error
+  //    isolated so a broken/slow plugin can never hang or blank the statusline. ─
+  let CUSTOM_SEG = '';
+  if (cfg.customSegment) {
+    try {
+      const out = execFileSync(process.execPath, [cfg.customSegment], {
+        input: JSON.stringify(data), encoding: 'utf8', timeout: 250,
+        stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
+      });
+      const first = (out.split('\n')[0] || '').slice(0, 240);
+      if (first) CUSTOM_SEG = `  ${first}`;
+    } catch { /* plugin error / timeout → drop it silently */ }
+  }
+
   // ── model: tier + version ─────────────────────────────────────────────────
   const idl = MODEL_ID.toLowerCase();
   let TIER = 'Sonnet', MODEL_COLOUR = CYAN;
@@ -170,7 +186,7 @@ function build(): string {
     return tc(150, 130, 180);
   };
 
-  const DIR_SEG = `${DIM}${displayPath(CWD)}${R}`;
+  const DIR_SEG = `${DIM}${cfg.nerdfont ? ' ' : ''}${displayPath(CWD)}${R}`;
 
   // ── git ─────────────────────────────────────────────────────────────────────
   const BRANCH = gitOut(CWD, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -446,7 +462,7 @@ function build(): string {
   let L3_LEFT = `${sh('dir', DIR_SEG)}${sh('file', FILE_SEG)}`;
   let GIT_SEG = '';
   if (BRANCH) {
-    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}⎇ ${BRANCH_LABEL}${R}`;
+    GIT_SEG += `  ${BRANCH_MOOD}${CYAN}${cfg.nerdfont ? '' : '⎇'} ${BRANCH_LABEL}${R}`;
     if (GIT_STATE) GIT_SEG += ` ${BOLD}${RED}${GIT_STATE}!${R}`;
     GIT_SEG += GIT_TODAY;
   }
@@ -456,7 +472,7 @@ function build(): string {
   if (DIRTY > 0) GIT_SEG += `  ${AMBER}~${DIRTY}${R}`;
   if (STAGED > 0) GIT_SEG += ` ${GREEN}●${STAGED}${R}`;
   GIT_SEG += GIT_UNTRACKED + GIT_STASH + GIT_RISK;
-  L3_LEFT += sh('git', GIT_SEG);
+  L3_LEFT += sh('git', GIT_SEG) + sh('custom', CUSTOM_SEG);
   let L3_RIGHT = '';
   if (CLAUDE_USER) L3_RIGHT = `${sh('name', `${rainbow(CLAUDE_USER)}  `)}`;
   L3_RIGHT += `${sh('cost', COST_SEG)}  ${sh('age', AGE_SEG)}`;
