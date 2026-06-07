@@ -78,6 +78,12 @@ Perceptually-uniform [matplotlib](https://matplotlib.org/stable/users/explain/co
 | `magma` | Black → purple → pink → cream |
 | `plasma` | Blue → magenta → orange → yellow |
 | `cividis` | Deep blue → muted gold |
+| `twilight` / `twilight_shifted` | **Cyclic** — ends match, so a looping crest wraps seamlessly |
+| `cubehelix` | Monotonic brightness (legible even in greyscale) |
+| `batlow` | Perceptually-uniform, CVD-safe (Crameri) |
+| `turbo` | Vivid jet-replacement (Google) |
+| `coolwarm` / `rdbu` | Diverging blue↔red |
+| `ice` / `deep` | Oceanographic (cmocean) |
 
 ### Custom themes — `SL_THEME=custom`
 
