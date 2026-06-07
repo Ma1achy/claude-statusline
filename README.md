@@ -50,6 +50,16 @@ The chosen theme recolors the **whole** statusline — bars, usage limits, git, 
 | `tokyonight` | Blue · cyan · purple · pink |
 | `rosepine` | Muted pine · foam · iris · rose |
 
+More palettes (all recolor the whole statusline):
+
+| Group | Values |
+|-------|--------|
+| Catppuccin | `catppuccin-latte` · `catppuccin-frappe` · `catppuccin-macchiato` · `catppuccin-mocha` |
+| Editor | `solarized-dark` · `solarized-light` · `kanagawa` · `everforest` · `onedark` · `ayu-dark` · `ayu-mirage` · `ayu-light` · `github-dark` · `github-light` · `monokai` · `monokai-pro` |
+| Retro / loud | `cyberpunk` · `phosphor` · `phosphor-green` · `phosphor-white` |
+| Muted | `verdigris` · `sumi-e` · `stealth` · `zen` · `void` · `gothic` · `oceanic` |
+| Identity | `pride` · `trans` · `bi` · `ace` · `nonbinary` |
+
 ### Colormap themes
 
 Perceptually-uniform [matplotlib](https://matplotlib.org/stable/users/explain/colors/colormaps.html) colormaps, sampled as multi-stop gradients.
