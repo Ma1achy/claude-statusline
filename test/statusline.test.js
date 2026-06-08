@@ -88,6 +88,21 @@ test('adaptive picks the layout by context and auto-warns when critical', () => 
   assert.ok(stripAnsi(lines[lines.length - 1]).includes('⚠'), 'critical context auto-adds the warning line');
 });
 
+// 2f. Adaptive extras — an expensive session auto-warns; no repo widens the bar.
+test('adaptive auto-warns on an expensive session (> $5)', () => {
+  const out = run(fix, { SL_ADAPTIVE: 'on' },
+    { context_window: { used_percentage: 30, context_window_size: 200000 }, cost: { total_cost_usd: 6, total_duration_ms: 1860000 } });
+  const last = stripAnsi(out.split('\n').filter(Boolean).pop());
+  assert.ok(last.includes('⚠') && last.includes('cost $6'), 'expensive session should surface the warning line');
+});
+
+test('adaptive widens the context bar when not in a git repo', () => {
+  const blocks = (s) => (stripAnsi(s).match(/[▌░]/g) || []).length;
+  const inRepo = run(fix, { SL_ADAPTIVE: 'on' });
+  const noRepo = run(fix, { SL_ADAPTIVE: 'on' }, { workspace: { current_dir: '/tmp' } });
+  assert.ok(blocks(noRepo) > blocks(inRepo), 'no-repo should reclaim space for a wider bar');
+});
+
 // 3. Smoke — each opt-in toggle adds its expected marker without errors.
 test('toggles: pet / crest / git-extras / cost-flair appear when enabled', () => {
   const plain = stripAnsi(run(fix, {}));

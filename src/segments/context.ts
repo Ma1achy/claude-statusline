@@ -12,7 +12,7 @@ const BAR_WIDTH = 28;
 
 export function buildContext(
   PCT: number, compactPctRaw: string, compactOff: boolean,
-  SPARK: number[], ETA_SAMPLES: [number, number][], COMPACTIONS: number,
+  SPARK: number[], ETA_SAMPLES: [number, number][], COMPACTIONS: number, barWidth = BAR_WIDTH,
 ): ContextSeg {
   // autocompact marker + label only appear when autocompact is ENABLED.
   let compactLabel: string, compactPctVal: number;
@@ -20,9 +20,9 @@ export function buildContext(
   else if (compactPctRaw) { compactLabel = st('ctx.compactLabel', ` |${compactPctRaw}%`); compactPctVal = parseInt(compactPctRaw, 10); }
   else { compactLabel = st('ctx.compactLabel', ' |95%'); compactPctVal = 95; }
 
-  const FILLED = scaleCells(PCT, BAR_WIDTH);
-  const MARKER_POS = compactOff ? -1 : scaleCells(compactPctVal, BAR_WIDTH);
-  const bar = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
+  const FILLED = scaleCells(PCT, barWidth);
+  const MARKER_POS = compactOff ? -1 : scaleCells(compactPctVal, barWidth);
+  const bar = drawBar(barWidth, FILLED, MARKER_POS, 0);
   const pctSeg = st('ctx.pct', `${PCT}%`, { pct: PCT });   // gradient lerps along the theme
 
   // trend (SL_TREND): sparkline of recent context %, ETA to autocompact, and a
