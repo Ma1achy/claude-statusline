@@ -204,7 +204,7 @@ stash, ahead/behind upstream, detached HEAD, and a rough risk tag:
 <p align="center"><img src="assets/demo-trend.gif" width="100%" /></p>
 
 Layout & housekeeping: `"layout"` (`3line` · `2line` · `1line` · `tiny` · `inverse` · `merged` ·
-`bicolumn` · `barfirst` · `header` · `split` dashboard), `responsive` (pick layout by width),
+`bicolumn` · `barfirst` · `header` · `split` dashboard · `brackets` sections), `responsive` (pick layout by width),
 `frame` (`rule` between lines, or a `box` border), `hide` (drop named segments), `separator`,
 `path` (`auto` truncates deep paths), `privacy`
 (hide email/account/cost/path for screenshots), `projectAliases`, `customSegment` (run your own

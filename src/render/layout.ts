@@ -1,7 +1,8 @@
 // Layout assembly: choose how many lines to emit and justify each left/right pair.
 // Compact forms reuse the segments already built; SL_RESPONSIVE picks a layout from
 // the terminal width to avoid wrapping. All variants are no-ops at defaults (3line).
-import { justified, termCols } from '../ansi';
+import { justified, termCols, R } from '../ansi';
+import { ROLES } from '../themes';
 import { cfg } from '../config';
 
 // The pre-built segment strings the layouts compose.
@@ -9,6 +10,8 @@ export interface LayoutParts {
   LEAD: string; BAR: string; PCT_SEG: string; PCT_FULL: string; BRACKET: string; COST_SEG: string;
   L1_LEFT: string; L1_RIGHT: string; L2_LEFT: string; L2_RIGHT: string; L3_LEFT: string; L3_RIGHT: string;
   WIDE_BAR: string; USAGE_SEG: string;   // a terminal-width bar + the raw usage gauges, for the dashboard layouts
+  // granular pieces for the bracketed-sections layout:
+  MODEL_DISPLAY: string; CLOCK_SEG: string; DIR_SEG: string; GIT_SEG: string; AGE_SEG: string; NAME: string;
 }
 
 export function assembleLayout(p: LayoutParts, sh: (name: string, val: string) => string, override?: string): string[] {
@@ -42,6 +45,20 @@ export function assembleLayout(p: LayoutParts, sh: (name: string, val: string) =
     case 'split':
       return [J(p.L1_LEFT, p.L1_RIGHT), `${p.WIDE_BAR}  ${p.PCT_FULL}`,
         sh('usage', p.USAGE_SEG), J(p.L3_LEFT, p.L3_RIGHT)].filter((l) => l !== '');
+    // retro bracketed sections: each segment in its own [ ] with a muted label.
+    case 'brackets': {
+      const MUT = ROLES.muted;
+      const sect = (lbl: string, body: string): string => {
+        const b = body.trim();
+        return b ? `${MUT}[${lbl}${R}${b}${MUT}]${R}` : '';
+      };
+      const join = (...xs: string[]): string => xs.filter((x) => x).join(' ');
+      return [
+        join(sect('', p.LEAD), sect('model: ', p.MODEL_DISPLAY), sect('', p.CLOCK_SEG)),
+        join(sect('ctx: ', `${p.BAR} ${p.PCT_SEG}`), sect('', p.USAGE_SEG)),
+        join(sect('', p.DIR_SEG), sect('git: ', p.GIT_SEG), sect('', p.NAME), sect('cost: ', p.COST_SEG), sect('age: ', p.AGE_SEG)),
+      ].filter((l) => l);
+    }
     default:   // 3line
       return [J(p.L1_LEFT, p.L1_RIGHT), J(p.L2_LEFT, p.L2_RIGHT), J(p.L3_LEFT, p.L3_RIGHT)];
   }

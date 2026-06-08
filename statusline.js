@@ -2452,6 +2452,19 @@ function assembleLayout(p, sh, override) {
         sh("usage", p.USAGE_SEG),
         J(p.L3_LEFT, p.L3_RIGHT)
       ].filter((l) => l !== "");
+    case "brackets": {
+      const MUT = ROLES.muted;
+      const sect = (lbl, body) => {
+        const b = body.trim();
+        return b ? `${MUT}[${lbl}${R}${b}${MUT}]${R}` : "";
+      };
+      const join3 = (...xs) => xs.filter((x) => x).join(" ");
+      return [
+        join3(sect("", p.LEAD), sect("model: ", p.MODEL_DISPLAY), sect("", p.CLOCK_SEG)),
+        join3(sect("ctx: ", `${p.BAR} ${p.PCT_SEG}`), sect("", p.USAGE_SEG)),
+        join3(sect("", p.DIR_SEG), sect("git: ", p.GIT_SEG), sect("", p.NAME), sect("cost: ", p.COST_SEG), sect("age: ", p.AGE_SEG))
+      ].filter((l) => l);
+    }
     default:
       return [J(p.L1_LEFT, p.L1_RIGHT), J(p.L2_LEFT, p.L2_RIGHT), J(p.L3_LEFT, p.L3_RIGHT)];
   }
@@ -2564,6 +2577,7 @@ function build() {
   const wideW = Math.max(28, termCols() - 2 * cfg.margin - 12);
   const WIDE_BAR = drawBar(wideW, scaleCells(PCT, wideW), -1, 0);
   const adaptiveLayout = cfg.adaptive ? PCT < 50 ? "1line" : PCT < 75 ? "3line" : "split" : void 0;
+  const NAME = CLAUDE_USER ? sh("name", st("name", CLAUDE_USER)) : "";
   let lines = assembleLayout(
     {
       LEAD,
@@ -2579,7 +2593,13 @@ function build() {
       L3_LEFT,
       L3_RIGHT,
       WIDE_BAR,
-      USAGE_SEG
+      USAGE_SEG,
+      MODEL_DISPLAY: sh("model", MODEL_DISPLAY),
+      CLOCK_SEG: sh("clock", CLOCK_SEG),
+      DIR_SEG: sh("dir", DIR_SEG),
+      GIT_SEG: sh("git", GIT_SEG),
+      AGE_SEG: sh("age", AGE_SEG),
+      NAME
     },
     sh,
     adaptiveLayout
