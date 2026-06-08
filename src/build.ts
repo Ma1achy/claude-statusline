@@ -77,8 +77,11 @@ export function build(): string {
   const CLAUDE_USER = readAccountName();
   const FILE_SEG = buildLastFile(TRANSCRIPT);
   const { pct: COMPACT_PCT, off: COMPACT_OFF } = readAutocompact();
+  // git-aware width (adaptive): when not in a repo, line 3 is sparse, so reclaim the
+  // space for a wider context bar.
+  const ctxW = (cfg.adaptive && !G.branch) ? 44 : 28;
   const { bar: BAR, pctSeg: PCT_SEG, trend: TREND_SEG, weather: WEATHER_SEG, compactLabel: COMPACT_LABEL } =
-    buildContext(PCT, COMPACT_PCT, COMPACT_OFF, SPARK, ETA_SAMPLES, COMPACTIONS);
+    buildContext(PCT, COMPACT_PCT, COMPACT_OFF, SPARK, ETA_SAMPLES, COMPACTIONS, ctxW);
   const TURN_SEG = buildTokens(cw.current_usage);
   const { seg: COST_SEG, barPrefix: BAR_PREFIX } = buildCost(COST, DURATION_MS);
   const AGE_SEG = buildAge(DURATION_MS);
@@ -150,8 +153,9 @@ export function build(): string {
 
   // warningLine: append a conditional alert line (after the washes, so it keeps its
   // own red styling) only when a threshold is crossed.
-  // warningLine on demand, or automatically once adaptive sees critical context.
-  if (cfg.warningLine || (cfg.adaptive && PCT >= 90)) {
+  // warningLine on demand, or automatically once adaptive sees critical context or
+  // an expensive session (> $5).
+  if (cfg.warningLine || (cfg.adaptive && (PCT >= 90 || COST > 5))) {
     const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
     if (warn) lines.push(warn);
   }

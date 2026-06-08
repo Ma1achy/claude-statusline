@@ -2109,7 +2109,7 @@ function buildClock() {
 
 // src/segments/context.ts
 var BAR_WIDTH = 28;
-function buildContext(PCT, compactPctRaw, compactOff, SPARK2, ETA_SAMPLES, COMPACTIONS) {
+function buildContext(PCT, compactPctRaw, compactOff, SPARK2, ETA_SAMPLES, COMPACTIONS, barWidth = BAR_WIDTH) {
   let compactLabel, compactPctVal;
   if (compactOff) {
     compactLabel = "";
@@ -2121,9 +2121,9 @@ function buildContext(PCT, compactPctRaw, compactOff, SPARK2, ETA_SAMPLES, COMPA
     compactLabel = st("ctx.compactLabel", " |95%");
     compactPctVal = 95;
   }
-  const FILLED = scaleCells(PCT, BAR_WIDTH);
-  const MARKER_POS = compactOff ? -1 : scaleCells(compactPctVal, BAR_WIDTH);
-  const bar = drawBar(BAR_WIDTH, FILLED, MARKER_POS, 0);
+  const FILLED = scaleCells(PCT, barWidth);
+  const MARKER_POS = compactOff ? -1 : scaleCells(compactPctVal, barWidth);
+  const bar = drawBar(barWidth, FILLED, MARKER_POS, 0);
   const pctSeg = st("ctx.pct", `${PCT}%`, { pct: PCT });
   let trend = "";
   if (cfg.trend) {
@@ -2528,7 +2528,8 @@ function build() {
   const CLAUDE_USER = readAccountName();
   const FILE_SEG = buildLastFile(TRANSCRIPT);
   const { pct: COMPACT_PCT, off: COMPACT_OFF } = readAutocompact();
-  const { bar: BAR, pctSeg: PCT_SEG, trend: TREND_SEG, weather: WEATHER_SEG, compactLabel: COMPACT_LABEL } = buildContext(PCT, COMPACT_PCT, COMPACT_OFF, SPARK2, ETA_SAMPLES, COMPACTIONS);
+  const ctxW = cfg.adaptive && !G.branch ? 44 : 28;
+  const { bar: BAR, pctSeg: PCT_SEG, trend: TREND_SEG, weather: WEATHER_SEG, compactLabel: COMPACT_LABEL } = buildContext(PCT, COMPACT_PCT, COMPACT_OFF, SPARK2, ETA_SAMPLES, COMPACTIONS, ctxW);
   const TURN_SEG = buildTokens(cw.current_usage);
   const { seg: COST_SEG, barPrefix: BAR_PREFIX } = buildCost(COST, DURATION_MS);
   const AGE_SEG = buildAge(DURATION_MS);
@@ -2605,7 +2606,7 @@ function build() {
     adaptiveLayout
   );
   lines = applyWashes(lines, rl, PCT);
-  if (cfg.warningLine || cfg.adaptive && PCT >= 90) {
+  if (cfg.warningLine || cfg.adaptive && (PCT >= 90 || COST > 5)) {
     const warn = buildWarning(PCT, COST, rl, cfg.limitCrit);
     if (warn)
       lines.push(warn);
