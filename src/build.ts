@@ -134,11 +134,14 @@ export function build(): string {
   // adaptive: the layout itself communicates urgency — compact when there's room,
   // standard mid-session, the dashboard when context fills up.
   const adaptiveLayout = cfg.adaptive ? (PCT < 50 ? '1line' : PCT < 75 ? '3line' : 'split') : undefined;
+  const NAME = CLAUDE_USER ? sh('name', st('name', CLAUDE_USER)) : '';
 
   // Layout: which lines to emit (override > SL_RESPONSIVE > SL_LAYOUT).
   let lines = assembleLayout(
     { LEAD, BAR, PCT_SEG, PCT_FULL, BRACKET, COST_SEG, L1_LEFT, L1_RIGHT, L2_LEFT, L2_RIGHT, L3_LEFT, L3_RIGHT,
-      WIDE_BAR, USAGE_SEG },
+      WIDE_BAR, USAGE_SEG,
+      MODEL_DISPLAY: sh('model', MODEL_DISPLAY), CLOCK_SEG: sh('clock', CLOCK_SEG), DIR_SEG: sh('dir', DIR_SEG),
+      GIT_SEG: sh('git', GIT_SEG), AGE_SEG: sh('age', AGE_SEG), NAME },
     sh, adaptiveLayout,
   );
 

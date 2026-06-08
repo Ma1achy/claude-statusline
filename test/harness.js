@@ -137,7 +137,7 @@ const CASES = [
   ['bar-scale-log', { SL_BAR_SCALE: 'log' }],
   ...['256', '16', 'mono'].map((m) => [`color-${m}`, { SL_COLOR_MODE: m }]),
   ['weather', { SL_WEATHER: 'on' }],
-  ...['tiny', '1line', '2line', 'inverse', 'merged', 'bicolumn', 'barfirst', 'header', 'split']
+  ...['tiny', '1line', '2line', 'inverse', 'merged', 'bicolumn', 'barfirst', 'header', 'split', 'brackets']
     .map((l) => [`layout-${l}`, { SL_LAYOUT: l }]),
   ['hide', { SL_HIDE: 'clock,usage,name' }],
   ['separator', { SL_SEPARATOR: '|' }],
