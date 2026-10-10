@@ -308,8 +308,9 @@ measure of progress; unknown fields are ignored, so the format can grow without 
 | `updated` | epoch ms | last progress; defaults to the file's mtime |
 | `pid` | number | the job's process; if it's gone while `running`, the bar says `stopped?` |
 
-The bar's fill comes from `percent`, else `current/total`, else `step/steps`, else `epoch/epochs`;
-with none of those it shows just the count (and, if a shimmer is on, a band sweeping the track).
+The bar's fill comes from `percent`, else `current/total`, else `step/steps`, else `epoch/epochs`,
+else the `stage` — so a pipeline whose current step reports nothing of its own still fills by steps
+done; with none of those it shows just the count (and, if a shimmer is on, a band sweeping the track).
 The ETA comes from `started`; without it the status line remembers when it first saw the run and
 estimates from there. Metrics get a `↓`/`↑` against the last different value seen.
 
@@ -390,6 +391,36 @@ progress and metrics can come from different lines:
 Groups: `cur` (with `total`, or a fixed `"total"` in the spec), `step`, `steps`, `epoch`, `epochs`,
 `percent`, and `metric_<group>_<name>`. `done` / `failed` mark the status — whichever appears last
 wins — and `updated` is the log's mtime.
+
+**Hands-off: `--watch` and the hook** — nothing to write at all. `--watch` follows a job's log on its
+behalf and keeps the progress file current until the job ends: progress is read the way people print
+it (tqdm's `45%|`, `epoch 3/8`, `step 1200/5000`, else the last bare `N/M`), metrics are the
+`name=value` / `name: value` pairs on that line (`val_*` → val, `eval_*` / `test_*` → eval, the rest
+train), and the message is the last line. It ends on a failure marker (`Traceback`, `out of memory`,
+`STOPPED`, `FATAL`, or your `--failed`), on `--done`, or when the job's pid is gone (found with `lsof`
+if you don't pass `--pid`).
+
+```bash
+node ~/.claude/statusline.js --watch train.log --pid $PID --name "SAE b11×8" &
+# a pipeline: each match of --stage starts a step; the step's own log (`{}` = its label) feeds the bar
+node ~/.claude/statusline.js --watch chain.log --name "aligned scoring" --pid $PID \
+  --stage '=== ([a-z]\w*_\w+) \d' --stages 36 --inner 'logs/log_{}.txt' --done ALLDONE &
+```
+
+Each reading rewrites the file whole from the log, so one step's epochs never linger into the next.
+Or let Claude Code start it: as a `PostToolUse` hook, `--hook` watches every Bash command sent to the
+background (`run_in_background`), named by the command's description — every long job Claude starts
+gets a bar, unasked:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "node ~/.claude/statusline.js --hook", "timeout": 5 }] }]
+  }
+}
+```
+
+The hook is silent and always exits 0; `SL_HOOK_DEBUG=/tmp/hook.json` keeps the last payload it saw.
 
 **Limits, by design** — the status line repaints every second, so it stays cheap: it reads at most
 the 32 newest progress files (each under 16 KiB), up to 8 log specs at 64 KiB each, and keeps a small

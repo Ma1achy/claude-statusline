@@ -752,7 +752,8 @@ function fractionOf(f) {
   const p = num(f.percent);
   if (p !== void 0)
     return clamp2(p / 100);
-  for (const [c, t] of [[f.current, f.total], [f.step, f.steps], [f.epoch, f.epochs]]) {
+  const st2 = f.stage && typeof f.stage === "object" ? f.stage : void 0;
+  for (const [c, t] of [[f.current, f.total], [f.step, f.steps], [f.epoch, f.epochs], [st2?.current, st2?.total]]) {
     const cn = num(c), tn = num(t);
     if (cn !== void 0 && tn !== void 0 && tn > 0)
       return clamp2(cn / tn);
@@ -1025,6 +1026,111 @@ function mergeRun(prev, patch, now2) {
   if (!out.status)
     out.status = "running";
   return out;
+}
+var NUM_RE = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?`;
+var METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*(${NUM_RE})(?![\w./:])`, "g");
+var NOT_METRICS = /* @__PURE__ */ new Set(["epoch", "epochs", "ep", "step", "steps", "iter", "batch", "pid", "exit", "rc", "line", "port"]);
+var WATCH_FAILED = String.raw`Traceback \(most recent call last\)|\bout of memory\b|\bSTOPPED\b|\bFATAL\b|\bSegmentation fault\b`;
+function lastMatch(re, s) {
+  let last = null;
+  let n = 0;
+  for (const m of s.matchAll(re)) {
+    if (m[0] === "" || ++n > 5e3)
+      break;
+    last = m;
+  }
+  return last;
+}
+function scanLog(tail) {
+  const lines = tail.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+  const text = lines.join("\n");
+  const f = {};
+  const pc = lastMatch(/(\d{1,3}(?:\.\d+)?)%\|/g, text);
+  if (pc)
+    f.percent = +pc[1];
+  const ep = lastMatch(/\b(?:epoch|ep)\b\s*[:=]?\s*(\d+)\s*\/\s*(\d+)/gi, text);
+  if (ep) {
+    f.epoch = +ep[1];
+    f.epochs = +ep[2];
+  }
+  const st2 = lastMatch(/\b(?:step|iter(?:ation)?|batch)\b\s*[:=]?\s*(\d+)\s*\/\s*(\d+)/gi, text);
+  if (st2) {
+    f.step = +st2[1];
+    f.steps = +st2[2];
+  }
+  if (!ep && !st2) {
+    const c = lastMatch(/(?<![\d/.])(\d+)\s?\/\s?(\d+)(?![\d/.])/g, text);
+    if (c && +c[2] > 0 && +c[1] <= +c[2]) {
+      f.current = +c[1];
+      f.total = +c[2];
+    }
+  }
+  const PROGRESS = /\d%\||\d\s?\/\s?\d/;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
+    const kv = [...lines[i].matchAll(METRIC_RE)].filter((m) => !NOT_METRICS.has(m[1].toLowerCase()));
+    if (!kv.length && !PROGRESS.test(lines[i]))
+      continue;
+    if (!kv.length)
+      break;
+    const metrics = {};
+    for (const m of kv.slice(0, 8)) {
+      const v = /^(?:val|valid|validation)[_./-](.+)$/i.exec(m[1]);
+      const e = /^(?:eval|test)[_./-](.+)$/i.exec(m[1]);
+      const [g, k] = v ? ["val", v[1]] : e ? ["eval", e[1]] : ["train", m[1]];
+      (metrics[g] || (metrics[g] = {}))[k] = parseFloat(m[2]);
+    }
+    f.metrics = metrics;
+    break;
+  }
+  if (lines.length)
+    f.message = lines[lines.length - 1].slice(0, 120);
+  return f;
+}
+function watchRead(spec, log, inner) {
+  let body = log.slice(-65536);
+  const f = { name: spec.name };
+  let label;
+  if (spec.stage) {
+    let re = null;
+    try {
+      re = new RegExp(spec.stage, "gm");
+    } catch {
+    }
+    const ms = re ? [...log.matchAll(re)].filter((m) => m[0] !== "") : [];
+    if (ms.length) {
+      const last = ms[ms.length - 1];
+      label = (last[1] ?? last[0]).trim();
+      f.stage = { current: ms.length - 1, total: spec.stages, label: "step" };
+      body = log.slice((last.index ?? 0) + last[0].length).slice(-65536);
+      if (spec.inner && inner)
+        body = inner(label) || body;
+    } else if (spec.stages)
+      f.stage = { current: 0, total: spec.stages, label: "step" };
+  }
+  Object.assign(f, scanLog(body));
+  if (spec.pattern) {
+    const p = parseLogTail({ name: spec.name, log: "", pattern: spec.pattern }, body);
+    if (p) {
+      for (const [k, v] of Object.entries(p))
+        if (v !== void 0 && k !== "name" && k !== "status")
+          f[k] = v;
+    }
+  }
+  if (label)
+    f.message = f.message && f.message !== label ? `${label} \xB7 ${f.message}` : label;
+  const end = log.slice(-4096);
+  const hit = (src) => {
+    try {
+      return !!src && new RegExp(src, "m").test(end);
+    } catch {
+      return false;
+    }
+  };
+  if (hit(spec.failed ?? WATCH_FAILED))
+    f.status = "failed";
+  else if (hit(spec.done))
+    f.status = "done";
+  return f;
 }
 
 // src/io/runs.ts
@@ -1410,6 +1516,151 @@ function runRunClear(argv) {
   }
   try {
     fs5.unlinkSync(path3.join(cfg.runs.dir, `${slug(argv[0])}.json`));
+  } catch {
+  }
+}
+var sleepMs = (ms) => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+function writersOf(file) {
+  try {
+    return (0, import_child_process3.execFileSync)("lsof", ["-t", "--", file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5e3 }).split(/\s+/).map(Number).filter((n) => n > 0 && n !== process.pid);
+  } catch {
+    return [];
+  }
+}
+function readLog(file) {
+  return readTail(file, 8 * 1024 * 1024);
+}
+function runWatch(argv) {
+  const log = argv[0];
+  if (!log || log.startsWith("--")) {
+    process.stderr.write("usage: --watch <log> [--name N] [--pid P] [--stage RE --stages N --inner TPL] [--pattern RE] [--done RE] [--failed RE]\n");
+    process.exitCode = 2;
+    return;
+  }
+  const spec = { name: path3.basename(log).replace(/\.[^.]*$/, "") };
+  let pids = [];
+  let every = 5;
+  for (let i = 1; i < argv.length; i += 2) {
+    const k = argv[i], v = argv[i + 1];
+    if (v === void 0) {
+      process.stderr.write(`--watch: ${k} needs a value
+`);
+      process.exitCode = 2;
+      return;
+    }
+    if (k === "--name")
+      spec.name = v;
+    else if (k === "--pid")
+      pids.push(+v);
+    else if (k === "--stage")
+      spec.stage = v;
+    else if (k === "--stages")
+      spec.stages = +v;
+    else if (k === "--inner")
+      spec.inner = v;
+    else if (k === "--pattern")
+      spec.pattern = v;
+    else if (k === "--done")
+      spec.done = v;
+    else if (k === "--failed")
+      spec.failed = v;
+    else if (k === "--every")
+      every = Math.max(1, +v);
+    else {
+      process.stderr.write(`--watch: unknown flag ${k}
+`);
+      process.exitCode = 2;
+      return;
+    }
+  }
+  pids = pids.filter((n) => Number.isFinite(n) && n > 0);
+  if (!pids.length)
+    for (let t = 0; t < 5 && !pids.length; t++) {
+      pids = writersOf(log);
+      if (!pids.length)
+        sleepMs(1e3);
+    }
+  const file = path3.join(cfg.runs.dir, `${slug(spec.name)}.json`);
+  const quietMs = (cfg.runs.staleAfter + cfg.runs.linger) * 1e3;
+  let gone = false;
+  for (; ; ) {
+    const f = watchRead(spec, readLog(log), (label) => readTail(spec.inner.split("{}").join(label), 65536));
+    const now2 = Date.now();
+    const final = f.status === "done" || f.status === "failed";
+    const write = (status) => writeJsonAtomic(file, { ...f, v: 1, status, pid: pids[0], updated: now2 });
+    if (final) {
+      write(f.status);
+      return;
+    }
+    if (pids.length) {
+      if (gone) {
+        write("done");
+        return;
+      }
+      if (!pids.some(pidAlive)) {
+        gone = true;
+        continue;
+      }
+    } else {
+      let mtime = 0;
+      try {
+        mtime = fs5.statSync(log).mtimeMs;
+      } catch {
+      }
+      if (mtime && now2 - mtime > quietMs)
+        return;
+    }
+    write("running");
+    sleepMs(every * 1e3);
+  }
+}
+function runHook() {
+  try {
+    const raw = fs5.readFileSync(0, "utf8");
+    if (process.env.SL_HOOK_DEBUG)
+      fs5.writeFileSync(process.env.SL_HOOK_DEBUG, raw);
+    const ev = JSON.parse(raw);
+    const inp = ev.tool_input || {};
+    if (ev.tool_name !== "Bash" || inp.run_in_background !== true)
+      return;
+    let out, pid;
+    const walk = (v, key = "", depth = 0) => {
+      if (depth > 4 || v === null || v === void 0)
+        return;
+      if (typeof v === "string") {
+        if (!out && v.startsWith("/") && v.length < 1024 && !v.includes("\n")) {
+          try {
+            if (fs5.statSync(v).isFile())
+              out = v;
+          } catch {
+          }
+        }
+        for (const m of v.matchAll(/(\/[^\s'"]+\.(?:output|log|txt))/g)) {
+          if (out)
+            break;
+          try {
+            if (fs5.statSync(m[1]).isFile())
+              out = m[1];
+          } catch {
+          }
+        }
+      } else if (typeof v === "number") {
+        if (/pid/i.test(key) && v > 0)
+          pid = v;
+      } else if (typeof v === "object")
+        for (const [k, x] of Object.entries(v))
+          walk(x, k, depth + 1);
+    };
+    walk(ev.tool_response);
+    if (!out)
+      return;
+    const desc = typeof inp.description === "string" && inp.description.trim() ? inp.description : String(inp.command || "background job");
+    const args = [process.argv[1], "--watch", out, "--name", desc.slice(0, 48)];
+    if (pid)
+      args.push("--pid", String(pid));
+    (0, import_child_process3.spawn)(process.execPath, args, { detached: true, stdio: "ignore" }).unref();
   } catch {
   }
 }
@@ -3299,10 +3550,33 @@ else if (cliArg === "--run")
   runRun(process.argv.slice(3));
 else if (cliArg === "--run-clear")
   runRunClear(process.argv.slice(3));
+else if (cliArg === "--watch")
+  runWatch(process.argv.slice(3));
+else if (cliArg === "--hook")
+  runHook();
 else if (cliArg === "--git-refresh") {
   refreshGitCache(readInput());
 } else if (cliArg && cliArg.startsWith("-")) {
-  process.stdout.write('claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active config, and conflicts\n  --report    summarise cross-session usage history\n  --migrate   translate a legacy SL_* env block to JSON config (on stdout)\n  --run <name> [current total] [--step N --steps N --epoch N --epochs N --percent P\n              --metric group.name=V --stage N/M[:label] --unit U --status S --message M --pid N]\n              write/update a run-progress file (see "Run progress" in the README)\n  --run-clear <name>  remove a run-progress file\n  --help      this message\n\nConfigure via ~/.claude/statusline.json (or $SL_CONFIG) \u2014 see the README.\n');
+  process.stdout.write(`claude-statusline \u2014 a statusline command for Claude Code.
+
+Usage: reads Claude Code JSON on stdin and prints the statusline.
+
+Commands:
+  --preview   render every theme / bar style / shimmer
+  --doctor    report terminal capabilities, active config, and conflicts
+  --report    summarise cross-session usage history
+  --migrate   translate a legacy SL_* env block to JSON config (on stdout)
+  --run <name> [current total] [--step N --steps N --epoch N --epochs N --percent P
+              --metric group.name=V --stage N/M[:label] --unit U --status S --message M --pid N]
+              write/update a run-progress file (see "Run progress" in the README)
+  --run-clear <name>  remove a run-progress file
+  --watch <log> [--name N --pid P --stage RE --stages N --inner TPL --pattern RE]
+              follow a job's log and keep its progress file current until it ends
+  --hook      PostToolUse hook: watch every background Bash command's output
+  --help      this message
+
+Configure via ~/.claude/statusline.json (or $SL_CONFIG) \u2014 see the README.
+`);
 } else {
   try {
     const out = build();

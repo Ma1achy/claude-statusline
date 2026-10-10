@@ -10,7 +10,7 @@ import * as path from 'path';
 import { cfg, resetConfigForTest } from '../../src/config';
 import { printLen, stripAnsi } from '../../src/ansi';
 import {
-  resolveRun, fractionOf, flattenMetrics, parseLogTail, fmtMetric, fmtCount, fmtSpan, etaMs,
+  resolveRun, fractionOf, scanLog, watchRead, flattenMetrics, parseLogTail, fmtMetric, fmtCount, fmtSpan, etaMs,
   parseRunArgs, mergeRun, slug, pickRuns, type Run, type RunRules,
 } from '../../src/runs';
 import { readRuns, updateRunCache, type RunCache } from '../../src/io/runs';
@@ -53,6 +53,9 @@ test('fractionOf: percent → current/total → step/steps → epoch/epochs', ()
   assert.equal(fractionOf({ current: 5 }), null);                    // no total → indeterminate
   assert.equal(fractionOf({ current: 5, total: 0 }), null);
   assert.equal(fractionOf({ percent: 140 }), 1);                     // clamped
+  assert.equal(fractionOf({ stage: { current: 3, total: 36 } }), 3 / 36); // stage alone fills
+  assert.equal(fractionOf({ epoch: 6, epochs: 8, stage: { current: 3, total: 36 } }), 0.75); // inner wins
+  assert.equal(fractionOf({ stage: { current: 3 } }), null);
 });
 
 test('flattenMetrics orders train → val → eval → others and drops non-numbers', () => {
@@ -331,4 +334,38 @@ test('config `runs`: off by default, true for defaults, object overrides, SL_RUN
     resetConfigForTest();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('scanLog: tqdm %, epoch/step counters, bare N/M, metrics, message', () => {
+  const t = scanLog('Epoch 3/8:  45%|████▌     | 450/1000 [00:12<00:15, loss=0.231, val_loss=0.30]\n');
+  assert.equal(t.percent, 45);
+  assert.deepEqual([t.epoch, t.epochs], [3, 8]);
+  assert.equal(t.current, undefined);                                  // epoch given: no bare counter
+  assert.deepEqual(t.metrics, { train: { loss: 0.231 }, val: { loss: 0.3 } });
+  const s = scanLog('step 1200/5000 lr=3e-4 eval_auc: 0.91\n');
+  assert.deepEqual([s.step, s.steps], [1200, 5000]);
+  assert.deepEqual(s.metrics, { train: { lr: 3e-4 }, eval: { auc: 0.91 } });
+  const b = scanLog('21:19:24 2026/10/10 path/1/2\n  v3 m_drop2 200/794  258s\n');
+  assert.deepEqual([b.current, b.total], [200, 794]);                  // not the date, not the path
+  assert.equal(b.message, 'v3 m_drop2 200/794  258s');
+  assert.equal(scanLog('done 9/3').current, undefined);
+  assert.equal(scanLog('split: 40 test: 74\n  v3 m_drop2 400/794  520s').metrics, undefined); // older line's pairs                 // past its total: not progress
+  assert.deepEqual(scanLog("x8 epoch 6: {'epoch': 6, 'nmse': 0.11, 'aux': 0.0}").metrics,
+    { train: { nmse: 0.11, aux: 0 } });                                  // python dicts; 'epoch' is not a metric
+});
+
+test('watchRead: stages count, only the current step is scanned, inner logs, failure', () => {
+  const spec = { name: 'chain', stage: String.raw`=== ([a-z]\w*_\w+)`, stages: 5, inner: '/x/log_{}.txt' };
+  const log = '=== detached launch ===\n=== a_train\nepoch 7/8 nmse=0.11\nexit 0\n=== b_maps\n';
+  const r = watchRead(spec, log);
+  assert.deepEqual(r.stage, { current: 1, total: 5, label: 'step' });
+  assert.equal(r.epoch, undefined);                                    // a_train's epoch stays with a_train
+  assert.equal(r.metrics, undefined);
+  assert.equal(r.message, 'b_maps');
+  const inner = watchRead(spec, log, (l) => (l === 'b_maps' ? 'm_drop1 400/794\n' : ''));
+  assert.deepEqual([inner.current, inner.total], [400, 794]);
+  assert.equal(inner.message, 'b_maps · m_drop1 400/794');
+  assert.equal(watchRead(spec, log + 'exit 1\nSTOPPED at b_maps\n').status, 'failed');
+  assert.equal(watchRead({ name: 'j', done: 'ALLDONE' }, 'x\nALLDONE\n').status, 'done');
+  assert.equal(watchRead({ name: 'j' }, 'fine\n').status, undefined);
 });

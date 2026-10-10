@@ -4,14 +4,15 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { ESC, R, DIM, BOLD } from './ansi';
 import { cfg } from './config';
 import { THEMES_DATA } from './themes.data';
 import { readHistory, REPORT_MIN_SESSION_MS } from './state';
 import { median } from './insight';
-import { parseRunArgs, mergeRun, slug } from './runs';
-import { readRuns, readRunFile, writeJsonAtomic } from './io/runs';
+import { parseRunArgs, mergeRun, slug, watchRead, type RunFile, type WatchSpec } from './runs';
+import { readRuns, readRunFile, writeJsonAtomic, pidAlive } from './io/runs';
+import { readTail } from './io/input';
 
 const SAMPLE = JSON.stringify({
   session_id: 'preview',
@@ -153,4 +154,103 @@ export function runRun(argv: string[]): void {
 export function runRunClear(argv: string[]): void {
   if (!argv[0]) { process.stderr.write('usage: --run-clear <name>\n'); process.exitCode = 2; return; }
   try { fs.unlinkSync(path.join(cfg.runs.dir, `${slug(argv[0])}.json`)); } catch { /* already gone */ }
+}
+
+// --watch <log> [--name N] [--pid P]... [--stage RE --stages N --inner TPL] [--pattern RE]
+//         [--done RE] [--failed RE] [--every S]
+// Follow a job's log on its behalf and keep its progress file current, so a job
+// that only prints still gets a bar with nobody tending it. Each tick rewrites the
+// file whole from the log (no merge: one step's epochs never outlive the step).
+// Ends when the log says done/failed, or every watched pid is gone (read once more
+// first: the job's last line may land after the probe). With no --pid, the
+// processes holding the log open are watched (lsof); with none found, it ends once
+// the log has been quiet past staleAfter + linger. No `started` is written: the
+// watcher can't know when the current counter began (it may attach mid-step, and a
+// pipeline's inner counter restarts each step), so the ETA comes from the rate seen.
+const sleepMs = (ms: number): void => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+
+function writersOf(file: string): number[] {
+  try {
+    return execFileSync('lsof', ['-t', '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 })
+      .split(/\s+/).map(Number).filter((n) => n > 0 && n !== process.pid);
+  } catch { return []; }
+}
+
+function readLog(file: string): string { return readTail(file, 8 * 1024 * 1024); }
+
+export function runWatch(argv: string[]): void {
+  const log = argv[0];
+  if (!log || log.startsWith('--')) { process.stderr.write('usage: --watch <log> [--name N] [--pid P] [--stage RE --stages N --inner TPL] [--pattern RE] [--done RE] [--failed RE]\n'); process.exitCode = 2; return; }
+  const spec: WatchSpec = { name: path.basename(log).replace(/\.[^.]*$/, '') };
+  let pids: number[] = [];
+  let every = 5;
+  for (let i = 1; i < argv.length; i += 2) {
+    const k = argv[i], v = argv[i + 1];
+    if (v === undefined) { process.stderr.write(`--watch: ${k} needs a value\n`); process.exitCode = 2; return; }
+    if (k === '--name') spec.name = v;
+    else if (k === '--pid') pids.push(+v);
+    else if (k === '--stage') spec.stage = v;
+    else if (k === '--stages') spec.stages = +v;
+    else if (k === '--inner') spec.inner = v;
+    else if (k === '--pattern') spec.pattern = v;
+    else if (k === '--done') spec.done = v;
+    else if (k === '--failed') spec.failed = v;
+    else if (k === '--every') every = Math.max(1, +v);
+    else { process.stderr.write(`--watch: unknown flag ${k}\n`); process.exitCode = 2; return; }
+  }
+  pids = pids.filter((n) => Number.isFinite(n) && n > 0);
+  if (!pids.length) for (let t = 0; t < 5 && !pids.length; t++) { pids = writersOf(log); if (!pids.length) sleepMs(1000); }
+  const file = path.join(cfg.runs.dir, `${slug(spec.name)}.json`);
+  const quietMs = (cfg.runs.staleAfter + cfg.runs.linger) * 1000;
+  let gone = false;
+  for (;;) {
+    const f: RunFile = watchRead(spec, readLog(log), (label) => readTail(spec.inner!.split('{}').join(label), 65536));
+    const now = Date.now();
+    const final = f.status === 'done' || f.status === 'failed';
+    const write = (status: string): void =>
+      writeJsonAtomic(file, { ...f, v: 1, status, pid: pids[0], updated: now });
+    if (final) { write(f.status!); return; }
+    if (pids.length) {
+      if (gone) { write('done'); return; }
+      if (!pids.some(pidAlive)) { gone = true; continue; }
+    } else {
+      let mtime = 0;
+      try { mtime = fs.statSync(log).mtimeMs; } catch { /* not there yet */ }
+      if (mtime && now - mtime > quietMs) return;
+    }
+    write('running');
+    sleepMs(every * 1000);
+  }
+}
+
+// --hook: a PostToolUse hook for Claude Code's Bash tool. When a command was sent to
+// the background, start a detached --watch on its output file (named by the
+// command's description), so every background job gets a bar unasked. Silent, and
+// always exits 0: a hook must never get in the tool's way. SL_HOOK_DEBUG=<file>
+// keeps the last payload for inspection.
+export function runHook(): void {
+  try {
+    const raw = fs.readFileSync(0, 'utf8');
+    if (process.env.SL_HOOK_DEBUG) fs.writeFileSync(process.env.SL_HOOK_DEBUG, raw);
+    const ev = JSON.parse(raw) as { tool_name?: string; tool_input?: Record<string, unknown>; tool_response?: unknown };
+    const inp = ev.tool_input || {};
+    if (ev.tool_name !== 'Bash' || inp.run_in_background !== true) return;
+    // The response's shape isn't pinned: take the first string in it that names an
+    // existing file, and a pid if one is given.
+    let out: string | undefined, pid: number | undefined;
+    const walk = (v: unknown, key = '', depth = 0): void => {
+      if (depth > 4 || v === null || v === undefined) return;
+      if (typeof v === 'string') {
+        if (!out && v.startsWith('/') && v.length < 1024 && !v.includes('\n')) { try { if (fs.statSync(v).isFile()) out = v; } catch { /* not a file */ } }
+        for (const m of v.matchAll(/(\/[^\s'"]+\.(?:output|log|txt))/g)) { if (out) break; try { if (fs.statSync(m[1]).isFile()) out = m[1]; } catch { /* no */ } }
+      } else if (typeof v === 'number') { if (/pid/i.test(key) && v > 0) pid = v; }
+      else if (typeof v === 'object') for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1);
+    };
+    walk(ev.tool_response);
+    if (!out) return;
+    const desc = typeof inp.description === 'string' && inp.description.trim() ? inp.description : String(inp.command || 'background job');
+    const args = [process.argv[1], '--watch', out, '--name', desc.slice(0, 48)];
+    if (pid) args.push('--pid', String(pid));
+    spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref();
+  } catch { /* never block the tool */ }
 }
