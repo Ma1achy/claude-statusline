@@ -2,13 +2,14 @@
 // `cfg`. Single source of truth — the old ~50 SL_* env vars are gone (hard
 // migration; `statusline.js --migrate` translates a legacy env block to JSON).
 // Only timing/bootstrap still come from the environment, to keep tests/renders
-// deterministic: SL_CONFIG (path), SL_FRAME_MS, SL_CLOCK_MS, SL_COLOR_MODE, NO_COLOR.
+// deterministic: SL_CONFIG (path), SL_FRAME_MS, SL_CLOCK_MS, SL_COLOR_MODE, NO_COLOR —
+// plus SL_RUNS_DIR, so a job and the statusline can agree on a runs dir per shell.
 import * as fs from 'fs';
 import * as os from 'os';
 import { env, idiv } from './util';
 import { PRESETS } from './presets';
 import { gitOut } from './git';
-import type { Config, ColorMode, StatuslineInput, Style } from './types';
+import type { Config, ColorMode, RunsConfig, StatuslineInput, Style } from './types';
 
 // ── load + merge config: preset bundle < explicit file ────────────────────────
 function loadJson(): Record<string, any> {
@@ -17,6 +18,35 @@ function loadJson(): Record<string, any> {
     const j = JSON.parse(fs.readFileSync(p, 'utf8'));
     return j && typeof j === 'object' ? j : {};
   } catch { return {}; }                              // missing/bad config → all defaults
+}
+
+const expandHome = (p: string): string => (p === '~' || p.startsWith('~/') ? os.homedir() + p.slice(1) : p);
+
+// `runs`: true for the defaults, or an object of overrides (an object enables it
+// unless it says `enabled: false`). Every field is validated on its own; a bad
+// log spec is dropped rather than poisoning the rest. The dir resolves even when
+// off, because the --run writer needs it either way.
+function readRuns(v: unknown): RunsConfig {
+  const o: Record<string, unknown> = v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
+  const nn = (x: unknown, d: number): number => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : d);
+  const s = (x: unknown): string | undefined => (typeof x === 'string' && x ? x : undefined);
+  const logs: RunsConfig['logs'] = [];
+  for (const l of Array.isArray(o.logs) ? o.logs : []) {
+    if (!l || typeof l !== 'object' || logs.length >= 8) continue;
+    const name = s(l.name), log = s(l.log), pattern = s(l.pattern);
+    if (!name || !log || !pattern) continue;
+    logs.push({ name, log: expandHome(log), pattern, total: nn(l.total, 0) || undefined, unit: s(l.unit), done: s(l.done), failed: s(l.failed) });
+  }
+  return {
+    enabled: v === true || (v === o && o.enabled !== false),
+    dir: expandHome(process.env.SL_RUNS_DIR || s(o.dir) || '~/.claude/runs'),
+    max: Math.max(1, Math.floor(nn(o.max, 4))),
+    staleAfter: nn(o.staleAfter, 900),
+    linger: nn(o.linger, 600),
+    metrics: o.metrics !== false,
+    maxMetrics: Math.floor(nn(o.maxMetrics, 4)),
+    logs,
+  };
 }
 
 // Build the typed config from the environment + JSON file. Pure aside from the
@@ -130,6 +160,7 @@ function loadConfig(): Config {
     customSegment: jstr('customSegment', ''),
     event: false,
     tmuxPassthrough: jbool('tmuxPassthrough'),
+    runs: readRuns(J.runs),
     elements: jobj('elements') as Record<string, Style> | undefined,
     glyphs: jobj('glyphs') as Record<string, string> | undefined,
     labels: jobj('labels') as Record<string, string> | undefined,

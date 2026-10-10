@@ -72,6 +72,18 @@ export interface ThemeData {
   labels?: Record<string, string>;
 }
 
+/** Run-progress settings (`runs` in the config). Durations are seconds, as written. */
+export interface RunsConfig {
+  enabled: boolean;
+  dir: string;                     // ~ already expanded; SL_RUNS_DIR wins
+  max: number;
+  staleAfter: number;
+  linger: number;
+  metrics: boolean;
+  maxMetrics: number;
+  logs: Array<{ name: string; log: string; pattern: string; total?: number; unit?: string; done?: string; failed?: string }>;
+}
+
 export interface Config {
   shimmer: string;
   speed: number;
@@ -103,6 +115,7 @@ export interface Config {
   nerdfont: boolean; customSegment: string;
   event: boolean;   // set at runtime: the context % changed since the last tick
   tmuxPassthrough: boolean;
+  runs: RunsConfig;
   // user per-element style / glyph / label overrides + inline custom theme (JSON config)
   elements?: Record<string, Style>;
   glyphs?: Record<string, string>;

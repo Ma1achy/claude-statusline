@@ -78,6 +78,44 @@ test('activityLine shows the most recent tool + target from the transcript', () 
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+// 2d'. Run progress — bars for long-running jobs, stacked above the statusline.
+test('runs: bars above the three lines only when a run is active', () => {
+  const lines = stripAnsi(run(fix, { SL_RUNS: 'on' })).split('\n').filter(Boolean);
+  assert.strictEqual(lines.length, 5, 'two runs (the broken file is skipped) + three lines');
+  // ordered by start time (the pull started first), not by status
+  assert.match(lines[0], /^✓ pretrain pull .*100%/);
+  assert.match(lines[1], /^▸ A1 SAE b11×8 .* 40% .*step 41\.2k\/101k/);
+  assert.ok(lines[2].startsWith('⚡'), 'the normal statusline follows');
+  // enabled but nothing active → zero extra lines
+  const base = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs-runs-'));
+  try {
+    const home = path.join(base, 'home');
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude.json'), '{}');
+    writeConfig(home, { SL_RUNS: 'on' });
+    const env = { HOME: home, PATH: process.env.PATH, TZ: 'UTC', COLUMNS: '124', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', TMPDIR: base };
+    const input = JSON.stringify({ model: { id: 'claude-opus-4-8' }, context_window: { context_window_size: 200000, used_percentage: 40 }, cost: { total_cost_usd: 0.1 } });
+    const render = () => stripAnsi(execFileSync('node', [STATUSLINE], { input, encoding: 'utf8', env })).split('\n').filter(Boolean);
+    assert.strictEqual(render().length, 3, 'no runs dir → no extra lines');
+    // the --run helper writes a file the next render picks up; --run-clear removes it
+    const cli = (...a) => execFileSync('node', [STATUSLINE, ...a], { encoding: 'utf8', env });
+    cli('--run', 'probe eval', '230', '1000', '--unit', 'gal', '--metric', 'eval.auc=0.91');
+    cli('--run', 'probe eval', '250', '1000', '--metric', 'eval.ap=0.5');
+    const file = path.join(home, '.claude', 'runs', 'probe-eval.json');
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.deepStrictEqual([j.current, j.total, j.unit, j.started], [250, 1000, 'gal', 1700000000123]);
+    assert.deepStrictEqual(j.metrics, { eval: { auc: 0.91, ap: 0.5 } }, 'metrics merge across calls');
+    const lines2 = render();
+    assert.strictEqual(lines2.length, 4);
+    assert.match(lines2[0], /^▸ probe eval .* 25% .*250\/1k gal .*eval auc 0\.91 ap 0\.5/);
+    assert.match(stripAnsi(cli('--doctor')), /runs .*1 active/, 'doctor reports the runs dir');
+    cli('--run-clear', 'probe eval');
+    assert.ok(!fs.existsSync(file), '--run-clear removes the file');
+    assert.strictEqual(render().length, 3);
+    assert.throws(() => execFileSync('node', [STATUSLINE, '--run', 'x', '--step', 'abc'], { env, stdio: 'pipe' }), 'bad input exits non-zero');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
 // 2e. Adaptive layout — the layout tier (and auto-warning) follow context fill.
 test('adaptive picks the layout by context and auto-warns when critical', () => {
   const low = run(fix, { SL_ADAPTIVE: 'on' }, { context_window: { used_percentage: 30, context_window_size: 200000 } });

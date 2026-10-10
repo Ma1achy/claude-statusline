@@ -31,6 +31,7 @@
     "render:bars": "python3 scripts/render-demos.py bars",
     "render:shimmer": "python3 scripts/render-demos.py shimmer",
     "render:presets": "python3 scripts/render-demos.py presets",
+    "render:runs": "python3 scripts/render-demos.py runs",
     "preview": "npm run build && node statusline.js --preview",
     "doctor": "node statusline.js --doctor"
   },

@@ -28,6 +28,8 @@ import { buildLastFile } from './segments/lastfile';
 import { buildWarning } from './segments/warning';
 import { buildActivity } from './segments/activity';
 import { buildConversation } from './segments/conversation';
+import { buildRuns } from './segments/runs';
+import { readRuns, readRunCache, updateRunCache, writeRunCache } from './io/runs';
 import { applyWashes } from './render/recolor';
 import { assembleLayout } from './render/layout';
 import { applyFrame } from './render/frame';
@@ -165,6 +167,21 @@ export function build(): string {
   // Optional framing (config `frame`): a rule between lines, or a box border.
   if (cfg.frame) lines = applyFrame(lines, cfg.frame);
 
+  // runs: one progress line per active job, stacked above everything else (after
+  // the frame, so they read as their own block). Zero lines when nothing is active.
+  let runLines: string[] = [];
+  if (cfg.runs.enabled) {
+    try {
+      const runs = readRuns(cfg.runs, cfg.nowMs);
+      if (runs.length) {
+        const cache = readRunCache();
+        if (updateRunCache(cache, runs, cfg.nowMs)) writeRunCache(cache);
+        runLines = buildRuns(runs, { cols: termCols() - cfg.margin, max: cfg.runs.max, metrics: cfg.runs.metrics,
+          maxMetrics: cfg.runs.maxMetrics, now: cfg.nowMs, cache });
+      }
+    } catch { /* a bad runs dir never costs the statusline */ }
+  }
+
   // Fire-and-forget the git-cache refresher: a detached child re-runs this binary
   // with --git-refresh, execs git off the hot path, and writes the cache for the
   // next tick. Detached + unref'd so it outlives this (cancellable) render — the
@@ -181,5 +198,5 @@ export function build(): string {
     } catch { /* best-effort */ }
   }
 
-  return BELL + lines.join('\n') + '\n';
+  return BELL + [...runLines, ...lines].join('\n') + '\n';
 }

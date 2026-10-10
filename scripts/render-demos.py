@@ -148,7 +148,7 @@ SL_MAP = {
 
 # Object-valued config keys that map straight through (no SL_* shorthand): the
 # style-engine fields used by the typography / custom-theme demos.
-RAW_KEYS = {"elements", "customTheme", "base16", "glyphs", "labels", "themeFile"}
+RAW_KEYS = {"elements", "customTheme", "base16", "glyphs", "labels", "themeFile", "runs"}
 
 
 def to_config(d):
@@ -196,7 +196,7 @@ def make_gif(home, repo, name, frames, duration):
             subprocess.run(["node", SL, "--git-refresh"], input=json.dumps(sample), env=env, capture_output=True, text=True)
         out = subprocess.run(["node", SL], input=json.dumps(sample), env=env, capture_output=True, text=True).stdout
         lines = out.rstrip("\n").split("\n")
-        rendered.append((lines[:6], cap))   # up to 6: 4-line layouts + warning/info lines
+        rendered.append((lines[:8], cap))   # up to 8: 4-line layouts + warning/info lines, run bars
     W = max(width_of(ls) for ls, _ in rendered)
     nrows = max(len(ls) for ls, _ in rendered)
     imgs = [render(ls, cap, W, nrows).convert("P", palette=Image.ADAPTIVE, colors=256) for ls, cap in rendered]
@@ -209,7 +209,7 @@ def main():
     # Optional target: all (default) | default | loaded | themes | colormaps | bars |
     #   shimmer | fx | disco | presets | layouts | colors | trend | pets | reactive |
     #   scale | accessible | typography | git | spotlight | customtheme |
-    #   personas | layouts2 | frames | warning
+    #   personas | layouts2 | frames | warning | runs
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     want = lambda *names: target == "all" or target in names
     base, home, repo = setup_fixture()
@@ -444,6 +444,61 @@ def main():
             make_gif(home, repo, "demo-warning.gif",
                      [({"SL_WARNING_LINE": "on", "SL_GIT_EXTRA": "on", "_pct": p, "_cost": 1.2, "_sid": "warn"},
                        BASE_MS, f"context {p}%") for p in [58, 72, 84, 96, 84, 72]], 520)
+
+        # ── run progress: concurrent jobs advancing above the statusline ──────────
+        if want("runs"):
+            rdir = os.path.join(base, "runs")
+            steps = 101308
+
+            def wjson(name, d):
+                with open(os.path.join(rdir, name), "w") as f:
+                    json.dump(d, f)
+
+            def at(k, fms):
+                def setup(_r):
+                    shutil.rmtree(rdir, ignore_errors=True); os.makedirs(rdir)
+                    # a training run: step/epoch, train loss falling every frame, val every 4th
+                    step = 52000 + k * 2900
+                    f = step / steps
+                    wjson("sae.json", {"name": "SAE b11×8", "step": step, "steps": steps, "epoch": int(f * 8) + 1, "epochs": 8,
+                                       "started": fms - int(f * 3 * 3600000), "updated": fms - 1500,
+                                       "metrics": {"train": {"loss": round(0.052 * (0.985 ** k) + 0.03, 4)},
+                                                   "val": {"loss": round(0.06 * (0.97 ** (k // 4)) + 0.031, 4)}}})
+                    # an eval sweep with a stage counter and a rising AUC
+                    cur = 120 + k * 52
+                    wjson("eval.json", {"name": "probe eval", "current": cur, "total": 1000, "unit": "gal",
+                                        "stage": {"current": 3, "total": 5, "label": "fold"},
+                                        "started": fms - int(cur / 1000 * 1500000), "updated": fms - 800,
+                                        "metrics": {"eval": {"auc": round(0.86 + 0.0035 * k, 4)}}})
+                    # a pull that finishes halfway through the loop
+                    done = k >= 9
+                    wjson("pull.json", {"name": "corpus pull", "current": 1000 if done else 640 + k * 40, "total": 1000,
+                                        "unit": "chunks", "status": "done" if done else "running",
+                                        "started": fms - 3000000, "updated": fms - (k - 9) * 700 - 1000 if done else fms - 500})
+                return setup
+
+            clear_state()   # fresh trend-arrow cache
+            rb = {"runs": {"dir": rdir}, "SL_GIT_EXTRA": "on", "_pct": 46, "_sid": "runs", "_warm": True}
+            make_gif(home, repo, "demo-runs.gif",
+                     [({**rb, "_setup": at(k, BASE_MS + k * 700)}, BASE_MS + k * 700, None) for k in range(16)], 420)
+
+            # every state at once: running, paused, stale, failed, and stopped? (a dead pid)
+            def states(fms):
+                def setup(_r):
+                    shutil.rmtree(rdir, ignore_errors=True); os.makedirs(rdir)
+                    wjson("a.json", {"name": "sweep lr=3e-4", "step": 8400, "steps": 20000, "started": fms - 1800000, "updated": fms - 2000,
+                                     "metrics": {"train": {"loss": 0.214}}})
+                    wjson("b.json", {"name": "sweep lr=1e-3", "status": "paused", "step": 6100, "steps": 20000,
+                                     "updated": fms - 300000, "message": "waiting for GPU"})
+                    wjson("c.json", {"name": "nightly eval", "current": 410, "total": 1000, "updated": fms - 1500000})
+                    wjson("d.json", {"name": "sweep lr=1e-2", "status": "failed", "step": 1200, "steps": 20000,
+                                     "updated": fms - 240000, "message": "loss went NaN at step 1200"})
+                    wjson("e.json", {"name": "data pull", "current": 312, "total": 827, "unit": "chunks",
+                                     "updated": fms - 60000, "pid": 999999})
+                return setup
+            make_gif(home, repo, "demo-runs-states.gif",
+                     [({**rb, "runs": {"dir": rdir, "max": 5}, "_sid": "runs2", "_setup": states(BASE_MS + k * 700)}, BASE_MS + k * 700,
+                       "running · paused · stale · failed · stopped? (pid gone)") for k in range(8)], 420)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print("done")

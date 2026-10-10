@@ -25,6 +25,22 @@ function setupFixture() {
   fs.writeFileSync(path.join(home, '.claude', 'settings.json'),
     JSON.stringify({ env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '40' } }));
 
+  // Run-progress files in the default runs dir. Every golden case sees them, but
+  // only `runs` turns the feature on — the rest prove it stays off by default.
+  // Timestamps are relative to FRAME_MS; no pid (a pid probe isn't deterministic).
+  const runs = path.join(home, '.claude', 'runs');
+  fs.mkdirSync(runs);
+  const T = Number(FRAME_MS);
+  fs.writeFileSync(path.join(runs, 'a1.json'), JSON.stringify({
+    v: 1, name: 'A1 SAE b11×8', status: 'running', step: 41200, steps: 101308, epoch: 6, epochs: 8,
+    stage: { current: 12, total: 56, label: 'chain step' }, started: T - 3600000, updated: T - 4000,
+    metrics: { train: { loss: 0.0353, nmse: 0.035 }, val: { loss: 0.041 }, eval: { auc: 0.912 } },
+  }));
+  fs.writeFileSync(path.join(runs, 'pull.json'), JSON.stringify({
+    name: 'pretrain pull', status: 'done', current: 1000, total: 1000, unit: 'chunks', started: T - 7200000, updated: T - 120000,
+  }));
+  fs.writeFileSync(path.join(runs, 'broken.json'), '{"name": "half-writ');
+
   const repo = path.join(base, 'principia');
   fs.mkdirSync(repo);
   git(repo, ['init', '-q']);
@@ -75,6 +91,7 @@ const SL_MAP = {
   SL_LIMITS: ['limits', 'b'], SL_PRIVACY: ['privacy', 'b'], SL_SYSINFO: ['sysinfo', 'b'],
   SL_ACCESSIBLE: ['accessible', 'b'], SL_RESPONSIVE: ['responsive', 'b'], SL_ADAPTIVE: ['adaptive', 'b'], SL_GIT_RISK: ['gitRisk', 'b'],
   SL_DANGER: ['danger', 'b'], SL_BELL: ['bell', 'b'], SL_NERDFONT: ['nerdfont', 'b'], SL_TMUX_PASSTHROUGH: ['tmuxPassthrough', 'b'],
+  SL_RUNS: ['runs', 'b'],
   SL_WARNING_LINE: ['warningLine', 'b'], SL_ACTIVITY_LINE: ['activityLine', 'b'], SL_CONVERSATION_LINE: ['conversationLine', 'b'],
 };
 // Bootstrap stays in the environment (deterministic; not part of the JSON config).
@@ -152,6 +169,7 @@ const CASES = [
   ['accessible-grayscale', { SL_ACCESSIBLE: 'on', SL_ACCESSIBLE_GAUGE: 'grayscale' }],
   ['git-risk', { SL_GIT_RISK: 'on' }],
   ...['cat', 'frog', 'robot', 'ghost', 'slime', 'dog'].map((s) => [`pet-${s}`, { SL_PET: 'on', SL_PET_STYLE: s }]),
+  ['runs', { SL_RUNS: 'on' }],
   ['loaded', { SL_PET: 'on', SL_CREST: 'on', SL_MOON: 'on', SL_DAYNIGHT: 'on', SL_COST_FLAIR: 'on', SL_BURN: 'on', SL_GIT_EXTRA: 'on', SL_RAINBOW_STATS: 'on', SL_SHIMMER: 'wave' }],
 ];
 
