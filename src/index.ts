@@ -2,7 +2,7 @@
 // Everything is wrapped so a bug prints a minimal line instead of a blank bar.
 import { R, DIM } from './ansi';
 import { cfg } from './config';
-import { runPreview, runDoctor, runReport, runMigrate } from './cli';
+import { runPreview, runDoctor, runReport, runMigrate, runRun, runRunClear } from './cli';
 import { readInput } from './io/input';
 import { refreshGitCache } from './io/gitcache';
 import { build } from './build';
@@ -12,6 +12,8 @@ if (cliArg === '--preview') runPreview();
 else if (cliArg === '--doctor') runDoctor();
 else if (cliArg === '--report') runReport();
 else if (cliArg === '--migrate') runMigrate();
+else if (cliArg === '--run') runRun(process.argv.slice(3));
+else if (cliArg === '--run-clear') runRunClear(process.argv.slice(3));
 else if (cliArg === '--git-refresh') {
   // Detached background invocation: warm the git cache, print nothing.
   refreshGitCache(readInput());
@@ -23,6 +25,10 @@ else if (cliArg && cliArg.startsWith('-')) {
     + '  --doctor    report terminal capabilities, active config, and conflicts\n'
     + '  --report    summarise cross-session usage history\n'
     + '  --migrate   translate a legacy SL_* env block to JSON config (on stdout)\n'
+    + '  --run <name> [current total] [--step N --steps N --epoch N --epochs N --percent P\n'
+    + '              --metric group.name=V --stage N/M[:label] --unit U --status S --message M --pid N]\n'
+    + '              write/update a run-progress file (see "Run progress" in the README)\n'
+    + '  --run-clear <name>  remove a run-progress file\n'
     + '  --help      this message\n\n'
     + 'Configure via ~/.claude/statusline.json (or $SL_CONFIG) — see the README.\n');
 } else {

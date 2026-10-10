@@ -90,6 +90,31 @@ function loadJson() {
     return {};
   }
 }
+var expandHome = (p) => p === "~" || p.startsWith("~/") ? os.homedir() + p.slice(1) : p;
+function readRuns(v) {
+  const o = v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  const nn = (x, d) => typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : d;
+  const s = (x) => typeof x === "string" && x ? x : void 0;
+  const logs = [];
+  for (const l of Array.isArray(o.logs) ? o.logs : []) {
+    if (!l || typeof l !== "object" || logs.length >= 8)
+      continue;
+    const name = s(l.name), log = s(l.log), pattern = s(l.pattern);
+    if (!name || !log || !pattern)
+      continue;
+    logs.push({ name, log: expandHome(log), pattern, total: nn(l.total, 0) || void 0, unit: s(l.unit), done: s(l.done), failed: s(l.failed) });
+  }
+  return {
+    enabled: v === true || v === o && o.enabled !== false,
+    dir: expandHome(process.env.SL_RUNS_DIR || s(o.dir) || "~/.claude/runs"),
+    max: Math.max(1, Math.floor(nn(o.max, 4))),
+    staleAfter: nn(o.staleAfter, 900),
+    linger: nn(o.linger, 600),
+    metrics: o.metrics !== false,
+    maxMetrics: Math.floor(nn(o.maxMetrics, 4)),
+    logs
+  };
+}
 function loadConfig() {
   const nowMs = parseInt(env("SL_FRAME_MS", ""), 10) || Date.now();
   const clockMs = parseInt(env("SL_CLOCK_MS", ""), 10) || nowMs;
@@ -192,6 +217,7 @@ function loadConfig() {
     customSegment: jstr("customSegment", ""),
     event: false,
     tmuxPassthrough: jbool("tmuxPassthrough"),
+    runs: readRuns(J.runs),
     elements: jobj("elements"),
     glyphs: jobj("glyphs"),
     labels: jobj("labels"),
@@ -312,15 +338,16 @@ function termCols() {
 function justified(left, right) {
   if (stripAnsi(right).length === 0)
     return left;
-  let pad = termCols() - printLen(left) - printLen(right) - cfg.margin;
-  if (pad < 1)
-    pad = 1;
-  return left + " ".repeat(pad) + right;
+  let pad2 = termCols() - printLen(left) - printLen(right) - cfg.margin;
+  if (pad2 < 1)
+    pad2 = 1;
+  return left + " ".repeat(pad2) + right;
 }
 
 // src/cli.ts
-var fs3 = __toESM(require("fs"));
-var os3 = __toESM(require("os"));
+var fs5 = __toESM(require("fs"));
+var os4 = __toESM(require("os"));
+var path3 = __toESM(require("path"));
 var import_child_process3 = require("child_process");
 
 // src/themes.data.ts
@@ -662,14 +689,14 @@ function etaMinutes(samples, target, cur) {
     sy += y;
   }
   const mx = sx / n, my = sy / n;
-  let num = 0, den = 0;
+  let num2 = 0, den = 0;
   for (const [x, y] of pts) {
-    num += (x - mx) * (y - my);
+    num2 += (x - mx) * (y - my);
     den += (x - mx) * (x - mx);
   }
   if (den === 0)
     return -1;
-  const slope = num / den;
+  const slope = num2 / den;
   if (slope <= 0)
     return -1;
   const ms = (target - cur) / slope;
@@ -697,6 +724,479 @@ function weatherWord(pct, target) {
   return "clear";
 }
 
+// src/runs.ts
+var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
+var str = (v, cap = 120) => typeof v === "string" && v.trim() ? v.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, cap) : void 0;
+var STATUSES = /* @__PURE__ */ new Set(["running", "paused", "done", "failed"]);
+var GROUP_RANK = { train: 0, val: 1, eval: 2 };
+var MAX_METRICS = 24;
+function flattenMetrics(m) {
+  if (!m || typeof m !== "object" || Array.isArray(m))
+    return [];
+  const groups = Object.keys(m).map((g, i) => ({ g, i, r: GROUP_RANK[g] ?? 3 })).sort((a, b) => a.r - b.r || a.i - b.i);
+  const out = [];
+  for (const { g } of groups) {
+    const kv = m[g];
+    if (!kv || typeof kv !== "object" || Array.isArray(kv))
+      continue;
+    for (const [k, v] of Object.entries(kv)) {
+      const n = num(v);
+      if (n !== void 0 && out.length < MAX_METRICS)
+        out.push({ group: g.slice(0, 16), name: k.slice(0, 24), value: n });
+    }
+  }
+  return out;
+}
+function fractionOf(f) {
+  const clamp2 = (x) => Math.max(0, Math.min(1, x));
+  const p = num(f.percent);
+  if (p !== void 0)
+    return clamp2(p / 100);
+  for (const [c, t] of [[f.current, f.total], [f.step, f.steps], [f.epoch, f.epochs]]) {
+    const cn = num(c), tn = num(t);
+    if (cn !== void 0 && tn !== void 0 && tn > 0)
+      return clamp2(cn / tn);
+  }
+  return null;
+}
+function resolveRun(raw, key, mtimeMs, rules) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return null;
+  const f = raw;
+  const name = str(f.name, 64);
+  if (!name)
+    return null;
+  const given = typeof f.status === "string" ? f.status.toLowerCase() : "";
+  const frac = fractionOf(f);
+  const hasCount = [f.current, f.step, f.epoch].some((v) => num(v) !== void 0);
+  if (frac === null && !hasCount && !STATUSES.has(given))
+    return null;
+  const updated = num(f.updated) ?? mtimeMs;
+  const age = rules.now - updated;
+  let status = STATUSES.has(given) ? given : "running";
+  if (status === "done" || status === "failed") {
+    if (age > rules.lingerMs)
+      return null;
+  } else {
+    if (age > rules.staleAfterMs + rules.lingerMs)
+      return null;
+    const pid = num(f.pid);
+    if (status === "running" && pid !== void 0 && pid > 0 && !rules.alive(pid))
+      status = "stopped";
+    else if (status === "running" && age > rules.staleAfterMs)
+      status = "stale";
+  }
+  const st2 = f.stage && typeof f.stage === "object" ? f.stage : void 0;
+  const stCur = st2 ? num(st2.current) : void 0;
+  return {
+    key,
+    name,
+    status,
+    frac,
+    current: num(f.current),
+    total: num(f.total),
+    unit: str(f.unit, 16),
+    step: num(f.step),
+    steps: num(f.steps),
+    epoch: num(f.epoch),
+    epochs: num(f.epochs),
+    stage: st2 && stCur !== void 0 ? { current: stCur, total: num(st2.total), label: str(st2.label, 24) } : void 0,
+    metrics: flattenMetrics(f.metrics),
+    message: str(f.message),
+    started: num(f.started),
+    updated
+  };
+}
+var PRIO = { running: 0, stopped: 1, failed: 2, stale: 3, paused: 4, done: 5 };
+function pickRuns(runs, max) {
+  const ranked = runs.slice().sort((a, b) => PRIO[a.status] - PRIO[b.status] || b.updated - a.updated);
+  const shown = ranked.slice(0, Math.max(0, max)).sort((a, b) => (a.started ?? a.updated) - (b.started ?? b.updated) || a.name.localeCompare(b.name));
+  return { shown, more: Math.max(0, runs.length - shown.length) };
+}
+function parseLogTail(spec, tail) {
+  let re;
+  try {
+    re = new RegExp(spec.pattern, "g");
+  } catch {
+    return null;
+  }
+  const vals = {};
+  const metrics = {};
+  let hits = 0;
+  for (const m of tail.matchAll(re)) {
+    if (m[0] === "")
+      continue;
+    if (++hits > 5e3)
+      break;
+    for (const [g, v] of Object.entries(m.groups || {})) {
+      if (v === void 0)
+        continue;
+      const n = parseFloat(v);
+      if (!Number.isFinite(n))
+        continue;
+      const mm = /^metric_([A-Za-z0-9]+)_(\w+)$/.exec(g);
+      if (mm)
+        (metrics[mm[1]] || (metrics[mm[1]] = {}))[mm[2]] = n;
+      else
+        vals[g] = n;
+    }
+  }
+  const lastAt = (src) => {
+    if (!src)
+      return -1;
+    try {
+      let at = -1;
+      for (const m of tail.matchAll(new RegExp(src, "g"))) {
+        if (m[0] === "")
+          break;
+        at = m.index ?? at;
+      }
+      return at;
+    } catch {
+      return -1;
+    }
+  };
+  const d = lastAt(spec.done), x = lastAt(spec.failed);
+  const status = x > d ? "failed" : d > x ? "done" : void 0;
+  if (!hits && !status)
+    return null;
+  const f = { name: spec.name, unit: spec.unit, status };
+  if (vals.cur !== void 0) {
+    f.current = vals.cur;
+    f.total = vals.total ?? spec.total;
+  }
+  for (const k of ["step", "steps", "epoch", "epochs", "percent"])
+    if (vals[k] !== void 0)
+      f[k] = vals[k];
+  if (Object.keys(metrics).length)
+    f.metrics = metrics;
+  return f;
+}
+function fmtMetric(v) {
+  if (v === 0)
+    return "0";
+  const a = Math.abs(v);
+  if (a < 1e-3 || a >= 1e6)
+    return v.toExponential(2).replace(/\.?0+e/, "e").replace("e+", "e");
+  if (a >= 1e3)
+    return String(Math.round(v));
+  const s = v.toPrecision(4);
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
+function fmtCount(n) {
+  const a = Math.abs(n);
+  if (a < 1e3)
+    return String(Math.round(n * 100) / 100);
+  for (const [div, sfx] of [[1e9, "G"], [1e6, "M"], [1e3, "k"]]) {
+    if (a >= div * 0.9995) {
+      const s = (n / div).toPrecision(3);
+      return `${s.includes(".") ? s.replace(/\.?0+$/, "") : s}${sfx}`;
+    }
+  }
+  return String(n);
+}
+function fmtSpan(ms) {
+  const s = Math.max(0, Math.round(ms / 1e3));
+  if (s < 60)
+    return `${s}s`;
+  if (s < 3600)
+    return `${Math.floor(s / 60)}m`;
+  if (s < 86400) {
+    const m = Math.floor(s % 3600 / 60);
+    return `${Math.floor(s / 3600)}h${m ? `${m}m` : ""}`;
+  }
+  const h = Math.floor(s % 86400 / 3600);
+  return `${Math.floor(s / 86400)}d${h ? `${h}h` : ""}`;
+}
+function etaMs(run, now2, seen) {
+  if (run.status !== "running" || run.frac === null || run.frac <= 0 || run.frac >= 1)
+    return null;
+  let rem = null;
+  if (run.started !== void 0 && run.updated > run.started) {
+    const el = run.updated - run.started;
+    rem = el * (1 - run.frac) / run.frac;
+  } else if (seen && run.frac > seen.f && run.updated > seen.t) {
+    rem = (run.updated - seen.t) * (1 - run.frac) / (run.frac - seen.f);
+  }
+  if (rem === null)
+    return null;
+  return Math.max(0, rem - Math.max(0, now2 - run.updated));
+}
+function slug(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "run";
+}
+function parseRunArgs(argv) {
+  const [name, ...rest] = argv;
+  if (!name || name.startsWith("--"))
+    throw new Error("usage: --run <name> [current total] [--step N] [--metric train.loss=0.03] \u2026");
+  const patch = { name };
+  const n = (flag, v) => {
+    const x = Number(v);
+    if (v === void 0 || v === "" || !Number.isFinite(x))
+      throw new Error(`${flag} needs a number`);
+    return x;
+  };
+  const pos = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (!a.startsWith("--")) {
+      pos.push(n("current/total", a));
+      continue;
+    }
+    const v = rest[++i];
+    if (v === void 0)
+      throw new Error(`${a} needs a value`);
+    switch (a) {
+      case "--unit":
+        patch.unit = v;
+        break;
+      case "--status":
+        if (!STATUSES.has(v))
+          throw new Error("--status is one of running, done, failed, paused");
+        patch.status = v;
+        break;
+      case "--message":
+        patch.message = v;
+        break;
+      case "--step":
+        patch.step = n(a, v);
+        break;
+      case "--steps":
+        patch.steps = n(a, v);
+        break;
+      case "--epoch":
+        patch.epoch = n(a, v);
+        break;
+      case "--epochs":
+        patch.epochs = n(a, v);
+        break;
+      case "--percent":
+        patch.percent = n(a, v);
+        break;
+      case "--pid":
+        patch.pid = n(a, v);
+        break;
+      case "--stage": {
+        const m = /^(\d+(?:\.\d+)?)(?:\/(\d+(?:\.\d+)?))?(?::(.+))?$/.exec(v);
+        if (!m)
+          throw new Error("--stage takes N/M[:label]");
+        patch.stage = { current: +m[1], total: m[2] ? +m[2] : void 0, label: m[3] };
+        break;
+      }
+      case "--metric": {
+        const m = /^([A-Za-z0-9_-]+)\.([^=]+)=(.+)$/.exec(v);
+        if (!m)
+          throw new Error("--metric takes group.name=value");
+        const g = patch.metrics || (patch.metrics = {});
+        (g[m[1]] || (g[m[1]] = {}))[m[2]] = n(a, m[3]);
+        break;
+      }
+      default:
+        throw new Error(`unknown flag ${a}`);
+    }
+  }
+  if (pos.length === 1)
+    patch.current = pos[0];
+  else if (pos.length >= 2) {
+    patch.current = pos[0];
+    patch.total = pos[1];
+  }
+  return patch;
+}
+function mergeRun(prev, patch, now2) {
+  let base = prev && typeof prev === "object" ? prev : {};
+  const finished = (s) => s === "done" || s === "failed";
+  if (finished(base.status) && !finished(patch.status))
+    base = {};
+  const out = { ...base, ...patch, v: 1 };
+  if (base.metrics || patch.metrics) {
+    const m = {};
+    for (const src of [base.metrics, patch.metrics]) {
+      if (!src || typeof src !== "object")
+        continue;
+      for (const [g, kv] of Object.entries(src))
+        if (kv && typeof kv === "object")
+          m[g] = { ...m[g] || {}, ...kv };
+    }
+    out.metrics = m;
+  }
+  out.started = num(base.started) ?? now2;
+  out.updated = now2;
+  if (!out.status)
+    out.status = "running";
+  return out;
+}
+
+// src/io/runs.ts
+var fs4 = __toESM(require("fs"));
+var os3 = __toESM(require("os"));
+var path2 = __toESM(require("path"));
+
+// src/io/input.ts
+var fs3 = __toESM(require("fs"));
+function readInput() {
+  let input = "";
+  try {
+    input = fs3.readFileSync(0, "utf8");
+  } catch {
+  }
+  try {
+    return JSON.parse(input) || {};
+  } catch {
+    return {};
+  }
+}
+function readTail(file, maxBytes) {
+  let fd = -1;
+  try {
+    fd = fs3.openSync(file, "r");
+    const size = fs3.fstatSync(fd).size;
+    const len = Math.min(size, maxBytes);
+    const buf = Buffer.alloc(len);
+    fs3.readSync(fd, buf, 0, len, size - len);
+    let s = buf.toString("utf8");
+    if (size > maxBytes) {
+      const nl = s.indexOf("\n");
+      s = nl >= 0 ? s.slice(nl + 1) : "";
+    }
+    return s;
+  } catch {
+    return "";
+  } finally {
+    if (fd >= 0)
+      try {
+        fs3.closeSync(fd);
+      } catch {
+      }
+  }
+}
+
+// src/io/runs.ts
+var MAX_NAMES = 256;
+var MAX_FILES = 32;
+var MAX_FILE_BYTES = 16384;
+var LOG_TAIL_BYTES = 65536;
+var CACHE = path2.join(os3.tmpdir(), "claude-statusline", "runs.json");
+var CACHE_CAP = 32;
+var CACHE_METRICS = 16;
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+function readRuns2(rc, now2, alive = pidAlive) {
+  const rules = { now: now2, staleAfterMs: rc.staleAfter * 1e3, lingerMs: rc.linger * 1e3, alive };
+  const out = [];
+  let names = [];
+  try {
+    names = fs4.readdirSync(rc.dir).filter((n) => n.endsWith(".json") && !n.startsWith(".")).slice(0, MAX_NAMES);
+  } catch {
+  }
+  const files = [];
+  for (const n of names) {
+    const p = path2.join(rc.dir, n);
+    try {
+      const s = fs4.statSync(p);
+      if (s.isFile())
+        files.push({ p, n, mtime: s.mtimeMs, size: s.size });
+    } catch {
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+  for (const f of files.slice(0, MAX_FILES)) {
+    if (f.size > MAX_FILE_BYTES)
+      continue;
+    try {
+      const r = resolveRun(JSON.parse(fs4.readFileSync(f.p, "utf8")), f.n, f.mtime, rules);
+      if (r)
+        out.push(r);
+    } catch {
+    }
+  }
+  for (const spec of rc.logs) {
+    try {
+      const mtime = fs4.statSync(spec.log).mtimeMs;
+      const raw = parseLogTail(spec, readTail(spec.log, LOG_TAIL_BYTES));
+      const r = raw && resolveRun(raw, `log:${spec.name}`, mtime, rules);
+      if (r)
+        out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function readRunCache() {
+  try {
+    const c = JSON.parse(fs4.readFileSync(CACHE, "utf8"));
+    return c && typeof c === "object" ? c : {};
+  } catch {
+    return {};
+  }
+}
+function updateRunCache(cache, runs, now2) {
+  let changed = false;
+  for (const r of runs) {
+    const f = r.frac ?? 0;
+    let e = cache[r.key];
+    if (!e || f < e.f) {
+      e = cache[r.key] = { t: r.updated, f, seen: now2 };
+      changed = true;
+    }
+    if (now2 - e.seen > 6e4) {
+      e.seen = now2;
+      changed = true;
+    }
+    for (const mt of r.metrics.slice(0, CACHE_METRICS)) {
+      const k = `${mt.group}.${mt.name}`;
+      const m = e.m || (e.m = {});
+      const prev = m[k];
+      if (!prev) {
+        m[k] = [mt.value, mt.value];
+        changed = true;
+      } else if (prev[0] !== mt.value) {
+        m[k] = [mt.value, prev[0]];
+        changed = true;
+      }
+    }
+  }
+  const keys = Object.keys(cache);
+  if (keys.length > CACHE_CAP) {
+    keys.sort((a, b) => cache[a].seen - cache[b].seen);
+    for (const k of keys.slice(0, keys.length - CACHE_CAP))
+      delete cache[k];
+    changed = true;
+  }
+  return changed;
+}
+function writeRunCache(cache) {
+  writeJsonAtomic(CACHE, cache);
+}
+function writeJsonAtomic(file, data) {
+  fs4.mkdirSync(path2.dirname(file), { recursive: true });
+  const tmp = path2.join(path2.dirname(file), `.${path2.basename(file)}.${process.pid}.tmp`);
+  fs4.writeFileSync(tmp, JSON.stringify(data, null, 1));
+  try {
+    fs4.renameSync(tmp, file);
+  } catch {
+    fs4.writeFileSync(file, JSON.stringify(data, null, 1));
+    try {
+      fs4.unlinkSync(tmp);
+    } catch {
+    }
+  }
+}
+function readRunFile(file) {
+  try {
+    const j = JSON.parse(fs4.readFileSync(file, "utf8"));
+    return j && typeof j === "object" && !Array.isArray(j) ? j : null;
+  } catch {
+    return null;
+  }
+}
+
 // src/cli.ts
 var SAMPLE = JSON.stringify({
   session_id: "preview",
@@ -720,13 +1220,13 @@ function renderBar(env2) {
   }
 }
 function runPreview() {
-  const pad = (s) => (s + " ".repeat(22)).slice(0, 22);
+  const pad2 = (s) => (s + " ".repeat(22)).slice(0, 22);
   const section = (title, rows) => {
     process.stdout.write(`
 ${BOLD}${title}${R}
 `);
     for (const [label, env2] of rows)
-      process.stdout.write(`  ${DIM}${pad(label)}${R} ${renderBar(env2)}
+      process.stdout.write(`  ${DIM}${pad2(label)}${R} ${renderBar(env2)}
 `);
   };
   section("Themes (SL_THEME)", Object.keys(THEMES_DATA).map((t) => [t, { SL_THEME: t }]));
@@ -757,17 +1257,30 @@ function runDoctor() {
   line("git", gitVer ? `${ok(true)} ${gitVer}` : `${ok(false)} not found`);
   line("git mode", `${DIM}cached + background refresh (off the hot path; refreshInterval-safe)${R}`);
   line("NO_COLOR", process.env.NO_COLOR ? "set (forces mono)" : "unset");
-  const cfgPath = process.env.SL_CONFIG || `${os3.homedir()}/.claude/statusline.json`;
+  const cfgPath = process.env.SL_CONFIG || `${os4.homedir()}/.claude/statusline.json`;
   let cfgFound = false;
   try {
-    cfgFound = fs3.existsSync(cfgPath);
+    cfgFound = fs5.existsSync(cfgPath);
   } catch {
   }
   line("config", `${ok(cfgFound)} ${DIM}${cfgPath}${cfgFound ? "" : " (using defaults)"}${R}`);
   line("theme", cfg.themeName);
   line("layout", cfg.layout);
+  if (cfg.runs.enabled) {
+    let n = 0;
+    try {
+      n = readRuns2(cfg.runs, cfg.nowMs).length;
+    } catch {
+    }
+    let found = false;
+    try {
+      found = fs5.existsSync(cfg.runs.dir);
+    } catch {
+    }
+    line("runs", `${ok(found)} ${DIM}${cfg.runs.dir}${found ? "" : " (missing \u2014 created by the first --run)"}${R} \xB7 ${n} active` + (cfg.runs.logs.length ? ` ${DIM}(+${cfg.runs.logs.length} log spec${cfg.runs.logs.length > 1 ? "s" : ""})${R}` : ""));
+  }
   const warn = [];
-  const legacy = Object.keys(process.env).filter((k) => /^SL_/.test(k) && !["SL_CONFIG", "SL_FRAME_MS", "SL_CLOCK_MS", "SL_COLOR_MODE"].includes(k));
+  const legacy = Object.keys(process.env).filter((k) => /^SL_/.test(k) && !["SL_CONFIG", "SL_FRAME_MS", "SL_CLOCK_MS", "SL_COLOR_MODE", "SL_RUNS_DIR"].includes(k));
   if (legacy.length)
     warn.push(`Legacy ${legacy.join(", ")} ${legacy.length > 1 ? "are" : "is"} ignored \u2014 config moved to JSON. Run \`statusline.js --migrate\` to convert.`);
   if (cfg.colorMode === "mono" && cfg.shimmer === "disco")
@@ -878,49 +1391,32 @@ function runReport() {
   line("peak context", `${Math.max(...hist.map((h) => h.ctx))}%`);
   process.stdout.write("\n");
 }
-
-// src/io/input.ts
-var fs4 = __toESM(require("fs"));
-function readInput() {
-  let input = "";
+function runRun(argv) {
   try {
-    input = fs4.readFileSync(0, "utf8");
-  } catch {
-  }
-  try {
-    return JSON.parse(input) || {};
-  } catch {
-    return {};
+    const patch = parseRunArgs(argv);
+    const file = path3.join(cfg.runs.dir, `${slug(patch.name)}.json`);
+    writeJsonAtomic(file, mergeRun(readRunFile(file), patch, cfg.nowMs));
+  } catch (e) {
+    process.stderr.write(`claude-statusline --run: ${e.message}
+`);
+    process.exitCode = 2;
   }
 }
-function readTail(file, maxBytes) {
-  let fd = -1;
+function runRunClear(argv) {
+  if (!argv[0]) {
+    process.stderr.write("usage: --run-clear <name>\n");
+    process.exitCode = 2;
+    return;
+  }
   try {
-    fd = fs4.openSync(file, "r");
-    const size = fs4.fstatSync(fd).size;
-    const len = Math.min(size, maxBytes);
-    const buf = Buffer.alloc(len);
-    fs4.readSync(fd, buf, 0, len, size - len);
-    let s = buf.toString("utf8");
-    if (size > maxBytes) {
-      const nl = s.indexOf("\n");
-      s = nl >= 0 ? s.slice(nl + 1) : "";
-    }
-    return s;
+    fs5.unlinkSync(path3.join(cfg.runs.dir, `${slug(argv[0])}.json`));
   } catch {
-    return "";
-  } finally {
-    if (fd >= 0)
-      try {
-        fs4.closeSync(fd);
-      } catch {
-      }
   }
 }
 
 // src/io/gitcache.ts
-var fs5 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var fs6 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
 function readGit(CWD, gc) {
   const branch = gc(["rev-parse", "--abbrev-ref", "HEAD"]);
   const g = {
@@ -948,13 +1444,13 @@ function readGit(CWD, gc) {
     try {
       let gd = gc(["rev-parse", "--git-dir"]);
       if (gd) {
-        if (!path2.isAbsolute(gd))
-          gd = path2.join(CWD, gd);
-        if (fs5.existsSync(path2.join(gd, "MERGE_HEAD")))
+        if (!path4.isAbsolute(gd))
+          gd = path4.join(CWD, gd);
+        if (fs6.existsSync(path4.join(gd, "MERGE_HEAD")))
           g.state = "merge";
-        else if (fs5.existsSync(path2.join(gd, "rebase-merge")) || fs5.existsSync(path2.join(gd, "rebase-apply")))
+        else if (fs6.existsSync(path4.join(gd, "rebase-merge")) || fs6.existsSync(path4.join(gd, "rebase-apply")))
           g.state = "rebase";
-        else if (fs5.existsSync(path2.join(gd, "CHERRY_PICK_HEAD")))
+        else if (fs6.existsSync(path4.join(gd, "CHERRY_PICK_HEAD")))
           g.state = "cherry";
       }
     } catch {
@@ -1017,12 +1513,12 @@ function refreshGitCache(data) {
 }
 
 // src/build.ts
-var os7 = __toESM(require("os"));
+var os8 = __toESM(require("os"));
 var import_child_process5 = require("child_process");
 
 // src/themes.ts
-var fs6 = __toESM(require("fs"));
-var os4 = __toESM(require("os"));
+var fs7 = __toESM(require("fs"));
+var os5 = __toESM(require("os"));
 
 // src/color.ts
 function hsv(h, s, v) {
@@ -1234,9 +1730,9 @@ function loadCustom() {
   } catch {
   }
   try {
-    const p = cfg.themeFile || `${os4.homedir()}/.claude/statusline-theme.json`;
-    if (fs6.existsSync(p)) {
-      const d = coerceThemeData(JSON.parse(fs6.readFileSync(p, "utf8")));
+    const p = cfg.themeFile || `${os5.homedir()}/.claude/statusline-theme.json`;
+    if (fs7.existsSync(p)) {
+      const d = coerceThemeData(JSON.parse(fs7.readFileSync(p, "utf8")));
       if (d)
         return buildTheme(d);
     }
@@ -1789,7 +2285,16 @@ var ELEMENT_DEFAULTS = {
   "separator": { fill: "muted" },
   "warning": { fill: "bad", weight: "bold" },
   "activity": { fill: "muted" },
-  "conversation": { fill: "muted" }
+  "conversation": { fill: "muted" },
+  "run.name": { fill: "accent" },
+  "run.pct": { fill: "gradient" },
+  "run.count": { fill: "muted" },
+  "run.eta": { fill: "muted" },
+  "run.metric": { fill: "muted" },
+  "run.value": { fill: "fg" },
+  "run.status": { fill: "muted" },
+  "run.message": { fill: "muted" },
+  "run.more": { fill: "muted" }
 };
 
 // src/style.ts
@@ -1848,11 +2353,11 @@ function st(id, text, opts = {}) {
 }
 
 // src/io/settings.ts
-var fs7 = __toESM(require("fs"));
-var os5 = __toESM(require("os"));
+var fs8 = __toESM(require("fs"));
+var os6 = __toESM(require("os"));
 function readAccountName() {
   try {
-    const cj = JSON.parse(fs7.readFileSync(`${os5.homedir()}/.claude.json`, "utf8"));
+    const cj = JSON.parse(fs8.readFileSync(`${os6.homedir()}/.claude.json`, "utf8"));
     return cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
   } catch {
     return "";
@@ -1861,7 +2366,7 @@ function readAccountName() {
 function readAutocompact() {
   let pct = "", off = false;
   try {
-    const s = JSON.parse(fs7.readFileSync(`${os5.homedir()}/.claude/settings.json`, "utf8"));
+    const s = JSON.parse(fs8.readFileSync(`${os6.homedir()}/.claude/settings.json`, "utf8"));
     if (s.env && s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
       pct = String(s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
     if (s.autoCompactEnabled === false || s.autoCompact === false)
@@ -1917,7 +2422,7 @@ function persistTick(data, CWD, PCT, COST, DURATION_MS) {
 }
 
 // src/segments/path.ts
-var os6 = __toESM(require("os"));
+var os7 = __toESM(require("os"));
 function displayPath(cwd) {
   if (!cwd)
     return cwd;
@@ -1936,7 +2441,7 @@ function displayPath(cwd) {
   }
   if (cfg.path === "full")
     return p;
-  const home = os6.homedir();
+  const home = os7.homedir();
   if (home && (p === home || p.startsWith(home + "/")))
     p = "~" + p.slice(home.length);
   const parts = p.split("/").filter(Boolean);
@@ -2285,13 +2790,13 @@ function buildCustom(data) {
 }
 
 // src/segments/lastfile.ts
-var fs8 = __toESM(require("fs"));
+var fs9 = __toESM(require("fs"));
 var TAIL_BYTES = 262144;
 var MAX_LINES = 80;
 function buildLastFile(TRANSCRIPT) {
   let LAST_FILE = "";
   try {
-    if (TRANSCRIPT && fs8.existsSync(TRANSCRIPT)) {
+    if (TRANSCRIPT && fs9.existsSync(TRANSCRIPT)) {
       const lines = readTail(TRANSCRIPT, TAIL_BYTES).split("\n").filter(Boolean).slice(-MAX_LINES);
       const re = /write|edit|read|str_replace|create/i;
       for (const line of lines) {
@@ -2336,11 +2841,11 @@ function buildWarning(PCT, COST, rl, limitCrit) {
 }
 
 // src/segments/activity.ts
-var fs9 = __toESM(require("fs"));
+var fs10 = __toESM(require("fs"));
 function buildActivity(TRANSCRIPT) {
   let tool = "", target = "";
   try {
-    if (TRANSCRIPT && fs9.existsSync(TRANSCRIPT)) {
+    if (TRANSCRIPT && fs10.existsSync(TRANSCRIPT)) {
       const lines = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
       for (const line of lines) {
         let ev;
@@ -2377,6 +2882,122 @@ function buildConversation(cu) {
   if (total === 0)
     return "";
   return st("conversation", `last turn  ${txt("\u2193")}${fmtK(inT)} ${txt("\u2191")}${fmtK(outT)}  \xB7  ${fmtK(total)} tok`);
+}
+
+// src/segments/runs.ts
+var GLYPH = { running: "\u25B8", paused: "\u25E6", done: "\u2713", failed: "\u2717", stopped: "\u2717", stale: "\u25CC" };
+var ROLE = { running: "accent", paused: "muted", done: "ok", failed: "bad", stopped: "bad", stale: "muted" };
+var NAME_MAX = 24;
+var clip = (s, w) => {
+  const a = Array.from(s);
+  return a.length <= w ? s : w <= 1 ? a.slice(0, w).join("") : `${a.slice(0, w - 1).join("")}\u2026`;
+};
+var pad = (s, w) => s + " ".repeat(Math.max(0, w - Array.from(s).length));
+function flatBar(w, filled, colour) {
+  const lit = drawBar(filled, filled, -1).replace(/\x1b\[[0-9;]*m/g, (m) => m === R ? R : colour).replace(/▌/g, "\u2588");
+  return lit + drawBar(w - filled, 0, -1);
+}
+function bandBar(w, phase) {
+  const band = Math.min(4, w);
+  const span = w - band;
+  const step = mod(idiv(cfg.nowMs + phase, 250), Math.max(1, span * 2));
+  const at = step <= span ? step : span * 2 - step;
+  return drawBar(at, 0, -1) + drawBar(band, band, -1, phase) + drawBar(w - band - at, 0, -1);
+}
+function lineFor(r, idx, nameW, o) {
+  const role = ROLE[r.status];
+  const quiet = r.status !== "running" && r.status !== "done";
+  const frac = r.frac ?? (r.status === "done" ? 1 : null);
+  const age = Math.max(0, o.now - r.updated);
+  const phase = idx * 700;
+  const counts = [];
+  if (r.current !== void 0)
+    counts.push(`${fmtCount(r.current)}${r.total !== void 0 ? `/${fmtCount(r.total)}` : ""}${r.unit ? ` ${r.unit}` : ""}`);
+  if (r.step !== void 0)
+    counts.push(`step ${fmtCount(r.step)}${r.steps !== void 0 ? `/${fmtCount(r.steps)}` : ""}`);
+  if (r.epoch !== void 0)
+    counts.push(`ep ${fmtCount(r.epoch)}${r.epochs !== void 0 ? `/${fmtCount(r.epochs)}` : ""}`);
+  const segs = [];
+  if (counts.length)
+    segs.push({ text: st("run.count", counts.join("  ")), prio: 7 });
+  if (r.stage) {
+    const s = r.stage;
+    segs.push({ text: st("run.count", `${s.label || "stage"} ${fmtCount(s.current)}${s.total !== void 0 ? `/${fmtCount(s.total)}` : ""}`), prio: 4 });
+  }
+  const eta = etaMs(r, o.now, o.cache && o.cache[r.key]);
+  if (eta !== null)
+    segs.push({ text: st("run.eta", `eta ${fmtSpan(eta)}`), prio: 5 });
+  if (o.metrics && o.maxMetrics > 0) {
+    const ms = r.metrics.slice(0, o.maxMetrics);
+    const groups = [];
+    for (const m of ms)
+      if (!groups.includes(m.group))
+        groups.push(m.group);
+    const prioOf = (g) => g === "train" ? 6 : g === "val" ? 3 : g === "eval" ? 2 : 1;
+    for (const g of groups) {
+      const body = ms.filter((m) => m.group === g).map((m) => {
+        const seen = o.cache && o.cache[r.key] && o.cache[r.key].m && o.cache[r.key].m[`${m.group}.${m.name}`];
+        const arrow = seen && seen[0] === m.value && seen[1] !== m.value ? m.value < seen[1] ? "\u2193" : "\u2191" : "";
+        return `${st("run.metric", m.name)} ${st("run.value", fmtMetric(m.value))}${arrow ? st("run.metric", arrow) : ""}`;
+      }).join(" ");
+      segs.push({ text: `${st("run.metric", g)} ${body}`, prio: prioOf(g), metric: true });
+    }
+  }
+  const word = r.status === "stale" ? `stale ${fmtSpan(age)}` : r.status === "stopped" ? "stopped?" : r.status === "done" || r.status === "failed" ? `${r.status} ${fmtSpan(age)} ago` : r.status === "paused" ? "paused" : "";
+  const tail = r.message || (r.status === "running" && age >= 6e4 ? `${fmtSpan(age)} ago` : "");
+  const build2 = (nw2, bw, keep2, tailW) => {
+    let bar = "";
+    const filled = frac === null ? 0 : Math.floor(frac * bw + 1e-9);
+    if (frac !== null)
+      bar = quiet ? flatBar(bw, filled, ROLES[role]) : drawBar(bw, filled, -1, phase);
+    else if (cfg.shimmer !== "off" && r.status === "running")
+      bar = bandBar(bw, phase);
+    let s = `${st("run.name", GLYPH[r.status], { role })} ${st("run.name", pad(clip(r.name, nw2), nw2), { role, weight: quiet ? "dim" : void 0 })}`;
+    if (bar)
+      s += `  ${bar}`;
+    if (frac !== null)
+      s += ` ${st("run.pct", pad(`${Math.floor(frac * 100)}%`, 4), quiet ? { role } : { pct: frac * 100 })}`;
+    keep2.forEach((g, i) => {
+      s += (g.metric && keep2[i - 1] && keep2[i - 1].metric ? st("run.metric", " \xB7 ") : "  ") + g.text;
+    });
+    if (word)
+      s += `  ${st("run.status", word, { role })}`;
+    if (tail && tailW > 0)
+      s += `  ${st("run.message", clip(tail, tailW))}`;
+    return s;
+  };
+  let barW = o.cols >= 110 ? 20 : o.cols >= 80 ? 14 : 10;
+  let nw = nameW;
+  const keep = segs.slice();
+  while (keep.length && printLen(build2(nw, barW, keep, 0)) > o.cols) {
+    let lo = 0;
+    keep.forEach((g, i) => {
+      if (g.prio < keep[lo].prio)
+        lo = i;
+    });
+    keep.splice(lo, 1);
+  }
+  let over = printLen(build2(nw, barW, keep, 0)) - o.cols;
+  if (over > 0) {
+    const cut = Math.min(over, nw - 6);
+    if (cut > 0)
+      nw -= cut;
+    over -= Math.max(0, cut);
+  }
+  if (over > 0)
+    barW = Math.max(6, barW - over);
+  const room = o.cols - printLen(build2(nw, barW, keep, 0)) - 2;
+  return build2(nw, barW, keep, tail && room >= 6 ? room : 0);
+}
+function buildRuns(runs, o) {
+  if (!runs.length)
+    return [];
+  const { shown, more } = pickRuns(runs, o.max);
+  const nameW = Math.min(NAME_MAX, Math.max(...shown.map((r) => Array.from(r.name).length)));
+  const lines = shown.map((r, i) => lineFor(r, i, nameW, o));
+  if (more)
+    lines.push(st("run.more", `+${more} more run${more > 1 ? "s" : ""}`));
+  return lines;
 }
 
 // src/render/recolor.ts
@@ -2458,11 +3079,11 @@ function assembleLayout(p, sh, override) {
         const b = body.trim();
         return b ? `${MUT}[${lbl}${R}${b}${MUT}]${R}` : "";
       };
-      const join3 = (...xs) => xs.filter((x) => x).join(" ");
+      const join5 = (...xs) => xs.filter((x) => x).join(" ");
       return [
-        join3(sect("", p.LEAD), sect("model: ", p.MODEL_DISPLAY), sect("", p.CLOCK_SEG)),
-        join3(sect("ctx: ", `${p.BAR} ${p.PCT_SEG}`), sect("", p.USAGE_SEG)),
-        join3(sect("", p.DIR_SEG), sect("git: ", p.GIT_SEG), sect("", p.NAME), sect("cost: ", p.COST_SEG), sect("age: ", p.AGE_SEG))
+        join5(sect("", p.LEAD), sect("model: ", p.MODEL_DISPLAY), sect("", p.CLOCK_SEG)),
+        join5(sect("ctx: ", `${p.BAR} ${p.PCT_SEG}`), sect("", p.USAGE_SEG)),
+        join5(sect("", p.DIR_SEG), sect("git: ", p.GIT_SEG), sect("", p.NAME), sect("cost: ", p.COST_SEG), sect("age: ", p.AGE_SEG))
       ].filter((l) => l);
     }
     default:
@@ -2487,8 +3108,8 @@ function applyFrame(lines, mode) {
     return out;
   }
   if (mode === "box") {
-    const pad = (l) => `${m}\u2502${R}${l}${" ".repeat(Math.max(0, w - printLen(l)))}${m}\u2502${R}`;
-    return [`${m}\u250C${"\u2500".repeat(w)}\u2510${R}`, ...lines.map(pad), `${m}\u2514${"\u2500".repeat(w)}\u2518${R}`];
+    const pad2 = (l) => `${m}\u2502${R}${l}${" ".repeat(Math.max(0, w - printLen(l)))}${m}\u2502${R}`;
+    return [`${m}\u250C${"\u2500".repeat(w)}\u2510${R}`, ...lines.map(pad2), `${m}\u2514${"\u2500".repeat(w)}\u2518${R}`];
   }
   return lines;
 }
@@ -2545,7 +3166,7 @@ function build() {
   const SEP = cfg.separator ? ` ${st("separator", cfg.separator)} ` : "  ";
   let SYS_SEG = "";
   if (cfg.sysinfo) {
-    const la = os7.loadavg()[0];
+    const la = os8.loadavg()[0];
     if (la > 0)
       SYS_SEG = `${st("sysinfo", `\u21AF${la.toFixed(2)}`)} `;
   }
@@ -2623,6 +3244,26 @@ function build() {
   }
   if (cfg.frame)
     lines = applyFrame(lines, cfg.frame);
+  let runLines = [];
+  if (cfg.runs.enabled) {
+    try {
+      const runs = readRuns2(cfg.runs, cfg.nowMs);
+      if (runs.length) {
+        const cache = readRunCache();
+        if (updateRunCache(cache, runs, cfg.nowMs))
+          writeRunCache(cache);
+        runLines = buildRuns(runs, {
+          cols: termCols() - cfg.margin,
+          max: cfg.runs.max,
+          metrics: cfg.runs.metrics,
+          maxMetrics: cfg.runs.maxMetrics,
+          now: cfg.nowMs,
+          cache
+        });
+      }
+    } catch {
+    }
+  }
   if (kickRefresh) {
     try {
       const child = (0, import_child_process5.spawn)(process.execPath, [__filename, "--git-refresh"], {
@@ -2641,7 +3282,7 @@ function build() {
     } catch {
     }
   }
-  return BELL + lines.join("\n") + "\n";
+  return BELL + [...runLines, ...lines].join("\n") + "\n";
 }
 
 // src/index.ts
@@ -2654,10 +3295,14 @@ else if (cliArg === "--report")
   runReport();
 else if (cliArg === "--migrate")
   runMigrate();
+else if (cliArg === "--run")
+  runRun(process.argv.slice(3));
+else if (cliArg === "--run-clear")
+  runRunClear(process.argv.slice(3));
 else if (cliArg === "--git-refresh") {
   refreshGitCache(readInput());
 } else if (cliArg && cliArg.startsWith("-")) {
-  process.stdout.write("claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active config, and conflicts\n  --report    summarise cross-session usage history\n  --migrate   translate a legacy SL_* env block to JSON config (on stdout)\n  --help      this message\n\nConfigure via ~/.claude/statusline.json (or $SL_CONFIG) \u2014 see the README.\n");
+  process.stdout.write('claude-statusline \u2014 a statusline command for Claude Code.\n\nUsage: reads Claude Code JSON on stdin and prints the statusline.\n\nCommands:\n  --preview   render every theme / bar style / shimmer\n  --doctor    report terminal capabilities, active config, and conflicts\n  --report    summarise cross-session usage history\n  --migrate   translate a legacy SL_* env block to JSON config (on stdout)\n  --run <name> [current total] [--step N --steps N --epoch N --epochs N --percent P\n              --metric group.name=V --stage N/M[:label] --unit U --status S --message M --pid N]\n              write/update a run-progress file (see "Run progress" in the README)\n  --run-clear <name>  remove a run-progress file\n  --help      this message\n\nConfigure via ~/.claude/statusline.json (or $SL_CONFIG) \u2014 see the README.\n');
 } else {
   try {
     const out = build();

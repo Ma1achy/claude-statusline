@@ -21,6 +21,9 @@ pick its own colour, weight, capitalisation, font, and animation. All opt-in —
 - **Line 1** — model + tier, effort/thinking, fast & vim mode, moon phase, the clock.
 - **Line 2** — the context bar (truecolor gradient, half-block sub-sampling), %, token breakdown, and your 5h / 7d usage gauges.
 - **Line 3** — working dir, full git status, your account name, session cost & age.
+- **Run bars** *(opt-in)* — a progress bar per long-running job (training runs, evals, pulls), with
+  step/epoch, ETA and train/val/eval metrics, stacked above the three lines while anything is going.
+  See [Run progress](#run-progress).
 
 ---
 
@@ -190,6 +193,7 @@ Flip any of these on (all default off):
 | `activityLine` | the last tool + target from the transcript (`↳ edit bar.ts`) |
 | `conversationLine` | the last turn's token split + session total |
 | `adaptive` | layout follows context fill — compact when low, dashboard when high, auto-⚠ at critical |
+| `runs` | progress bars for long-running jobs, above the status line — see [Run progress](#run-progress) |
 
 Each opt-in extra, shown on its own:
 
@@ -222,6 +226,176 @@ only when context/cost/a limit goes critical (and `adaptive` does it for you):
 
 <p align="center"><img src="assets/demo-frames.gif" width="100%" /></p>
 <p align="center"><img src="assets/demo-warning.gif" width="100%" /></p>
+
+### Run progress
+
+Got a training run, an eval sweep, or a big download going? Have it drop a small JSON file in
+`~/.claude/runs/` and the status line grows a bar for it — above the usual three lines, one per run,
+and gone again when nothing's running.
+
+<p align="center"><img src="assets/demo-runs.gif" width="100%" /></p>
+
+```
+▸ SAE b11×8      ▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌░░░ 85%   step 86.8k/101k  ep 7/8  eta 25m  train loss 0.0734↓ · val loss 0.0858↓
+✓ corpus pull    ▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌ 100%  1k/1k chunks  done 3s ago
+▸ probe eval     ▌▌▌▌▌▌▌▌▌▌▌▌▌▌░░░░░░ 74%   744/1k gal  fold 3/5  eta 6m  eval auc 0.902↑
+⚡ [Opus 4.8]                                                                      Thu 05 Jun  16:03:00
+▌▌▌▌▌▌▌▌▌▌▌▌▌┃░░░░░░░░░░░░░░  46% |40%  200k  ✦97%   5h ▌▌▌▌▌▌░░░░ 63%   7d ▌▌▌░░░░░░░ 38%
+/tmp/demo/principia  ⎇ feat/statusline  +124/-18  ~1                        Malachy  $0.230  31m
+```
+
+Turn it on with `"runs": true`, or tune it:
+
+```json
+{
+  "runs": {
+    "dir": "~/.claude/runs",
+    "max": 4,
+    "staleAfter": 900,
+    "linger": 600,
+    "metrics": true,
+    "maxMetrics": 4,
+    "logs": []
+  }
+}
+```
+
+| Key | Default | Does |
+|-----|---------|------|
+| `dir` | `~/.claude/runs` | where progress files live (`$SL_RUNS_DIR` overrides it) |
+| `max` | `4` | most bars shown; the rest collapse into a `+N more runs` line (live runs win the slots) |
+| `staleAfter` | `900` | seconds without an update before a running job shows as `stale` (dimmed) |
+| `linger` | `600` | seconds a finished / failed / stale run stays visible before it's hidden |
+| `metrics` | `true` | show the `metrics` groups after the bar |
+| `maxMetrics` | `4` | most metric values shown per run |
+| `logs` | `[]` | log-tail specs for jobs that don't write progress files (below) |
+
+Each run gets a status glyph: `▸` running, `◦` paused, `✓` done, `✗` failed — or `stopped?` when it
+said it was running but its `pid` has gone away — and `◌ stale 12m` when it's gone quiet. Lines are
+width-aware: when space runs short the least useful pieces go first (other metric groups, then
+`eval`, `val`, the stage, the ETA, `train`), the message is truncated, and only then do the name and
+bar shrink. Nothing ever wraps.
+
+<p align="center"><img src="assets/demo-runs-states.gif" width="100%" /></p>
+
+#### The run progress API (format v1)
+
+One JSON file per run, any name ending in `.json`. Write it **atomically** (to a temp file, then
+rename) so the status line never reads half a file. Everything is optional except `name` and some
+measure of progress; unknown fields are ignored, so the format can grow without breaking anything.
+
+```json
+{ "v": 1, "name": "A1 SAE b11×8", "status": "running",
+  "step": 41200, "steps": 101308, "epoch": 6, "epochs": 8,
+  "metrics": { "train": { "loss": 0.0353, "nmse": 0.035 }, "val": { "loss": 0.041 }, "eval": { "auc": 0.912 } },
+  "stage": { "current": 12, "total": 56, "label": "chain step" },
+  "message": "warming up", "started": 1791630000000, "updated": 1791630196688, "pid": 12345 }
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `v` | number | format version (currently `1`) |
+| `name` | string | **required** — the label on the bar |
+| `status` | string | `running` (default) · `paused` · `done` · `failed` |
+| `current`, `total`, `unit` | number, number, string | a generic counter: `230/1k gal` |
+| `step`, `steps` | number | step counter: `step 41.2k/101k` |
+| `epoch`, `epochs` | number | epoch counter: `ep 6/8` |
+| `percent` | number | explicit 0–100; wins over every derived fraction |
+| `metrics` | object | `{ group: { name: number } }` — `train`, `val`, `eval` are shown in that order, other groups after |
+| `stage` | object | an outer progress `{ current, total, label }`: `chain step 12/56` |
+| `message` | string | short free text, shown last (truncated to fit) |
+| `started` | epoch ms | when it began — gives the ETA |
+| `updated` | epoch ms | last progress; defaults to the file's mtime |
+| `pid` | number | the job's process; if it's gone while `running`, the bar says `stopped?` |
+
+The bar's fill comes from `percent`, else `current/total`, else `step/steps`, else `epoch/epochs`;
+with none of those it shows just the count (and, if a shimmer is on, a band sweeping the track).
+The ETA comes from `started`; without it the status line remembers when it first saw the run and
+estimates from there. Metrics get a `↓`/`↑` against the last different value seen.
+
+**Python** — a dependency-free helper; drop it in your training script:
+
+```python
+import json, os, re, tempfile, time
+
+RUNS = os.path.expanduser(os.environ.get("SL_RUNS_DIR", "~/.claude/runs"))
+
+def report(name, **fields):
+    """Merge `fields` into this run's progress file (atomically: write a temp file, rename)."""
+    os.makedirs(RUNS, exist_ok=True)
+    path = os.path.join(RUNS, (re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:64] or "run") + ".json")
+    try:
+        with open(path) as f: run = json.load(f)
+    except (OSError, ValueError):
+        run = {}
+    now = int(time.time() * 1000)
+    metrics = run.get("metrics", {})
+    for group, kv in fields.pop("metrics", {}).items():
+        metrics[group] = {**metrics.get(group, {}), **kv}
+    run.update(fields, v=1, name=name, metrics=metrics, updated=now, pid=os.getpid())
+    run.setdefault("started", now)
+    fd, tmp = tempfile.mkstemp(dir=RUNS, prefix=".", suffix=".tmp")
+    with os.fdopen(fd, "w") as f: json.dump(run, f)
+    os.replace(tmp, path)
+
+report("A1 SAE b11×8", step=step, steps=total_steps, epoch=epoch, epochs=8,
+       metrics={"train": {"loss": loss}})
+report("A1 SAE b11×8", metrics={"val": {"loss": val_loss}})   # merges; train is kept
+report("A1 SAE b11×8", status="done")
+```
+
+It records `pid=os.getpid()`, so a run that crashes without saying `done` shows as `stopped?`
+rather than sitting at "running" forever. Reporting progress on a run that had finished starts it
+afresh.
+
+**Bash** — no helper needed:
+
+```bash
+dir=${SL_RUNS_DIR:-$HOME/.claude/runs}; mkdir -p "$dir"
+printf '{"name":"backup","current":%d,"total":%d,"unit":"GB"}' "$done_gb" 120 > "$dir/.backup.tmp" \
+  && mv "$dir/.backup.tmp" "$dir/backup.json"
+```
+
+**The CLI** — `statusline.js` can write the file for you (merging like the Python helper):
+
+```bash
+node ~/.claude/statusline.js --run "A1 SAE b11×8" --step 41200 --steps 101308 --epoch 6 --epochs 8 \
+  --metric train.loss=0.0353 --metric val.loss=0.041
+node ~/.claude/statusline.js --run "probe eval" 230 1000 --unit gal --stage 3/5:fold --message scoring
+node ~/.claude/statusline.js --run "probe eval" --status done
+node ~/.claude/statusline.js --run-clear "probe eval"
+```
+
+Flags: `--step` `--steps` `--epoch` `--epochs` `--percent` `--metric group.name=value` (repeatable)
+`--stage N/M[:label]` `--unit` `--status` `--message` `--pid`; two bare numbers are `current total`.
+
+**Log tails** — for a job that only writes a log, point a regex at it. The status line reads the last
+64 KiB on each repaint; each named group takes its value from the last line that matched it, so
+progress and metrics can come from different lines:
+
+```json
+{
+  "runs": {
+    "logs": [{
+      "name": "nightly train",
+      "log": "~/runs/nightly/train.log",
+      "pattern": "step (?<step>\\d+)/(?<steps>\\d+)|loss=(?<metric_train_loss>[0-9.e-]+)|val_loss=(?<metric_val_loss>[0-9.e-]+)",
+      "done": "Training complete",
+      "failed": "Traceback|CUDA out of memory"
+    }]
+  }
+}
+```
+
+Groups: `cur` (with `total`, or a fixed `"total"` in the spec), `step`, `steps`, `epoch`, `epochs`,
+`percent`, and `metric_<group>_<name>`. `done` / `failed` mark the status — whichever appears last
+wins — and `updated` is the log's mtime.
+
+**Limits, by design** — the status line repaints every second, so it stays cheap: it reads at most
+the 32 newest progress files (each under 16 KiB), up to 8 log specs at 64 KiB each, and keeps a small
+bounded cache in the temp dir for the ETA and arrows. A malformed or half-written file is just skipped.
+`stopped?` relies on `pid` being on this machine, so leave it out for jobs that write to a shared disk
+from elsewhere.
 
 ### Style any element yourself
 
@@ -300,6 +474,8 @@ node statusline.js --preview    # render every theme / bar / shimmer
 node statusline.js --doctor     # terminal capabilities, active config, conflicts
 node statusline.js --report     # summarise your cross-session usage history
 node statusline.js --migrate    # legacy SL_* env → JSON config (stdout)
+node statusline.js --run <name> [current total] [--step N --metric train.loss=V …]   # report run progress
+node statusline.js --run-clear <name>                                                # remove a run
 ```
 
 ---

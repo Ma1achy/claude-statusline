@@ -1,14 +1,17 @@
-// Command-line helpers: `statusline.js --preview | --doctor | --report`.
+// Command-line helpers: `statusline.js --preview | --doctor | --report | --run`.
 // preview re-runs THIS script as a child with different SL_* env (so it shows the
 // real rendered output); doctor/report just inspect the environment and history.
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { ESC, R, DIM, BOLD } from './ansi';
 import { cfg } from './config';
 import { THEMES_DATA } from './themes.data';
 import { readHistory, REPORT_MIN_SESSION_MS } from './state';
 import { median } from './insight';
+import { parseRunArgs, mergeRun, slug } from './runs';
+import { readRuns, readRunFile, writeJsonAtomic } from './io/runs';
 
 const SAMPLE = JSON.stringify({
   session_id: 'preview',
@@ -65,10 +68,18 @@ export function runDoctor(): void {
   line('config', `${ok(cfgFound)} ${DIM}${cfgPath}${cfgFound ? '' : ' (using defaults)'}${R}`);
   line('theme', cfg.themeName);
   line('layout', cfg.layout);
+  if (cfg.runs.enabled) {
+    let n = 0;
+    try { n = readRuns(cfg.runs, cfg.nowMs).length; } catch { /* ignore */ }
+    let found = false;
+    try { found = fs.existsSync(cfg.runs.dir); } catch { /* ignore */ }
+    line('runs', `${ok(found)} ${DIM}${cfg.runs.dir}${found ? '' : ' (missing — created by the first --run)'}${R} · ${n} active`
+      + (cfg.runs.logs.length ? ` ${DIM}(+${cfg.runs.logs.length} log spec${cfg.runs.logs.length > 1 ? 's' : ''})${R}` : ''));
+  }
   // conflicts + the legacy-env warning (config is JSON now; SL_* feature vars are ignored)
   const warn: string[] = [];
   const legacy = Object.keys(process.env).filter((k) => /^SL_/.test(k)
-    && !['SL_CONFIG', 'SL_FRAME_MS', 'SL_CLOCK_MS', 'SL_COLOR_MODE'].includes(k));
+    && !['SL_CONFIG', 'SL_FRAME_MS', 'SL_CLOCK_MS', 'SL_COLOR_MODE', 'SL_RUNS_DIR'].includes(k));
   if (legacy.length) warn.push(`Legacy ${legacy.join(', ')} ${legacy.length > 1 ? 'are' : 'is'} ignored — config moved to JSON. Run \`statusline.js --migrate\` to convert.`);
   if (cfg.colorMode === 'mono' && cfg.shimmer === 'disco') warn.push('disco needs colour but the mode is mono — animation will be invisible.');
   if (cfg.colorMode !== 'truecolor' && cfg.themeName !== 'heat') warn.push(`Colour mode is ${cfg.colorMode}; themes are approximated below truecolor.`);
@@ -123,4 +134,23 @@ export function runReport(): void {
   }
   line('peak context', `${Math.max(...hist.map((h) => h.ctx))}%`);
   process.stdout.write('\n');
+}
+
+// --run <name> [current total] [--flags]: create/update <runs dir>/<slug>.json,
+// merging over what's there (started kept, metrics merged per group). --run-clear
+// removes it. Works whether or not the `runs` display is enabled.
+export function runRun(argv: string[]): void {
+  try {
+    const patch = parseRunArgs(argv);
+    const file = path.join(cfg.runs.dir, `${slug(patch.name as string)}.json`);
+    writeJsonAtomic(file, mergeRun(readRunFile(file), patch, cfg.nowMs));
+  } catch (e) {
+    process.stderr.write(`claude-statusline --run: ${(e as Error).message}\n`);
+    process.exitCode = 2;
+  }
+}
+
+export function runRunClear(argv: string[]): void {
+  if (!argv[0]) { process.stderr.write('usage: --run-clear <name>\n'); process.exitCode = 2; return; }
+  try { fs.unlinkSync(path.join(cfg.runs.dir, `${slug(argv[0])}.json`)); } catch { /* already gone */ }
 }

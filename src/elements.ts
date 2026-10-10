@@ -26,6 +26,8 @@ export const ELEMENTS = [
   'git.untracked', 'git.stash', 'git.risk',
   'name', 'cost.amount', 'cost.flair', 'cost.rate', 'cost.ratio', 'age',
   'separator', 'warning', 'activity', 'conversation',
+  // run-progress lines (above the statusline)
+  'run.name', 'run.pct', 'run.count', 'run.eta', 'run.metric', 'run.value', 'run.status', 'run.message', 'run.more',
 ] as const;
 
 export type ElementId = typeof ELEMENTS[number];
@@ -55,4 +57,8 @@ export const ELEMENT_DEFAULTS: Record<ElementId, Style> = {
   'cost.rate': { fill: 'muted' }, 'cost.ratio': { fill: 'muted' }, 'age': { fill: 'ok' },
   'separator': { fill: 'muted' }, 'warning': { fill: 'bad', weight: 'bold' },
   'activity': { fill: 'muted' }, 'conversation': { fill: 'muted' },
+
+  'run.name': { fill: 'accent' }, 'run.pct': { fill: 'gradient' }, 'run.count': { fill: 'muted' },
+  'run.eta': { fill: 'muted' }, 'run.metric': { fill: 'muted' }, 'run.value': { fill: 'fg' },
+  'run.status': { fill: 'muted' }, 'run.message': { fill: 'muted' }, 'run.more': { fill: 'muted' },
 };
