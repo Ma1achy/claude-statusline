@@ -1028,7 +1028,7 @@ function mergeRun(prev, patch, now2) {
   return out;
 }
 var NUM_RE = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?`;
-var METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*(${NUM_RE})(?![\w./:])`, "g");
+var METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*(${NUM_RE})(?![\w./:%])`, "g");
 var NOT_METRICS = /* @__PURE__ */ new Set(["epoch", "epochs", "ep", "step", "steps", "iter", "batch", "pid", "exit", "rc", "line", "port"]);
 var WATCH_FAILED = String.raw`Traceback \(most recent call last\)|\bout of memory\b|\bSTOPPED\b|\bFATAL\b|\bSegmentation fault\b`;
 function lastMatch(re, s) {

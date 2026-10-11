@@ -370,4 +370,5 @@ test('watchRead: stages count, only the current step is scanned, inner logs, fai
   assert.equal(watchRead({ name: 'j' }, 'fine\n').status, undefined);
   const of = watchRead({ name: 'a3', of: 101308 }, 'jepa:  40%|███▉ | 101307/253270 [26:17:02<39:25:36, loss=0.111]\n');
   assert.deepEqual([of.step, of.steps, of.percent, of.current], [101307, 101308, undefined, undefined]);
+  assert.deepEqual(of.metrics, { train: { loss: 0.111 } });           // tqdm's 'jepa:  40%' is not a metric
 });

@@ -320,7 +320,7 @@ export function mergeRun(prev: RunFile | null, patch: RunFile, now: number): Run
 // `eval_*`/`test_*` → eval, the rest train); the message is the last line.
 
 const NUM_RE = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?`;
-const METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*(${NUM_RE})(?![\w./:])`, 'g');
+const METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*(${NUM_RE})(?![\w./:%])`, 'g');
 const NOT_METRICS = new Set(['epoch', 'epochs', 'ep', 'step', 'steps', 'iter', 'batch', 'pid', 'exit', 'rc', 'line', 'port']);
 /** Default failure markers for a watched log; checked near its end only. */
 export const WATCH_FAILED = String.raw`Traceback \(most recent call last\)|\bout of memory\b|\bSTOPPED\b|\bFATAL\b|\bSegmentation fault\b`;
