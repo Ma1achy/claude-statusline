@@ -375,6 +375,7 @@ export interface WatchSpec {
   stages?: number;    // how many steps there are
   inner?: string;     // a step's own log, `{}` = its label: read for the inner progress
   pattern?: string;   // named-group pattern (as in runs.logs), over the generic scan
+  of?: number;        // the job stops at this count: measure its counter against it, not the printed total
   done?: string;
   failed?: string;
 }
@@ -402,6 +403,13 @@ export function watchRead(spec: WatchSpec, log: string, inner?: (label: string) 
   if (spec.pattern) {
     const p = parseLogTail({ name: spec.name, log: '', pattern: spec.pattern }, body);
     if (p) for (const [k, v] of Object.entries(p)) if (v !== undefined && k !== 'name' && k !== 'status') (f as Record<string, unknown>)[k] = v;
+  }
+  if (spec.of && spec.of > 0) {
+    // A run stopped early on a longer schedule (tqdm shows 40% of the schedule at the stop):
+    // the counter's numerator is the progress, the stop the denominator; the printed % is dropped.
+    const n = f.step ?? f.current;
+    if (n !== undefined) { f.step = n; f.steps = spec.of; }
+    delete f.current; delete f.total; delete f.percent;
   }
   if (label) f.message = f.message && f.message !== label ? `${label} · ${f.message}` : label;
   const end = log.slice(-4096);

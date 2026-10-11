@@ -157,7 +157,7 @@ export function runRunClear(argv: string[]): void {
 }
 
 // --watch <log> [--name N] [--pid P]... [--stage RE --stages N --inner TPL] [--pattern RE]
-//         [--done RE] [--failed RE] [--every S]
+//         [--done RE] [--failed RE] [--of N] [--every S]
 // Follow a job's log on its behalf and keep its progress file current, so a job
 // that only prints still gets a bar with nobody tending it. Each tick rewrites the
 // file whole from the log (no merge: one step's epochs never outlive the step).
@@ -196,6 +196,7 @@ export function runWatch(argv: string[]): void {
     else if (k === '--done') spec.done = v;
     else if (k === '--failed') spec.failed = v;
     else if (k === '--every') every = Math.max(1, +v);
+    else if (k === '--of') spec.of = +v;
     else { process.stderr.write(`--watch: unknown flag ${k}\n`); process.exitCode = 2; return; }
   }
   pids = pids.filter((n) => Number.isFinite(n) && n > 0);

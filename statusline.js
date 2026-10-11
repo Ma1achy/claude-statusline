@@ -1116,6 +1116,16 @@ function watchRead(spec, log, inner) {
           f[k] = v;
     }
   }
+  if (spec.of && spec.of > 0) {
+    const n = f.step ?? f.current;
+    if (n !== void 0) {
+      f.step = n;
+      f.steps = spec.of;
+    }
+    delete f.current;
+    delete f.total;
+    delete f.percent;
+  }
   if (label)
     f.message = f.message && f.message !== label ? `${label} \xB7 ${f.message}` : label;
   const end = log.slice(-4096);
@@ -1568,6 +1578,8 @@ function runWatch(argv) {
       spec.failed = v;
     else if (k === "--every")
       every = Math.max(1, +v);
+    else if (k === "--of")
+      spec.of = +v;
     else {
       process.stderr.write(`--watch: unknown flag ${k}
 `);
@@ -3570,7 +3582,7 @@ Commands:
               --metric group.name=V --stage N/M[:label] --unit U --status S --message M --pid N]
               write/update a run-progress file (see "Run progress" in the README)
   --run-clear <name>  remove a run-progress file
-  --watch <log> [--name N --pid P --stage RE --stages N --inner TPL --pattern RE]
+  --watch <log> [--name N --pid P --stage RE --stages N --inner TPL --pattern RE --of N]
               follow a job's log and keep its progress file current until it ends
   --hook      PostToolUse hook: watch every background Bash command's output
   --help      this message

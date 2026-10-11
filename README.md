@@ -407,7 +407,8 @@ node ~/.claude/statusline.js --watch chain.log --name "aligned scoring" --pid $P
   --stage '=== ([a-z]\w*_\w+) \d' --stages 36 --inner 'logs/log_{}.txt' --done ALLDONE &
 ```
 
-Each reading rewrites the file whole from the log, so one step's epochs never linger into the next.
+`--of N` is for a run stopped early on a longer schedule: its counter is measured against N, and the
+printed total and tqdm's % are ignored. Each reading rewrites the file whole from the log, so one step's epochs never linger into the next.
 Or let Claude Code start it: as a `PostToolUse` hook, `--hook` watches every Bash command sent to the
 background (`run_in_background`), named by the command's description — every long job Claude starts
 gets a bar, unasked:

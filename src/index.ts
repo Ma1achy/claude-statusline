@@ -31,7 +31,7 @@ else if (cliArg && cliArg.startsWith('-')) {
     + '              --metric group.name=V --stage N/M[:label] --unit U --status S --message M --pid N]\n'
     + '              write/update a run-progress file (see "Run progress" in the README)\n'
     + '  --run-clear <name>  remove a run-progress file\n'
-    + '  --watch <log> [--name N --pid P --stage RE --stages N --inner TPL --pattern RE]\n'
+    + '  --watch <log> [--name N --pid P --stage RE --stages N --inner TPL --pattern RE --of N]\n'
     + '              follow a job\'s log and keep its progress file current until it ends\n'
     + '  --hook      PostToolUse hook: watch every background Bash command\'s output\n'
     + '  --help      this message\n\n'
