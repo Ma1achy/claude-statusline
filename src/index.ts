@@ -2,7 +2,7 @@
 // Everything is wrapped so a bug prints a minimal line instead of a blank bar.
 import { R, DIM } from './ansi';
 import { cfg } from './config';
-import { runPreview, runDoctor, runReport, runMigrate, runRun, runRunClear } from './cli';
+import { runPreview, runDoctor, runReport, runMigrate, runRun, runRunClear, runWatch, runHook } from './cli';
 import { readInput } from './io/input';
 import { refreshGitCache } from './io/gitcache';
 import { build } from './build';
@@ -14,6 +14,8 @@ else if (cliArg === '--report') runReport();
 else if (cliArg === '--migrate') runMigrate();
 else if (cliArg === '--run') runRun(process.argv.slice(3));
 else if (cliArg === '--run-clear') runRunClear(process.argv.slice(3));
+else if (cliArg === '--watch') runWatch(process.argv.slice(3));
+else if (cliArg === '--hook') runHook();
 else if (cliArg === '--git-refresh') {
   // Detached background invocation: warm the git cache, print nothing.
   refreshGitCache(readInput());
@@ -29,6 +31,9 @@ else if (cliArg && cliArg.startsWith('-')) {
     + '              --metric group.name=V --stage N/M[:label] --unit U --status S --message M --pid N]\n'
     + '              write/update a run-progress file (see "Run progress" in the README)\n'
     + '  --run-clear <name>  remove a run-progress file\n'
+    + '  --watch <log> [--name N --pid P --stage RE --stages N --inner TPL --pattern RE --of N]\n'
+    + '              follow a job\'s log and keep its progress file current until it ends\n'
+    + '  --hook      PostToolUse hook: watch every background Bash command\'s output\n'
     + '  --help      this message\n\n'
     + 'Configure via ~/.claude/statusline.json (or $SL_CONFIG) — see the README.\n');
 } else {

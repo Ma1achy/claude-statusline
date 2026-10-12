@@ -77,12 +77,15 @@ export function flattenMetrics(m: unknown): Metric[] {
   return out;
 }
 
-/** Fraction done: explicit percent → current/total → step/steps → epoch/epochs. */
+/** Fraction done: explicit percent → current/total → step/steps → epoch/epochs → stage.
+ *  The stage is last: a pipeline whose current step reports nothing of its own
+ *  still fills by steps done, rather than falling back to an indeterminate band. */
 export function fractionOf(f: RunFile): number | null {
   const clamp = (x: number): number => Math.max(0, Math.min(1, x));
   const p = num(f.percent);
   if (p !== undefined) return clamp(p / 100);
-  for (const [c, t] of [[f.current, f.total], [f.step, f.steps], [f.epoch, f.epochs]]) {
+  const st = f.stage && typeof f.stage === 'object' ? f.stage : undefined;
+  for (const [c, t] of [[f.current, f.total], [f.step, f.steps], [f.epoch, f.epochs], [st?.current, st?.total]]) {
     const cn = num(c), tn = num(t);
     if (cn !== undefined && tn !== undefined && tn > 0) return clamp(cn / tn);
   }
@@ -307,4 +310,111 @@ export function mergeRun(prev: RunFile | null, patch: RunFile, now: number): Run
   out.updated = now;
   if (!out.status) out.status = 'running';
   return out;
+}
+
+// ── watching a log with no spec ────────────────────────────────────────────────
+// `--watch` and `--hook` follow a job's log on its behalf, so a job that only
+// prints still gets a bar. With no pattern given, progress is read the way people
+// write it: tqdm's `45%|`, `epoch 3/8`, `step 1200/5000`, else the last bare `N/M`;
+// metrics are the last line's `name=value` / `name: value` pairs (`val_*` → val,
+// `eval_*`/`test_*` → eval, the rest train); the message is the last line.
+
+const NUM_RE = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?`;
+const METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*(${NUM_RE})(?![\w./:%])`, 'g');
+const NOT_METRICS = new Set(['epoch', 'epochs', 'ep', 'step', 'steps', 'iter', 'batch', 'pid', 'exit', 'rc', 'line', 'port']);
+/** Default failure markers for a watched log; checked near its end only. */
+export const WATCH_FAILED = String.raw`Traceback \(most recent call last\)|\bout of memory\b|\bSTOPPED\b|\bFATAL\b|\bSegmentation fault\b`;
+
+function lastMatch(re: RegExp, s: string): RegExpMatchArray | null {
+  let last: RegExpMatchArray | null = null;
+  let n = 0;
+  for (const m of s.matchAll(re)) { if (m[0] === '' || ++n > 5000) break; last = m; }
+  return last;
+}
+
+/** Progress, metrics and a message from a log tail, with no pattern to go on. */
+export function scanLog(tail: string): RunFile {
+  const lines = tail.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+  const text = lines.join('\n');
+  const f: RunFile = {};
+  const pc = lastMatch(/(\d{1,3}(?:\.\d+)?)%\|/g, text);
+  if (pc) f.percent = +pc[1];
+  const ep = lastMatch(/\b(?:epoch|ep)\b\s*[:=]?\s*(\d+)\s*\/\s*(\d+)/gi, text);
+  if (ep) { f.epoch = +ep[1]; f.epochs = +ep[2]; }
+  const st = lastMatch(/\b(?:step|iter(?:ation)?|batch)\b\s*[:=]?\s*(\d+)\s*\/\s*(\d+)/gi, text);
+  if (st) { f.step = +st[1]; f.steps = +st[2]; }
+  if (!ep && !st) {
+    // a bare counter: not part of a date or a path, and never past its total
+    const c = lastMatch(/(?<![\d/.])(\d+)\s?\/\s?(\d+)(?![\d/.])/g, text);
+    if (c && +c[2] > 0 && +c[1] <= +c[2]) { f.current = +c[1]; f.total = +c[2]; }
+  }
+  // Metrics come from one line only: the newest that carries progress or pairs, so an
+  // older line's numbers (a config dump, a summary) never pose as the current step's.
+  const PROGRESS = /\d%\||\d\s?\/\s?\d/;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
+    const kv = [...lines[i].matchAll(METRIC_RE)].filter((m) => !NOT_METRICS.has(m[1].toLowerCase()));
+    if (!kv.length && !PROGRESS.test(lines[i])) continue;
+    if (!kv.length) break;
+    const metrics: Record<string, Record<string, number>> = {};
+    for (const m of kv.slice(0, 8)) {
+      const v = /^(?:val|valid|validation)[_./-](.+)$/i.exec(m[1]);
+      const e = /^(?:eval|test)[_./-](.+)$/i.exec(m[1]);
+      const [g, k] = v ? ['val', v[1]] : e ? ['eval', e[1]] : ['train', m[1]];
+      (metrics[g] || (metrics[g] = {}))[k] = parseFloat(m[2]);
+    }
+    f.metrics = metrics;
+    break;
+  }
+  if (lines.length) f.message = lines[lines.length - 1].slice(0, 120);
+  return f;
+}
+
+export interface WatchSpec {
+  name: string;
+  stage?: string;     // regex, one capture = the step's label; each match starts a step
+  stages?: number;    // how many steps there are
+  inner?: string;     // a step's own log, `{}` = its label: read for the inner progress
+  pattern?: string;   // named-group pattern (as in runs.logs), over the generic scan
+  of?: number;        // the job stops at this count: measure its counter against it, not the printed total
+  done?: string;
+  failed?: string;
+}
+
+/** One reading of a watched job. `log` is the whole main log (the stage count needs
+ *  all of it); `inner(label)` returns a step's own log tail. Only the current step's
+ *  text is scanned, so one step's epochs and metrics never leak into the next. */
+export function watchRead(spec: WatchSpec, log: string, inner?: (label: string) => string): RunFile {
+  let body = log.slice(-65536);
+  const f: RunFile = { name: spec.name };
+  let label: string | undefined;
+  if (spec.stage) {
+    let re: RegExp | null = null;
+    try { re = new RegExp(spec.stage, 'gm'); } catch { /* bad pattern: no stages */ }
+    const ms = re ? [...log.matchAll(re)].filter((m) => m[0] !== '') : [];
+    if (ms.length) {
+      const last = ms[ms.length - 1];
+      label = (last[1] ?? last[0]).trim();
+      f.stage = { current: ms.length - 1, total: spec.stages, label: 'step' };
+      body = log.slice((last.index ?? 0) + last[0].length).slice(-65536);
+      if (spec.inner && inner) body = inner(label) || body;
+    } else if (spec.stages) f.stage = { current: 0, total: spec.stages, label: 'step' };
+  }
+  Object.assign(f, scanLog(body));
+  if (spec.pattern) {
+    const p = parseLogTail({ name: spec.name, log: '', pattern: spec.pattern }, body);
+    if (p) for (const [k, v] of Object.entries(p)) if (v !== undefined && k !== 'name' && k !== 'status') (f as Record<string, unknown>)[k] = v;
+  }
+  if (spec.of && spec.of > 0) {
+    // A run stopped early on a longer schedule (tqdm shows 40% of the schedule at the stop):
+    // the counter's numerator is the progress, the stop the denominator; the printed % is dropped.
+    const n = f.step ?? f.current;
+    if (n !== undefined) { f.step = n; f.steps = spec.of; }
+    delete f.current; delete f.total; delete f.percent;
+  }
+  if (label) f.message = f.message && f.message !== label ? `${label} · ${f.message}` : label;
+  const end = log.slice(-4096);
+  const hit = (src?: string): boolean => { try { return !!src && new RegExp(src, 'm').test(end); } catch { return false; } };
+  if (hit(spec.failed ?? WATCH_FAILED)) f.status = 'failed';
+  else if (hit(spec.done)) f.status = 'done';
+  return f;
 }
