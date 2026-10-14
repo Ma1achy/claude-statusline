@@ -79,6 +79,7 @@ export interface RunsConfig {
   max: number;
   staleAfter: number;
   linger: number;
+  pausedLinger: number;            // how long a paused run stays shown (it is waiting to resume)
   metrics: boolean;
   maxMetrics: number;
   logs: Array<{ name: string; log: string; pattern: string; total?: number; unit?: string; done?: string; failed?: string }>;

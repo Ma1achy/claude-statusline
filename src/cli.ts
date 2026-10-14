@@ -10,7 +10,7 @@ import { cfg } from './config';
 import { THEMES_DATA } from './themes.data';
 import { readHistory, REPORT_MIN_SESSION_MS } from './state';
 import { median } from './insight';
-import { parseRunArgs, mergeRun, slug, watchRead, type RunFile, type WatchSpec } from './runs';
+import { parseRunArgs, mergeRun, pauseBook, slug, watchRead, type RunFile, type WatchSpec } from './runs';
 import { readRuns, readRunFile, writeJsonAtomic, pidAlive } from './io/runs';
 import { readTail } from './io/input';
 
@@ -157,16 +157,20 @@ export function runRunClear(argv: string[]): void {
 }
 
 // --watch <log> [--name N] [--pid P]... [--stage RE --stages N --inner TPL] [--pattern RE]
-//         [--done RE] [--failed RE] [--of N] [--every S]
+//         [--done RE] [--failed RE] [--paused RE] [--resumed RE] [--of N] [--every S]
 // Follow a job's log on its behalf and keep its progress file current, so a job
 // that only prints still gets a bar with nobody tending it. Each tick rewrites the
 // file whole from the log (no merge: one step's epochs never outlive the step).
-// Ends when the log says done/failed, or every watched pid is gone (read once more
+// Ends when the log says done/failed/paused, or every watched pid is gone (read once more
 // first: the job's last line may land after the probe). With no --pid, the
 // processes holding the log open are watched (lsof); with none found, it ends once
 // the log has been quiet past staleAfter + linger. No `started` is written: the
 // watcher can't know when the current counter began (it may attach mid-step, and a
 // pipeline's inner counter restarts each step), so the ETA comes from the rate seen.
+// Pause and resume: a job that prints PAUSED (--paused) ends its watch as `paused`,
+// and the run stays on screen; a later --watch under the same name that finds it
+// paused marks it resumed — the time it sat paused is booked, and the ETA restarts
+// from what the resumed job does, not from the rate across the gap.
 const sleepMs = (ms: number): void => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
 
 function writersOf(file: string): number[] {
@@ -180,7 +184,7 @@ function readLog(file: string): string { return readTail(file, 8 * 1024 * 1024);
 
 export function runWatch(argv: string[]): void {
   const log = argv[0];
-  if (!log || log.startsWith('--')) { process.stderr.write('usage: --watch <log> [--name N] [--pid P] [--stage RE --stages N --inner TPL] [--pattern RE] [--done RE] [--failed RE]\n'); process.exitCode = 2; return; }
+  if (!log || log.startsWith('--')) { process.stderr.write('usage: --watch <log> [--name N] [--pid P] [--stage RE --stages N --inner TPL] [--pattern RE] [--done RE] [--failed RE] [--paused RE] [--resumed RE]\n'); process.exitCode = 2; return; }
   const spec: WatchSpec = { name: path.basename(log).replace(/\.[^.]*$/, '') };
   let pids: number[] = [];
   let every = 5;
@@ -195,6 +199,8 @@ export function runWatch(argv: string[]): void {
     else if (k === '--pattern') spec.pattern = v;
     else if (k === '--done') spec.done = v;
     else if (k === '--failed') spec.failed = v;
+    else if (k === '--paused') spec.paused = v;
+    else if (k === '--resumed') spec.resumed = v;
     else if (k === '--every') every = Math.max(1, +v);
     else if (k === '--of') spec.of = +v;
     else { process.stderr.write(`--watch: unknown flag ${k}\n`); process.exitCode = 2; return; }
@@ -204,12 +210,17 @@ export function runWatch(argv: string[]): void {
   const file = path.join(cfg.runs.dir, `${slug(spec.name)}.json`);
   const quietMs = (cfg.runs.staleAfter + cfg.runs.linger) * 1000;
   let gone = false;
+  // what the run was before this watch: a paused run picked up again is a resume
+  let prev: RunFile | null = readRunFile(file);
   for (;;) {
     const f: RunFile = watchRead(spec, readLog(log), (label) => readTail(spec.inner!.split('{}').join(label), 65536));
     const now = Date.now();
-    const final = f.status === 'done' || f.status === 'failed';
-    const write = (status: string): void =>
-      writeJsonAtomic(file, { ...f, v: 1, status, pid: pids[0], updated: now });
+    const final = f.status === 'done' || f.status === 'failed' || f.status === 'paused';
+    const write = (status: string): void => {
+      const out: RunFile = { ...f, ...pauseBook(prev, status, now), v: 1, status, pid: pids[0], updated: now };
+      writeJsonAtomic(file, out);
+      prev = out;
+    };
     if (final) { write(f.status!); return; }
     if (pids.length) {
       if (gone) { write('done'); return; }

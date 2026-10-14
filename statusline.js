@@ -110,6 +110,7 @@ function readRuns(v) {
     max: Math.max(1, Math.floor(nn(o.max, 4))),
     staleAfter: nn(o.staleAfter, 900),
     linger: nn(o.linger, 600),
+    pausedLinger: nn(o.pausedLinger, 7 * 86400),
     metrics: o.metrics !== false,
     maxMetrics: Math.floor(nn(o.maxMetrics, 4)),
     logs
@@ -778,6 +779,9 @@ function resolveRun(raw, key, mtimeMs, rules) {
   if (status === "done" || status === "failed") {
     if (age > rules.lingerMs)
       return null;
+  } else if (status === "paused") {
+    if (age > rules.pausedLingerMs)
+      return null;
   } else {
     if (age > rules.staleAfterMs + rules.lingerMs)
       return null;
@@ -805,7 +809,9 @@ function resolveRun(raw, key, mtimeMs, rules) {
     metrics: flattenMetrics(f.metrics),
     message: str(f.message),
     started: num(f.started),
-    updated
+    updated,
+    resumed: num(f.resumed),
+    pausedMs: num(f.pausedMs)
   };
 }
 var PRIO = { running: 0, stopped: 1, failed: 2, stale: 3, paused: 4, done: 5 };
@@ -913,8 +919,8 @@ function etaMs(run, now2, seen) {
   if (run.status !== "running" || run.frac === null || run.frac <= 0 || run.frac >= 1)
     return null;
   let rem = null;
-  if (run.started !== void 0 && run.updated > run.started) {
-    const el = run.updated - run.started;
+  const el = run.started !== void 0 ? run.updated - run.started - (run.pausedMs ?? 0) : 0;
+  if (run.started !== void 0 && el > 0) {
     rem = el * (1 - run.frac) / run.frac;
   } else if (seen && run.frac > seen.f && run.updated > seen.t) {
     rem = (run.updated - seen.t) * (1 - run.frac) / (run.frac - seen.f);
@@ -1009,7 +1015,9 @@ function mergeRun(prev, patch, now2) {
   const finished = (s) => s === "done" || s === "failed";
   if (finished(base.status) && !finished(patch.status))
     base = {};
-  const out = { ...base, ...patch, v: 1 };
+  const progressed = [patch.current, patch.step, patch.epoch, patch.percent].some((v) => num(v) !== void 0) || !!patch.stage;
+  const status = patch.status ?? (base.status === "paused" && progressed ? "running" : base.status);
+  const out = { ...base, ...patch, ...pauseBook(base, status ?? "running", now2), v: 1 };
   if (base.metrics || patch.metrics) {
     const m = {};
     for (const src of [base.metrics, patch.metrics]) {
@@ -1023,14 +1031,32 @@ function mergeRun(prev, patch, now2) {
   }
   out.started = num(base.started) ?? now2;
   out.updated = now2;
-  if (!out.status)
-    out.status = "running";
+  out.status = status ?? "running";
   return out;
+}
+function pauseBook(prev, next, now2) {
+  const fin = (s) => s === "done" || s === "failed";
+  const p = prev && typeof prev === "object" && !(fin(prev.status) && !fin(next)) ? prev : {};
+  const book = { pausedAt: num(p.pausedAt), resumed: num(p.resumed), pausedMs: num(p.pausedMs) };
+  const was = p.status === "paused";
+  if (next === "paused" && !was)
+    book.pausedAt = now2;
+  else if (next === "paused")
+    book.pausedAt = book.pausedAt ?? num(p.updated) ?? now2;
+  else if (was) {
+    const from = num(p.pausedAt) ?? num(p.updated) ?? now2;
+    book.pausedMs = (book.pausedMs ?? 0) + Math.max(0, now2 - from);
+    book.resumed = now2;
+    book.pausedAt = void 0;
+  }
+  return book;
 }
 var NUM_RE = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?`;
 var METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*(${NUM_RE})(?![\w./:%])`, "g");
 var NOT_METRICS = /* @__PURE__ */ new Set(["epoch", "epochs", "ep", "step", "steps", "iter", "batch", "pid", "exit", "rc", "line", "port"]);
 var WATCH_FAILED = String.raw`Traceback \(most recent call last\)|\bout of memory\b|\bSTOPPED\b|\bFATAL\b|\bSegmentation fault\b`;
+var WATCH_PAUSED = String.raw`\bPAUSED\b`;
+var WATCH_RESUMED = String.raw`\bRESUMED\b`;
 function lastMatch(re, s) {
   let last = null;
   let n = 0;
@@ -1129,16 +1155,29 @@ function watchRead(spec, log, inner) {
   if (label)
     f.message = f.message && f.message !== label ? `${label} \xB7 ${f.message}` : label;
   const end = log.slice(-4096);
-  const hit = (src) => {
+  const at = (src) => {
+    if (!src)
+      return -1;
     try {
-      return !!src && new RegExp(src, "m").test(end);
+      let i = -1;
+      for (const m of end.matchAll(new RegExp(src, "gm"))) {
+        if (m[0] === "")
+          break;
+        i = m.index ?? i;
+      }
+      return i;
     } catch {
-      return false;
+      return -1;
     }
   };
-  if (hit(spec.failed ?? WATCH_FAILED))
+  const fa = at(spec.failed ?? WATCH_FAILED), da = at(spec.done);
+  const pa = at(spec.paused ?? WATCH_PAUSED), ra = at(spec.resumed ?? WATCH_RESUMED);
+  const paused = pa > ra ? pa : -1;
+  if (fa >= 0 && fa > paused)
     f.status = "failed";
-  else if (hit(spec.done))
+  else if (paused >= 0 && paused > da)
+    f.status = "paused";
+  else if (da >= 0)
     f.status = "done";
   return f;
 }
@@ -1204,7 +1243,7 @@ function pidAlive(pid) {
   }
 }
 function readRuns2(rc, now2, alive = pidAlive) {
-  const rules = { now: now2, staleAfterMs: rc.staleAfter * 1e3, lingerMs: rc.linger * 1e3, alive };
+  const rules = { now: now2, staleAfterMs: rc.staleAfter * 1e3, lingerMs: rc.linger * 1e3, pausedLingerMs: rc.pausedLinger * 1e3, alive };
   const out = [];
   let names = [];
   try {
@@ -1257,7 +1296,7 @@ function updateRunCache(cache, runs, now2) {
   for (const r of runs) {
     const f = r.frac ?? 0;
     let e = cache[r.key];
-    if (!e || f < e.f) {
+    if (!e || f < e.f || r.resumed !== void 0 && e.t < r.resumed) {
       e = cache[r.key] = { t: r.updated, f, seen: now2 };
       changed = true;
     }
@@ -1545,7 +1584,7 @@ function readLog(file) {
 function runWatch(argv) {
   const log = argv[0];
   if (!log || log.startsWith("--")) {
-    process.stderr.write("usage: --watch <log> [--name N] [--pid P] [--stage RE --stages N --inner TPL] [--pattern RE] [--done RE] [--failed RE]\n");
+    process.stderr.write("usage: --watch <log> [--name N] [--pid P] [--stage RE --stages N --inner TPL] [--pattern RE] [--done RE] [--failed RE] [--paused RE] [--resumed RE]\n");
     process.exitCode = 2;
     return;
   }
@@ -1576,6 +1615,10 @@ function runWatch(argv) {
       spec.done = v;
     else if (k === "--failed")
       spec.failed = v;
+    else if (k === "--paused")
+      spec.paused = v;
+    else if (k === "--resumed")
+      spec.resumed = v;
     else if (k === "--every")
       every = Math.max(1, +v);
     else if (k === "--of")
@@ -1597,11 +1640,16 @@ function runWatch(argv) {
   const file = path3.join(cfg.runs.dir, `${slug(spec.name)}.json`);
   const quietMs = (cfg.runs.staleAfter + cfg.runs.linger) * 1e3;
   let gone = false;
+  let prev = readRunFile(file);
   for (; ; ) {
     const f = watchRead(spec, readLog(log), (label) => readTail(spec.inner.split("{}").join(label), 65536));
     const now2 = Date.now();
-    const final = f.status === "done" || f.status === "failed";
-    const write = (status) => writeJsonAtomic(file, { ...f, v: 1, status, pid: pids[0], updated: now2 });
+    const final = f.status === "done" || f.status === "failed" || f.status === "paused";
+    const write = (status) => {
+      const out = { ...f, ...pauseBook(prev, status, now2), v: 1, status, pid: pids[0], updated: now2 };
+      writeJsonAtomic(file, out);
+      prev = out;
+    };
     if (final) {
       write(f.status);
       return;
@@ -3206,7 +3254,7 @@ function lineFor(r, idx, nameW, o) {
       segs.push({ text: `${st("run.metric", g)} ${body}`, prio: prioOf(g), metric: true });
     }
   }
-  const word = r.status === "stale" ? `stale ${fmtSpan(age)}` : r.status === "stopped" ? "stopped?" : r.status === "done" || r.status === "failed" ? `${r.status} ${fmtSpan(age)} ago` : r.status === "paused" ? "paused" : "";
+  const word = r.status === "stale" ? `stale ${fmtSpan(age)}` : r.status === "stopped" ? "stopped?" : r.status === "done" || r.status === "failed" ? `${r.status} ${fmtSpan(age)} ago` : r.status === "paused" ? `paused ${fmtSpan(age)}` : "";
   const tail = r.message || (r.status === "running" && age >= 6e4 ? `${fmtSpan(age)} ago` : "");
   const build2 = (nw2, bw, keep2, tailW) => {
     let bar = "";

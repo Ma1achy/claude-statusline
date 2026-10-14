@@ -93,7 +93,7 @@ function lineFor(r: Run, idx: number, nameW: number, o: RunsOpts): string {
   // status word for anything that isn't plainly running; it never drops
   const word = r.status === 'stale' ? `stale ${fmtSpan(age)}` : r.status === 'stopped' ? 'stopped?'
     : r.status === 'done' || r.status === 'failed' ? `${r.status} ${fmtSpan(age)} ago`
-      : r.status === 'paused' ? 'paused' : '';
+      : r.status === 'paused' ? `paused ${fmtSpan(age)}` : '';
   const tail = r.message || (r.status === 'running' && age >= 60000 ? `${fmtSpan(age)} ago` : '');
 
   const build = (nw: number, bw: number, keep: Seg[], tailW: number): string => {
