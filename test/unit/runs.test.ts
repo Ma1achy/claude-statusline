@@ -11,7 +11,7 @@ import { cfg, resetConfigForTest } from '../../src/config';
 import { printLen, stripAnsi } from '../../src/ansi';
 import {
   resolveRun, fractionOf, scanLog, watchRead, flattenMetrics, parseLogTail, fmtMetric, fmtCount, fmtSpan, etaMs,
-  parseRunArgs, mergeRun, slug, pickRuns, type Run, type RunRules,
+  parseRunArgs, mergeRun, pauseBook, slug, pickRuns, type Run, type RunRules,
 } from '../../src/runs';
 import { readRuns, updateRunCache, type RunCache } from '../../src/io/runs';
 import { buildRuns } from '../../src/segments/runs';
@@ -20,7 +20,7 @@ import type { RunsConfig } from '../../src/types';
 const NOW = 1_800_000_000_000;
 const MIN = 60_000;
 const rules = (over: Partial<RunRules> = {}): RunRules =>
-  ({ now: NOW, staleAfterMs: 15 * MIN, lingerMs: 10 * MIN, alive: () => true, ...over });
+  ({ now: NOW, staleAfterMs: 15 * MIN, lingerMs: 10 * MIN, pausedLingerMs: 7 * 24 * 60 * MIN, alive: () => true, ...over });
 const run = (f: Record<string, unknown>, over: Partial<RunRules> = {}): Run | null =>
   resolveRun({ updated: NOW, ...f }, 'k', NOW, rules(over));
 
@@ -83,9 +83,44 @@ test('done/failed linger for `linger` after their last update', () => {
   assert.equal(run({ name: 'x', status: 'failed', updated: NOW - 11 * MIN }), null);
 });
 
-test('paused never reads as stale; it hides on the same schedule', () => {
+test('paused never reads as stale; it waits pausedLinger (days), not the live schedule', () => {
   assert.equal(run({ name: 'x', status: 'paused', current: 1, total: 2, updated: NOW - 20 * MIN })?.status, 'paused');
-  assert.equal(run({ name: 'x', status: 'paused', current: 1, total: 2, updated: NOW - 26 * MIN }), null);
+  assert.equal(run({ name: 'x', status: 'paused', current: 1, total: 2, updated: NOW - 3 * 24 * 60 * MIN })?.status, 'paused');
+  assert.equal(run({ name: 'x', status: 'paused', current: 1, total: 2, updated: NOW - 8 * 24 * 60 * MIN }), null);
+  assert.equal(run({ name: 'x', status: 'paused', current: 1, total: 2, updated: NOW - 30 * MIN }, { pausedLingerMs: 20 * MIN }), null);
+  // a paused run's pid is gone by design: it is paused, not stopped
+  assert.equal(run({ name: 'x', status: 'paused', current: 1, total: 2, pid: 4242 }, { alive: () => false })?.status, 'paused');
+});
+
+test('pause and resume: pauseBook stamps the pause, books its length on resume', () => {
+  const p = pauseBook({ name: 'x', status: 'running', updated: NOW - 5 * MIN }, 'paused', NOW);
+  assert.deepEqual(p, { pausedAt: NOW, resumed: undefined, pausedMs: undefined });
+  const r = pauseBook({ name: 'x', status: 'paused', pausedAt: NOW, pausedMs: 2 * MIN }, 'running', NOW + 60 * MIN);
+  assert.deepEqual(r, { pausedAt: undefined, resumed: NOW + 60 * MIN, pausedMs: 62 * MIN });
+  // a pause recorded without pausedAt is measured from its last update
+  assert.equal(pauseBook({ name: 'x', status: 'paused', updated: NOW - 10 * MIN }, 'running', NOW).pausedMs, 10 * MIN);
+  // a finished run's book is closed: a new run under its name starts clean
+  assert.deepEqual(pauseBook({ name: 'x', status: 'done', pausedMs: 5, resumed: 1 }, 'running', NOW),
+    { pausedAt: undefined, resumed: undefined, pausedMs: undefined });
+});
+
+test('mergeRun: --status paused, then progress resumes the run and books the gap', () => {
+  const a = mergeRun(null, { name: 'x', current: 3, total: 10 }, NOW);
+  const b = mergeRun(a, { name: 'x', status: 'paused', message: 'paused at 3/10' }, NOW + MIN);
+  assert.deepEqual([b.status, b.pausedAt, b.current], ['paused', NOW + MIN, 3]);
+  const c = mergeRun(b, { name: 'x', message: 'still away' }, NOW + 2 * MIN);
+  assert.equal(c.status, 'paused', 'a message alone does not resume');
+  const d = mergeRun(c, { name: 'x', current: 4, total: 10 }, NOW + 61 * MIN);
+  assert.deepEqual([d.status, d.resumed, d.pausedMs, d.pausedAt, d.started], ['running', NOW + 61 * MIN, 60 * MIN, undefined, NOW]);
+  const e = mergeRun(b, { name: 'x', status: 'running' }, NOW + 31 * MIN);
+  assert.deepEqual([e.status, e.pausedMs], ['running', 30 * MIN]);
+});
+
+test('etaMs leaves time spent paused out of the elapsed', () => {
+  // half done after 3h on the clock, 2h of it paused: 1h of work, so 1h to go
+  const r = run({ name: 'x', current: 1, total: 2, started: NOW - 180 * MIN, pausedMs: 120 * MIN })!;
+  assert.equal(etaMs(r, NOW), 60 * MIN);
+  assert.equal(etaMs(run({ name: 'x', current: 1, total: 2, started: NOW - 180 * MIN })!, NOW), 180 * MIN);
 });
 
 test('a running run whose pid is gone shows as stopped', () => {
@@ -253,6 +288,7 @@ test('buildRuns labels stale and stopped runs', () => {
   const o = { cols: 160, max: 4, metrics: true, maxMetrics: 4, now: NOW };
   assert.match(stripAnsi(buildRuns([mk('s', 'stale', 1, { updated: NOW - 12 * MIN })], o)[0]), /^◌ s .* stale 12m/);
   assert.match(stripAnsi(buildRuns([mk('p', 'stopped', 1)], o)[0]), /^✗ p .* stopped\?/);
+  assert.match(stripAnsi(buildRuns([mk('z', 'paused', 1, { updated: NOW - 135 * MIN })], o)[0]), /^◦ z .* 50% .* paused 2h15m/);
 });
 
 test('trend arrows come from the cache: ↓ after a fall, held across repaints', () => {
@@ -280,6 +316,14 @@ test('updateRunCache resets on a restart and stays bounded', () => {
   assert.ok(Object.keys(cache).length <= 32);
 });
 
+test('updateRunCache: a resume starts a fresh first sighting (the pause was no work)', () => {
+  const cache: RunCache = {};
+  updateRunCache(cache, [mk('x', 'running', 1, { frac: 0.2, updated: NOW - 600 * MIN })], NOW - 600 * MIN);
+  updateRunCache(cache, [mk('x', 'running', 1, { frac: 0.3, updated: NOW, resumed: NOW - MIN })], NOW);
+  assert.deepEqual([cache.x.t, cache.x.f], [NOW, 0.3]);
+  assert.equal(updateRunCache(cache, [mk('x', 'running', 1, { frac: 0.3, updated: NOW, resumed: NOW - MIN })], NOW), false, 'once only');
+});
+
 // ── fs scan ───────────────────────────────────────────────────────────────────
 test('readRuns scans the dir, skips malformed/oversized files, and reads log tails', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-runs-'));
@@ -292,7 +336,7 @@ test('readRuns scans the dir, skips malformed/oversized files, and reads log tai
     const log = path.join(dir, 'train.log');
     fs.writeFileSync(log, 'epoch 3/10 loss 0.2\n');
     fs.utimesSync(log, NOW / 1000, NOW / 1000);                        // a log's `updated` is its mtime
-    const rc: RunsConfig = { enabled: true, dir, max: 4, staleAfter: 900, linger: 600, metrics: true, maxMetrics: 4,
+    const rc: RunsConfig = { enabled: true, dir, max: 4, staleAfter: 900, linger: 600, pausedLinger: 604800, metrics: true, maxMetrics: 4,
       logs: [{ name: 'T', log, pattern: 'epoch (?<epoch>\\d+)/(?<epochs>\\d+) loss (?<metric_train_loss>[0-9.]+)' },
         { name: 'missing', log: path.join(dir, 'nope.log'), pattern: 'x' }] };
     const runs = readRuns(rc, NOW, (pid) => pid !== 99);
@@ -318,7 +362,7 @@ test('config `runs`: off by default, true for defaults, object overrides, SL_RUN
     const d = load({ runs: true });
     assert.equal(d.enabled, true);
     assert.equal(d.dir, path.join(os.homedir(), '.claude', 'runs'));
-    assert.deepEqual([d.max, d.staleAfter, d.linger, d.metrics, d.maxMetrics], [4, 900, 600, true, 4]);
+    assert.deepEqual([d.max, d.staleAfter, d.linger, d.pausedLinger, d.metrics, d.maxMetrics], [4, 900, 600, 604800, true, 4]);
     const o = load({ runs: { dir: '~/r', max: 2, staleAfter: -1, linger: 'x', metrics: false, maxMetrics: 2,
       logs: [{ name: 'a', log: '~/a.log', pattern: 'x', total: 10 }, { name: 'bad' }, 'junk'] } });
     assert.equal(o.enabled, true);
@@ -368,6 +412,13 @@ test('watchRead: stages count, only the current step is scanned, inner logs, fai
   assert.equal(watchRead(spec, log + 'exit 1\nSTOPPED at b_maps\n').status, 'failed');
   assert.equal(watchRead({ name: 'j', done: 'ALLDONE' }, 'x\nALLDONE\n').status, 'done');
   assert.equal(watchRead({ name: 'j' }, 'fine\n').status, undefined);
+  // pause: the marker ends the run as paused, even after the traceback a stop prints
+  assert.equal(watchRead(spec, log + 'PAUSED (interrupted b_maps)\n').status, 'paused');
+  assert.equal(watchRead(spec, log + 'Traceback (most recent call last):\nKeyboardInterrupt\nPAUSED\n').status, 'paused');
+  assert.equal(watchRead(spec, log + 'PAUSED\nTraceback (most recent call last):\n').status, 'failed');
+  assert.equal(watchRead(spec, log + 'PAUSED\n=== detached launch ===\nRESUMED\n=== c_x\n').status, undefined);
+  assert.equal(watchRead({ ...spec, done: 'ALLDONE' }, log + 'PAUSED\nRESUMED\nALLDONE\n').status, 'done');
+  assert.equal(watchRead({ name: 'j', paused: 'on hold' }, 'x\non hold\n').status, 'paused');
   const of = watchRead({ name: 'a3', of: 101308 }, 'jepa:  40%|███▉ | 101307/253270 [26:17:02<39:25:36, loss=0.111]\n');
   assert.deepEqual([of.step, of.steps, of.percent, of.current], [101307, 101308, undefined, undefined]);
   assert.deepEqual(of.metrics, { train: { loss: 0.111 } });           // tqdm's 'jepa:  40%' is not a metric

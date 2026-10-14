@@ -22,6 +22,10 @@ export interface RunFile {
   message?: string;
   started?: number; updated?: number;   // epoch ms
   pid?: number;
+  // pause bookkeeping (epoch ms / ms), kept by the writers: when the current pause
+  // began, when the run last resumed, and how long it has spent paused in all — so
+  // a resumed run's ETA counts only the time it was actually running.
+  pausedAt?: number; resumed?: number; pausedMs?: number;
 }
 
 /** What a run looks like on screen. `stopped` = said running but its pid is gone;
@@ -43,12 +47,15 @@ export interface Run {
   message?: string;
   started?: number;
   updated: number;
+  resumed?: number;                // last resume (ms): the rate seen before it is not this run's
+  pausedMs?: number;               // total time spent paused, excluded from elapsed
 }
 
 export interface RunRules {
   now: number;                     // ms
   staleAfterMs: number;
   lingerMs: number;
+  pausedLingerMs: number;          // a pause is deliberate: it stays on screen far longer
   alive: (pid: number) => boolean; // injectable so tests needn't spawn processes
 }
 
@@ -109,9 +116,12 @@ export function resolveRun(raw: unknown, key: string, mtimeMs: number, rules: Ru
   const age = rules.now - updated;
   let status: RunStatus = STATUSES.has(given) ? (given as RunStatus) : 'running';
   // Visibility: a finished run lingers for `linger` after its last word; a live
-  // one shows normally until staleAfter, then dims as "stale" for `linger` more.
+  // one shows normally until staleAfter, then dims as "stale" for `linger` more; a
+  // paused one waits (it is going to be resumed) for `pausedLinger`, never stale.
   if (status === 'done' || status === 'failed') {
     if (age > rules.lingerMs) return null;
+  } else if (status === 'paused') {
+    if (age > rules.pausedLingerMs) return null;
   } else {
     if (age > rules.staleAfterMs + rules.lingerMs) return null;
     const pid = num(f.pid);
@@ -130,6 +140,8 @@ export function resolveRun(raw: unknown, key: string, mtimeMs: number, rules: Ru
     message: str(f.message),
     started: num(f.started),
     updated,
+    resumed: num(f.resumed),
+    pausedMs: num(f.pausedMs),
   };
 }
 
@@ -224,8 +236,8 @@ export function fmtSpan(ms: number): string {
 export function etaMs(run: Run, now: number, seen?: { t: number; f: number }): number | null {
   if (run.status !== 'running' || run.frac === null || run.frac <= 0 || run.frac >= 1) return null;
   let rem: number | null = null;
-  if (run.started !== undefined && run.updated > run.started) {
-    const el = run.updated - run.started;
+  const el = run.started !== undefined ? run.updated - run.started - (run.pausedMs ?? 0) : 0;
+  if (run.started !== undefined && el > 0) {
     rem = el * (1 - run.frac) / run.frac;
   } else if (seen && run.frac > seen.f && run.updated > seen.t) {
     rem = (run.updated - seen.t) * (1 - run.frac) / (run.frac - seen.f);
@@ -292,12 +304,15 @@ export function parseRunArgs(argv: string[]): RunFile {
 
 /** Merge a patch over the existing file: `started` is kept (set on first write),
  *  metrics merge per group so one call needn't restate the others, `updated` = now.
- *  Reporting progress on a run that had finished starts it afresh. */
+ *  Reporting progress on a run that had finished starts it afresh; reporting
+ *  progress on a paused one (or `--status running`) resumes it (see pauseBook). */
 export function mergeRun(prev: RunFile | null, patch: RunFile, now: number): RunFile {
   let base: RunFile = prev && typeof prev === 'object' ? prev : {};
   const finished = (s?: string): boolean => s === 'done' || s === 'failed';
   if (finished(base.status) && !finished(patch.status)) base = {};
-  const out: RunFile = { ...base, ...patch, v: 1 };
+  const progressed = [patch.current, patch.step, patch.epoch, patch.percent].some((v) => num(v) !== undefined) || !!patch.stage;
+  const status = patch.status ?? (base.status === 'paused' && progressed ? 'running' : base.status);
+  const out: RunFile = { ...base, ...patch, ...pauseBook(base, status ?? 'running', now), v: 1 };
   if (base.metrics || patch.metrics) {
     const m: Record<string, Record<string, number>> = {};
     for (const src of [base.metrics, patch.metrics]) {
@@ -308,8 +323,27 @@ export function mergeRun(prev: RunFile | null, patch: RunFile, now: number): Run
   }
   out.started = num(base.started) ?? now;
   out.updated = now;
-  if (!out.status) out.status = 'running';
+  out.status = status ?? 'running';
   return out;
+}
+
+/** The pause bookkeeping for a run moving from `prev` to status `next` at `now`:
+ *  entering a pause stamps `pausedAt`; leaving one stamps `resumed` and adds the
+ *  pause to `pausedMs`. Shared by --run and --watch so both resume the same way. */
+export function pauseBook(prev: RunFile | null, next: string, now: number): Pick<RunFile, 'pausedAt' | 'resumed' | 'pausedMs'> {
+  // a finished run's book closed with it: a new run under the same name starts clean
+  const p = prev && typeof prev === 'object' && prev.status !== 'done' && prev.status !== 'failed' ? prev : {};
+  const book = { pausedAt: num(p.pausedAt), resumed: num(p.resumed), pausedMs: num(p.pausedMs) };
+  const was = p.status === 'paused';
+  if (next === 'paused' && !was) book.pausedAt = now;
+  else if (next === 'paused') book.pausedAt = book.pausedAt ?? num(p.updated) ?? now;
+  else if (was) {
+    const from = num(p.pausedAt) ?? num(p.updated) ?? now;
+    book.pausedMs = (book.pausedMs ?? 0) + Math.max(0, now - from);
+    book.resumed = now;
+    book.pausedAt = undefined;
+  }
+  return book;
 }
 
 // ── watching a log with no spec ────────────────────────────────────────────────
@@ -324,6 +358,11 @@ const METRIC_RE = new RegExp(String.raw`['"]?([A-Za-z][\w./-]*)['"]?\s*[=:]\s*($
 const NOT_METRICS = new Set(['epoch', 'epochs', 'ep', 'step', 'steps', 'iter', 'batch', 'pid', 'exit', 'rc', 'line', 'port']);
 /** Default failure markers for a watched log; checked near its end only. */
 export const WATCH_FAILED = String.raw`Traceback \(most recent call last\)|\bout of memory\b|\bSTOPPED\b|\bFATAL\b|\bSegmentation fault\b`;
+/** Default pause / resume markers: a job that stops to be continued later prints
+ *  PAUSED; the run that continues it prints RESUMED (so a log appended across a
+ *  pause doesn't read as paused while its tail still holds the old marker). */
+export const WATCH_PAUSED = String.raw`\bPAUSED\b`;
+export const WATCH_RESUMED = String.raw`\bRESUMED\b`;
 
 function lastMatch(re: RegExp, s: string): RegExpMatchArray | null {
   let last: RegExpMatchArray | null = null;
@@ -378,6 +417,8 @@ export interface WatchSpec {
   of?: number;        // the job stops at this count: measure its counter against it, not the printed total
   done?: string;
   failed?: string;
+  paused?: string;
+  resumed?: string;
 }
 
 /** One reading of a watched job. `log` is the whole main log (the stage count needs
@@ -412,9 +453,19 @@ export function watchRead(spec: WatchSpec, log: string, inner?: (label: string) 
     delete f.current; delete f.total; delete f.percent;
   }
   if (label) f.message = f.message && f.message !== label ? `${label} · ${f.message}` : label;
+  // The end markers, by where they last fall in the log's end: a failure wins unless
+  // a pause came after it (a job stopped for later often prints a traceback first);
+  // a pause stands unless the job resumed or finished after it.
   const end = log.slice(-4096);
-  const hit = (src?: string): boolean => { try { return !!src && new RegExp(src, 'm').test(end); } catch { return false; } };
-  if (hit(spec.failed ?? WATCH_FAILED)) f.status = 'failed';
-  else if (hit(spec.done)) f.status = 'done';
+  const at = (src?: string): number => {
+    if (!src) return -1;
+    try { let i = -1; for (const m of end.matchAll(new RegExp(src, 'gm'))) { if (m[0] === '') break; i = m.index ?? i; } return i; } catch { return -1; }
+  };
+  const fa = at(spec.failed ?? WATCH_FAILED), da = at(spec.done);
+  const pa = at(spec.paused ?? WATCH_PAUSED), ra = at(spec.resumed ?? WATCH_RESUMED);
+  const paused = pa > ra ? pa : -1;
+  if (fa >= 0 && fa > paused) f.status = 'failed';
+  else if (paused >= 0 && paused > da) f.status = 'paused';
+  else if (da >= 0) f.status = 'done';
   return f;
 }

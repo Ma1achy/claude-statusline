@@ -253,6 +253,7 @@ Turn it on with `"runs": true`, or tune it:
     "max": 4,
     "staleAfter": 900,
     "linger": 600,
+    "pausedLinger": 604800,
     "metrics": true,
     "maxMetrics": 4,
     "logs": []
@@ -266,11 +267,12 @@ Turn it on with `"runs": true`, or tune it:
 | `max` | `4` | most bars shown; the rest collapse into a `+N more runs` line (live runs win the slots) |
 | `staleAfter` | `900` | seconds without an update before a running job shows as `stale` (dimmed) |
 | `linger` | `600` | seconds a finished / failed / stale run stays visible before it's hidden |
+| `pausedLinger` | `604800` | seconds a paused run stays visible (7 days) — it's waiting to be resumed, so it never goes stale |
 | `metrics` | `true` | show the `metrics` groups after the bar |
 | `maxMetrics` | `4` | most metric values shown per run |
 | `logs` | `[]` | log-tail specs for jobs that don't write progress files (below) |
 
-Each run gets a status glyph: `▸` running, `◦` paused, `✓` done, `✗` failed — or `stopped?` when it
+Each run gets a status glyph: `▸` running, `◦ paused 2h15m`, `✓` done, `✗` failed — or `stopped?` when it
 said it was running but its `pid` has gone away — and `◌ stale 12m` when it's gone quiet. Lines are
 width-aware: when space runs short the least useful pieces go first (other metric groups, then
 `eval`, `val`, the stage, the ETA, `train`), the message is truncated, and only then do the name and
@@ -303,6 +305,7 @@ measure of progress; unknown fields are ignored, so the format can grow without 
 | `percent` | number | explicit 0–100; wins over every derived fraction |
 | `metrics` | object | `{ group: { name: number } }` — `train`, `val`, `eval` are shown in that order, other groups after |
 | `stage` | object | an outer progress `{ current, total, label }`: `chain step 12/56` |
+| `pausedAt`, `resumed`, `pausedMs` | number | pause bookkeeping (epoch ms / ms), kept for you by `--run` and `--watch`: when the current pause began, the last resume, the total time paused. A resumed run's ETA leaves the paused time out |
 | `message` | string | short free text, shown last (truncated to fit) |
 | `started` | epoch ms | when it began — gives the ETA |
 | `updated` | epoch ms | last progress; defaults to the file's mtime |
@@ -363,6 +366,8 @@ printf '{"name":"backup","current":%d,"total":%d,"unit":"GB"}' "$done_gb" 120 > 
 node ~/.claude/statusline.js --run "A1 SAE b11×8" --step 41200 --steps 101308 --epoch 6 --epochs 8 \
   --metric train.loss=0.0353 --metric val.loss=0.041
 node ~/.claude/statusline.js --run "probe eval" 230 1000 --unit gal --stage 3/5:fold --message scoring
+node ~/.claude/statusline.js --run "probe eval" --status paused --message "SSD out — resume later"
+node ~/.claude/statusline.js --run "probe eval" 231 1000      # progress on a paused run resumes it
 node ~/.claude/statusline.js --run "probe eval" --status done
 node ~/.claude/statusline.js --run-clear "probe eval"
 ```
@@ -397,8 +402,16 @@ behalf and keeps the progress file current until the job ends: progress is read 
 it (tqdm's `45%|`, `epoch 3/8`, `step 1200/5000`, else the last bare `N/M`), metrics are the
 `name=value` / `name: value` pairs on that line (`val_*` → val, `eval_*` / `test_*` → eval, the rest
 train), and the message is the last line. It ends on a failure marker (`Traceback`, `out of memory`,
-`STOPPED`, `FATAL`, or your `--failed`), on `--done`, or when the job's pid is gone (found with `lsof`
-if you don't pass `--pid`).
+`STOPPED`, `FATAL`, or your `--failed`), on `--done`, on a pause marker (`PAUSED`, or your `--paused`),
+or when the job's pid is gone (found with `lsof` if you don't pass `--pid`).
+
+**Pause and resume.** A job that stops to be continued later prints `PAUSED` as it goes; its watch ends
+with the run marked `paused`, and the bar stays put (dimmed, `◦ paused 3h`) for `pausedLinger`. A
+pause printed after a traceback still reads as a pause (stopping often raises one). When the job is
+started again under the same `--name`, the new watch finds the run paused and marks it resumed: the
+time away is booked to `pausedMs`, the ETA starts again from what the resumed job does, and a stage
+counter carries on from wherever the job's own log says it is. If the resumed job appends to the same
+log, have it print `RESUMED` (or match your own with `--resumed`) so the old marker no longer counts.
 
 ```bash
 node ~/.claude/statusline.js --watch train.log --pid $PID --name "SAE b11×8" &

@@ -43,6 +43,7 @@ function readRuns(v: unknown): RunsConfig {
     max: Math.max(1, Math.floor(nn(o.max, 4))),
     staleAfter: nn(o.staleAfter, 900),
     linger: nn(o.linger, 600),
+    pausedLinger: nn(o.pausedLinger, 7 * 86400),
     metrics: o.metrics !== false,
     maxMetrics: Math.floor(nn(o.maxMetrics, 4)),
     logs,

@@ -26,7 +26,7 @@ export function pidAlive(pid: number): boolean {
 }
 
 export function readRuns(rc: RunsConfig, now: number, alive: (pid: number) => boolean = pidAlive): Run[] {
-  const rules: RunRules = { now, staleAfterMs: rc.staleAfter * 1000, lingerMs: rc.linger * 1000, alive };
+  const rules: RunRules = { now, staleAfterMs: rc.staleAfter * 1000, lingerMs: rc.linger * 1000, pausedLingerMs: rc.pausedLinger * 1000, alive };
   const out: Run[] = [];
   let names: string[] = [];
   try { names = fs.readdirSync(rc.dir).filter((n) => n.endsWith('.json') && !n.startsWith('.')).slice(0, MAX_NAMES); } catch { /* no dir → no runs */ }
@@ -64,14 +64,16 @@ export function readRunCache(): RunCache {
 
 /** Fold this tick's runs into the cache. Pure (mutates and returns `cache`);
  *  returns whether anything changed so the caller can skip the write. A run whose
- *  fraction went backwards is a restart, so its first sighting resets. Each metric
+ *  fraction went backwards is a restart, and one resumed since its first sighting
+ *  is a new stretch of work (the gap was no work at all), so either resets the
+ *  first sighting. Each metric
  *  keeps [last, previous-different] so the arrow survives repaints at a constant value. */
 export function updateRunCache(cache: RunCache, runs: Run[], now: number): boolean {
   let changed = false;
   for (const r of runs) {
     const f = r.frac ?? 0;
     let e = cache[r.key];
-    if (!e || f < e.f) { e = cache[r.key] = { t: r.updated, f, seen: now }; changed = true; }
+    if (!e || f < e.f || (r.resumed !== undefined && e.t < r.resumed)) { e = cache[r.key] = { t: r.updated, f, seen: now }; changed = true; }
     if (now - e.seen > 60000) { e.seen = now; changed = true; }    // touch at most once a minute
     for (const mt of r.metrics.slice(0, CACHE_METRICS)) {
       const k = `${mt.group}.${mt.name}`;
