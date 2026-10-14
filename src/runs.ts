@@ -332,7 +332,9 @@ export function mergeRun(prev: RunFile | null, patch: RunFile, now: number): Run
  *  pause to `pausedMs`. Shared by --run and --watch so both resume the same way. */
 export function pauseBook(prev: RunFile | null, next: string, now: number): Pick<RunFile, 'pausedAt' | 'resumed' | 'pausedMs'> {
   // a finished run's book closed with it: a new run under the same name starts clean
-  const p = prev && typeof prev === 'object' && prev.status !== 'done' && prev.status !== 'failed' ? prev : {};
+  // (but restating the end — the watcher, then the job's parent — keeps the record)
+  const fin = (s?: string): boolean => s === 'done' || s === 'failed';
+  const p = prev && typeof prev === 'object' && !(fin(prev.status) && !fin(next)) ? prev : {};
   const book = { pausedAt: num(p.pausedAt), resumed: num(p.resumed), pausedMs: num(p.pausedMs) };
   const was = p.status === 'paused';
   if (next === 'paused' && !was) book.pausedAt = now;

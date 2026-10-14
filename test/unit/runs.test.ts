@@ -102,6 +102,11 @@ test('pause and resume: pauseBook stamps the pause, books its length on resume',
   // a finished run's book is closed: a new run under its name starts clean
   assert.deepEqual(pauseBook({ name: 'x', status: 'done', pausedMs: 5, resumed: 1 }, 'running', NOW),
     { pausedAt: undefined, resumed: undefined, pausedMs: undefined });
+  // …but restating the end (the watcher wrote done, then the parent does) keeps the record
+  assert.deepEqual(pauseBook({ name: 'x', status: 'done', pausedMs: 5, resumed: 1 }, 'done', NOW),
+    { pausedAt: undefined, resumed: 1, pausedMs: 5 });
+  const end = mergeRun({ name: 'x', status: 'done', pausedMs: 5, resumed: 1, step: 9, steps: 9 }, { name: 'x', status: 'done', message: 'exit 0' }, NOW);
+  assert.deepEqual([end.pausedMs, end.resumed, end.step], [5, 1, 9]);
 });
 
 test('mergeRun: --status paused, then progress resumes the run and books the gap', () => {

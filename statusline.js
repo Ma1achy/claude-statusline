@@ -1035,7 +1035,8 @@ function mergeRun(prev, patch, now2) {
   return out;
 }
 function pauseBook(prev, next, now2) {
-  const p = prev && typeof prev === "object" && prev.status !== "done" && prev.status !== "failed" ? prev : {};
+  const fin = (s) => s === "done" || s === "failed";
+  const p = prev && typeof prev === "object" && !(fin(prev.status) && !fin(next)) ? prev : {};
   const book = { pausedAt: num(p.pausedAt), resumed: num(p.resumed), pausedMs: num(p.pausedMs) };
   const was = p.status === "paused";
   if (next === "paused" && !was)
