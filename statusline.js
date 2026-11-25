@@ -25,6 +25,7 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
 
 // src/ansi.ts
 var import_child_process2 = require("child_process");
+var import_tty = require("tty");
 
 // src/util.ts
 var env = (k, d) => process.env[k] !== void 0 && process.env[k] !== "" ? process.env[k] : d;
@@ -65,18 +66,25 @@ var PRESETS = {
 
 // src/git.ts
 var import_child_process = require("child_process");
-function gitOut(cwd, args) {
+var GIT_TIMEOUT_MS = 3e3;
+var GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+function gitRun(cwd, args, timeoutMs = GIT_TIMEOUT_MS) {
   if (!cwd)
-    return "";
+    return { out: "", timedOut: false };
   try {
-    return (0, import_child_process.execFileSync)(
+    const out = (0, import_child_process.execFileSync)(
       "git",
       ["-C", cwd, "--no-optional-locks", ...args],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
-    ).trim();
-  } catch {
-    return "";
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true, timeout: timeoutMs, killSignal: "SIGKILL", env: GIT_ENV }
+    );
+    return { out: out.trim(), timedOut: false };
+  } catch (e) {
+    const err = e;
+    return { out: "", timedOut: err.code === "ETIMEDOUT" || !!err.signal };
   }
+}
+function gitOut(cwd, args, timeoutMs = GIT_TIMEOUT_MS) {
+  return gitRun(cwd, args, timeoutMs).out;
 }
 var countLines = (s) => s ? s.split("\n").filter((l) => l.length).length : 0;
 
@@ -234,7 +242,7 @@ function resolveBranchTheme(input) {
     return false;
   try {
     const cwd = input && input.workspace && input.workspace.current_dir || "";
-    const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const br = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], 1e3);
     const bt = cfg.branchThemes || {};
     let name = "";
     if (/^(main|master)$/i.test(br))
@@ -321,11 +329,14 @@ var VS = "\uFE0E";
 var txt = (glyph) => glyph + VS;
 var stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 var printLen = (s) => Array.from(stripAnsi(s).replace(/[︀-️]/g, "")).length;
+var colsMemo = 0;
 function termCols() {
+  if (colsMemo)
+    return colsMemo;
   let c = 0;
   try {
     c = parseInt(
-      (0, import_child_process2.execFileSync)("tput", ["cols"], { encoding: "utf8", stdio: ["inherit", "pipe", "ignore"], windowsHide: true }),
+      (0, import_child_process2.execFileSync)("tput", ["cols"], { encoding: "utf8", stdio: [(0, import_tty.isatty)(0) ? "inherit" : "ignore", "pipe", "ignore"], windowsHide: true, timeout: 1e3 }),
       10
     );
   } catch {
@@ -334,7 +345,7 @@ function termCols() {
     c = process.stdout.columns || parseInt(env("COLUMNS", ""), 10) || 120;
   if (!Number.isFinite(c) || c < 20)
     c = 120;
-  return c;
+  return colsMemo = c;
 }
 function justified(left, right) {
   if (stripAnsi(right).length === 0)
@@ -346,10 +357,10 @@ function justified(left, right) {
 }
 
 // src/cli.ts
-var fs5 = __toESM(require("fs"));
-var os4 = __toESM(require("os"));
-var path3 = __toESM(require("path"));
-var import_child_process3 = require("child_process");
+var fs6 = __toESM(require("fs"));
+var os5 = __toESM(require("os"));
+var path4 = __toESM(require("path"));
+var import_child_process4 = require("child_process");
 
 // src/themes.data.ts
 var A11Y_PAL = {
@@ -1183,32 +1194,236 @@ function watchRead(spec, log, inner) {
 }
 
 // src/io/runs.ts
-var fs4 = __toESM(require("fs"));
-var os3 = __toESM(require("os"));
-var path2 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
+var os4 = __toESM(require("os"));
+var path3 = __toESM(require("path"));
 
 // src/io/input.ts
+var fs4 = __toESM(require("fs"));
+
+// src/io/proc.ts
 var fs3 = __toESM(require("fs"));
-function readInput() {
-  let input = "";
+var os3 = __toESM(require("os"));
+var path2 = __toESM(require("path"));
+var import_child_process3 = require("child_process");
+var STDIN_TIMEOUT_MS = 1500;
+var RENDER_BUDGET_MS = 5e3;
+var REFRESH_BUDGET_MS = 15e3;
+var REFRESH_GIT_DEADLINE_MS = 8e3;
+var REFRESH_WAIT_MS = 2e3;
+var REFRESH_LOCK_STALE_MS = 2 * REFRESH_BUDGET_MS;
+var LOCK_DIR = path2.join(os3.tmpdir(), "claude-statusline", "locks");
+function exitAfter(ms) {
+  const o = parseInt(process.env.SL_EXIT_AFTER_MS || "", 10);
+  setTimeout(() => process.exit(0), o > 0 ? o : ms).unref();
+}
+function readStdin(timeoutMs = STDIN_TIMEOUT_MS) {
+  return new Promise((resolve2) => {
+    let buf = "";
+    let settled = false;
+    const stdin = process.stdin;
+    const finish = () => {
+      if (settled)
+        return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        stdin.removeAllListeners("data");
+        stdin.pause();
+        stdin.unref?.();
+      } catch {
+      }
+      resolve2(buf);
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    try {
+      stdin.setEncoding("utf8");
+      stdin.on("data", (d) => {
+        buf += d;
+        const t = buf.trimEnd();
+        if (t.startsWith("{") && t.endsWith("}")) {
+          try {
+            JSON.parse(t);
+            finish();
+          } catch {
+          }
+        }
+      });
+      stdin.on("end", finish);
+      stdin.on("error", finish);
+    } catch {
+      finish();
+    }
+  });
+}
+var lockFile = (kind, key) => path2.join(LOCK_DIR, `${kind}-${hash(key)}.lock`);
+function readLock(file) {
   try {
-    input = fs3.readFileSync(0, "utf8");
+    const b = JSON.parse(fs3.readFileSync(file, "utf8"));
+    return b && typeof b.pid === "number" && typeof b.t === "number" ? b : null;
+  } catch {
+    return null;
+  }
+}
+function lockHeld(file, staleMs, alive = pidAlive) {
+  let b = readLock(file);
+  if (!b) {
+    try {
+      const m = fs3.statSync(file).mtimeMs;
+      return Date.now() - m < Math.min(staleMs, 2e3);
+    } catch {
+      return false;
+    }
+  }
+  if (b.pid === process.pid)
+    b = null;
+  return !!b && Date.now() - b.t < staleMs && alive(b.pid);
+}
+function claimLock(file, staleMs, alive = pidAlive) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      fs3.mkdirSync(path2.dirname(file), { recursive: true });
+      const fd = fs3.openSync(file, "wx");
+      try {
+        fs3.writeSync(fd, JSON.stringify({ pid: process.pid, t: Date.now() }));
+      } finally {
+        fs3.closeSync(fd);
+      }
+      process.on("exit", () => releaseLock(file));
+      return true;
+    } catch (e) {
+      if (e.code !== "EEXIST")
+        return false;
+      if (lockHeld(file, staleMs, alive))
+        return false;
+      try {
+        fs3.unlinkSync(file);
+      } catch {
+      }
+    }
+  }
+  return false;
+}
+function touchLock(file) {
+  const b = readLock(file);
+  if (b && b.pid === process.pid)
+    try {
+      fs3.writeFileSync(file, JSON.stringify({ pid: process.pid, t: Date.now() }));
+    } catch {
+    }
+}
+function releaseLock(file) {
+  const b = readLock(file);
+  if (b && b.pid === process.pid)
+    try {
+      fs3.unlinkSync(file);
+    } catch {
+    }
+}
+var NOTE_MIN_AGE_MS = 15e3;
+var NOTE_MAX_AGE_MS = 36e5;
+var notePrefix = (kind) => `spawn-${kind}-`;
+function noteSpawn(kind) {
+  const file = path2.join(LOCK_DIR, `${notePrefix(kind)}${process.pid}-${Date.now()}.json`);
+  try {
+    fs3.mkdirSync(LOCK_DIR, { recursive: true });
+    fs3.writeFileSync(file, "");
   } catch {
   }
+  return () => {
+    try {
+      fs3.unlinkSync(file);
+    } catch {
+    }
+  };
+}
+function readNotes(kind) {
+  const pre = notePrefix(kind);
+  let names;
+  try {
+    names = fs3.readdirSync(LOCK_DIR).filter((n) => n.startsWith(pre)).slice(0, 256);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const n of names) {
+    const m = /^(\d+)-(\d+)\.json$/.exec(n.slice(pre.length));
+    if (m)
+      out.push({ file: path2.join(LOCK_DIR, n), spawner: +m[1], t: +m[2] });
+  }
+  return out;
+}
+function clearAndReapNotes(kind, marker, now2 = Date.now()) {
+  const notes = readNotes(kind);
+  const stale = [];
+  for (const n of notes) {
+    if (n.spawner === process.ppid || now2 - n.t > NOTE_MAX_AGE_MS) {
+      try {
+        fs3.unlinkSync(n.file);
+      } catch {
+      }
+    } else if (now2 - n.t > NOTE_MIN_AGE_MS)
+      stale.push(n);
+  }
+  if (!stale.length)
+    return 0;
+  let reaped = 0;
+  if (process.platform === "win32") {
+    for (const p of childrenOf(stale.map((n) => n.spawner))) {
+      const n = stale.find((s) => s.spawner === p.ppid && p.created >= s.t - 2e3 && p.created <= s.t + NOTE_MIN_AGE_MS);
+      if (!n || p.pid === process.pid || !p.cmd.includes(marker) || !p.cmd.includes(path2.basename(__filename)))
+        continue;
+      try {
+        process.kill(p.pid);
+        reaped++;
+      } catch {
+      }
+    }
+  }
+  for (const n of stale)
+    try {
+      fs3.unlinkSync(n.file);
+    } catch {
+    }
+  return reaped;
+}
+function childrenOf(ppids) {
+  const ids = [...new Set(ppids.filter((n) => Number.isInteger(n) && n > 0))];
+  if (!ids.length)
+    return [];
+  const filter = ids.map((n) => `ParentProcessId=${n}`).join(" or ");
+  const script = `Get-CimInstance Win32_Process -Filter '${filter}' | ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.ProcessId, $_.ParentProcessId, [int64]($_.CreationDate.ToUniversalTime() - [datetime]'1970-01-01').TotalMilliseconds, $_.CommandLine }`;
+  try {
+    const out = (0, import_child_process3.execFileSync)(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true, timeout: 8e3 }
+    );
+    return out.split(/\r?\n/).map((l) => l.split("|")).filter((a) => a.length >= 4).map((a) => ({ pid: +a[0], ppid: +a[1], created: +a[2], cmd: a.slice(3).join("|") })).filter((p) => p.pid > 0 && Number.isFinite(p.created));
+  } catch {
+    return [];
+  }
+}
+
+// src/io/input.ts
+function parseInput(input) {
   try {
     return JSON.parse(input) || {};
   } catch {
     return {};
   }
 }
+async function readInput(timeoutMs = STDIN_TIMEOUT_MS) {
+  return parseInput(await readStdin(timeoutMs));
+}
 function readTail(file, maxBytes) {
   let fd = -1;
   try {
-    fd = fs3.openSync(file, "r");
-    const size = fs3.fstatSync(fd).size;
+    fd = fs4.openSync(file, "r");
+    const size = fs4.fstatSync(fd).size;
     const len = Math.min(size, maxBytes);
     const buf = Buffer.alloc(len);
-    fs3.readSync(fd, buf, 0, len, size - len);
+    fs4.readSync(fd, buf, 0, len, size - len);
     let s = buf.toString("utf8");
     if (size > maxBytes) {
       const nl = s.indexOf("\n");
@@ -1220,7 +1435,7 @@ function readTail(file, maxBytes) {
   } finally {
     if (fd >= 0)
       try {
-        fs3.closeSync(fd);
+        fs4.closeSync(fd);
       } catch {
       }
   }
@@ -1231,7 +1446,7 @@ var MAX_NAMES = 256;
 var MAX_FILES = 32;
 var MAX_FILE_BYTES = 16384;
 var LOG_TAIL_BYTES = 65536;
-var CACHE = path2.join(os3.tmpdir(), "claude-statusline", "runs.json");
+var CACHE = path3.join(os4.tmpdir(), "claude-statusline", "runs.json");
 var CACHE_CAP = 32;
 var CACHE_METRICS = 16;
 function pidAlive(pid) {
@@ -1247,14 +1462,14 @@ function readRuns2(rc, now2, alive = pidAlive) {
   const out = [];
   let names = [];
   try {
-    names = fs4.readdirSync(rc.dir).filter((n) => n.endsWith(".json") && !n.startsWith(".")).slice(0, MAX_NAMES);
+    names = fs5.readdirSync(rc.dir).filter((n) => n.endsWith(".json") && !n.startsWith(".")).slice(0, MAX_NAMES);
   } catch {
   }
   const files = [];
   for (const n of names) {
-    const p = path2.join(rc.dir, n);
+    const p = path3.join(rc.dir, n);
     try {
-      const s = fs4.statSync(p);
+      const s = fs5.statSync(p);
       if (s.isFile())
         files.push({ p, n, mtime: s.mtimeMs, size: s.size });
     } catch {
@@ -1265,7 +1480,7 @@ function readRuns2(rc, now2, alive = pidAlive) {
     if (f.size > MAX_FILE_BYTES)
       continue;
     try {
-      const r = resolveRun(JSON.parse(fs4.readFileSync(f.p, "utf8")), f.n, f.mtime, rules);
+      const r = resolveRun(JSON.parse(fs5.readFileSync(f.p, "utf8")), f.n, f.mtime, rules);
       if (r)
         out.push(r);
     } catch {
@@ -1273,7 +1488,7 @@ function readRuns2(rc, now2, alive = pidAlive) {
   }
   for (const spec of rc.logs) {
     try {
-      const mtime = fs4.statSync(spec.log).mtimeMs;
+      const mtime = fs5.statSync(spec.log).mtimeMs;
       const raw = parseLogTail(spec, readTail(spec.log, LOG_TAIL_BYTES));
       const r = raw && resolveRun(raw, `log:${spec.name}`, mtime, rules);
       if (r)
@@ -1285,7 +1500,7 @@ function readRuns2(rc, now2, alive = pidAlive) {
 }
 function readRunCache() {
   try {
-    const c = JSON.parse(fs4.readFileSync(CACHE, "utf8"));
+    const c = JSON.parse(fs5.readFileSync(CACHE, "utf8"));
     return c && typeof c === "object" ? c : {};
   } catch {
     return {};
@@ -1330,22 +1545,22 @@ function writeRunCache(cache) {
   writeJsonAtomic(CACHE, cache);
 }
 function writeJsonAtomic(file, data) {
-  fs4.mkdirSync(path2.dirname(file), { recursive: true });
-  const tmp = path2.join(path2.dirname(file), `.${path2.basename(file)}.${process.pid}.tmp`);
-  fs4.writeFileSync(tmp, JSON.stringify(data, null, 1));
+  fs5.mkdirSync(path3.dirname(file), { recursive: true });
+  const tmp = path3.join(path3.dirname(file), `.${path3.basename(file)}.${process.pid}.tmp`);
+  fs5.writeFileSync(tmp, JSON.stringify(data, null, 1));
   try {
-    fs4.renameSync(tmp, file);
+    fs5.renameSync(tmp, file);
   } catch {
-    fs4.writeFileSync(file, JSON.stringify(data, null, 1));
+    fs5.writeFileSync(file, JSON.stringify(data, null, 1));
     try {
-      fs4.unlinkSync(tmp);
+      fs5.unlinkSync(tmp);
     } catch {
     }
   }
 }
 function readRunFile(file) {
   try {
-    const j = JSON.parse(fs4.readFileSync(file, "utf8"));
+    const j = JSON.parse(fs5.readFileSync(file, "utf8"));
     return j && typeof j === "object" && !Array.isArray(j) ? j : null;
   } catch {
     return null;
@@ -1364,9 +1579,11 @@ var SAMPLE = JSON.stringify({
 });
 function renderBar(env2) {
   try {
-    const out = (0, import_child_process3.execFileSync)(process.execPath, [process.argv[1]], {
+    const out = (0, import_child_process4.execFileSync)(process.execPath, [process.argv[1]], {
       input: SAMPLE,
       encoding: "utf8",
+      timeout: 1e4,
+      windowsHide: true,
       env: { ...process.env, COLUMNS: "120", SL_FRAME_MS: "1700000000123", SL_COLOR_MODE: "truecolor", ...env2 }
     });
     return out.split("\n")[1] || "";
@@ -1401,7 +1618,7 @@ function runDoctor() {
   const truecolor = ct.includes("truecolor") || ct.includes("24bit");
   let gitVer = "";
   try {
-    gitVer = (0, import_child_process3.execFileSync)("git", ["--version"], { encoding: "utf8" }).trim();
+    gitVer = (0, import_child_process4.execFileSync)("git", ["--version"], { encoding: "utf8", timeout: 5e3, windowsHide: true }).trim();
   } catch {
   }
   line("node", process.version);
@@ -1412,10 +1629,10 @@ function runDoctor() {
   line("git", gitVer ? `${ok(true)} ${gitVer}` : `${ok(false)} not found`);
   line("git mode", `${DIM}cached + background refresh (off the hot path; refreshInterval-safe)${R}`);
   line("NO_COLOR", process.env.NO_COLOR ? "set (forces mono)" : "unset");
-  const cfgPath = process.env.SL_CONFIG || `${os4.homedir()}/.claude/statusline.json`;
+  const cfgPath = process.env.SL_CONFIG || `${os5.homedir()}/.claude/statusline.json`;
   let cfgFound = false;
   try {
-    cfgFound = fs5.existsSync(cfgPath);
+    cfgFound = fs6.existsSync(cfgPath);
   } catch {
   }
   line("config", `${ok(cfgFound)} ${DIM}${cfgPath}${cfgFound ? "" : " (using defaults)"}${R}`);
@@ -1429,7 +1646,7 @@ function runDoctor() {
     }
     let found = false;
     try {
-      found = fs5.existsSync(cfg.runs.dir);
+      found = fs6.existsSync(cfg.runs.dir);
     } catch {
     }
     line("runs", `${ok(found)} ${DIM}${cfg.runs.dir}${found ? "" : " (missing \u2014 created by the first --run)"}${R} \xB7 ${n} active` + (cfg.runs.logs.length ? ` ${DIM}(+${cfg.runs.logs.length} log spec${cfg.runs.logs.length > 1 ? "s" : ""})${R}` : ""));
@@ -1549,7 +1766,7 @@ function runReport() {
 function runRun(argv) {
   try {
     const patch = parseRunArgs(argv);
-    const file = path3.join(cfg.runs.dir, `${slug(patch.name)}.json`);
+    const file = path4.join(cfg.runs.dir, `${slug(patch.name)}.json`);
     writeJsonAtomic(file, mergeRun(readRunFile(file), patch, cfg.nowMs));
   } catch (e) {
     process.stderr.write(`claude-statusline --run: ${e.message}
@@ -1564,7 +1781,7 @@ function runRunClear(argv) {
     return;
   }
   try {
-    fs5.unlinkSync(path3.join(cfg.runs.dir, `${slug(argv[0])}.json`));
+    fs6.unlinkSync(path4.join(cfg.runs.dir, `${slug(argv[0])}.json`));
   } catch {
   }
 }
@@ -1573,7 +1790,7 @@ var sleepMs = (ms) => {
 };
 function writersOf(file) {
   try {
-    return (0, import_child_process3.execFileSync)("lsof", ["-t", "--", file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5e3 }).split(/\s+/).map(Number).filter((n) => n > 0 && n !== process.pid);
+    return (0, import_child_process4.execFileSync)("lsof", ["-t", "--", file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5e3, windowsHide: true }).split(/\s+/).map(Number).filter((n) => n > 0 && n !== process.pid);
   } catch {
     return [];
   }
@@ -1588,7 +1805,7 @@ function runWatch(argv) {
     process.exitCode = 2;
     return;
   }
-  const spec = { name: path3.basename(log).replace(/\.[^.]*$/, "") };
+  const spec = { name: path4.basename(log).replace(/\.[^.]*$/, "") };
   let pids = [];
   let every = 5;
   for (let i = 1; i < argv.length; i += 2) {
@@ -1631,15 +1848,19 @@ function runWatch(argv) {
     }
   }
   pids = pids.filter((n) => Number.isFinite(n) && n > 0);
+  const lock = lockFile("watch", path4.resolve(log));
+  if (!claimLock(lock, Math.max(600, 3 * every) * 1e3))
+    return;
   if (!pids.length)
     for (let t = 0; t < 5 && !pids.length; t++) {
       pids = writersOf(log);
       if (!pids.length)
         sleepMs(1e3);
     }
-  const file = path3.join(cfg.runs.dir, `${slug(spec.name)}.json`);
+  const file = path4.join(cfg.runs.dir, `${slug(spec.name)}.json`);
   const quietMs = (cfg.runs.staleAfter + cfg.runs.linger) * 1e3;
   let gone = false;
+  const startedAt = Date.now();
   let prev = readRunFile(file);
   for (; ; ) {
     const f = watchRead(spec, readLog(log), (label) => readTail(spec.inner.split("{}").join(label), 65536));
@@ -1663,24 +1884,24 @@ function runWatch(argv) {
         gone = true;
         continue;
       }
-    } else {
-      let mtime = 0;
-      try {
-        mtime = fs5.statSync(log).mtimeMs;
-      } catch {
-      }
-      if (mtime && now2 - mtime > quietMs)
-        return;
     }
+    let mtime = 0;
+    try {
+      mtime = fs6.statSync(log).mtimeMs;
+    } catch {
+    }
+    if (now2 - (mtime || startedAt) > quietMs)
+      return;
     write("running");
+    touchLock(lock);
     sleepMs(every * 1e3);
   }
 }
-function runHook() {
+async function runHook() {
   try {
-    const raw = fs5.readFileSync(0, "utf8");
+    const raw = await readStdin();
     if (process.env.SL_HOOK_DEBUG)
-      fs5.writeFileSync(process.env.SL_HOOK_DEBUG, raw);
+      fs6.writeFileSync(process.env.SL_HOOK_DEBUG, raw);
     const ev = JSON.parse(raw);
     const inp = ev.tool_input || {};
     if (ev.tool_name !== "Bash" || inp.run_in_background !== true)
@@ -1692,7 +1913,7 @@ function runHook() {
       if (typeof v === "string") {
         if (!out && v.startsWith("/") && v.length < 1024 && !v.includes("\n")) {
           try {
-            if (fs5.statSync(v).isFile())
+            if (fs6.statSync(v).isFile())
               out = v;
           } catch {
           }
@@ -1701,7 +1922,7 @@ function runHook() {
           if (out)
             break;
           try {
-            if (fs5.statSync(m[1]).isFile())
+            if (fs6.statSync(m[1]).isFile())
               out = m[1];
           } catch {
           }
@@ -1720,14 +1941,17 @@ function runHook() {
     const args = [process.argv[1], "--watch", out, "--name", desc.slice(0, 48)];
     if (pid)
       args.push("--pid", String(pid));
-    (0, import_child_process3.spawn)(process.execPath, args, { detached: true, stdio: "ignore" }).unref();
+    const child = (0, import_child_process4.spawn)(process.execPath, args, { detached: true, stdio: "ignore", windowsHide: true });
+    child.on("error", () => {
+    });
+    child.unref();
   } catch {
   }
 }
 
 // src/io/gitcache.ts
-var fs6 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var fs7 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 function readGit(CWD, gc) {
   const branch = gc(["rev-parse", "--abbrev-ref", "HEAD"]);
   const g = {
@@ -1755,13 +1979,13 @@ function readGit(CWD, gc) {
     try {
       let gd = gc(["rev-parse", "--git-dir"]);
       if (gd) {
-        if (!path4.isAbsolute(gd))
-          gd = path4.join(CWD, gd);
-        if (fs6.existsSync(path4.join(gd, "MERGE_HEAD")))
+        if (!path5.isAbsolute(gd))
+          gd = path5.join(CWD, gd);
+        if (fs7.existsSync(path5.join(gd, "MERGE_HEAD")))
           g.state = "merge";
-        else if (fs6.existsSync(path4.join(gd, "rebase-merge")) || fs6.existsSync(path4.join(gd, "rebase-apply")))
+        else if (fs7.existsSync(path5.join(gd, "rebase-merge")) || fs7.existsSync(path5.join(gd, "rebase-apply")))
           g.state = "rebase";
-        else if (fs6.existsSync(path4.join(gd, "CHERRY_PICK_HEAD")))
+        else if (fs7.existsSync(path5.join(gd, "CHERRY_PICK_HEAD")))
           g.state = "cherry";
       }
     } catch {
@@ -1802,16 +2026,36 @@ function readGit(CWD, gc) {
   }
   return g;
 }
-function refreshGitCache(data) {
+var refreshLock = (cwd) => lockFile("git-refresh", cwd);
+function refreshInFlight(cwd) {
+  return lockHeld(refreshLock(cwd), REFRESH_LOCK_STALE_MS);
+}
+var GitGaveUp = class extends Error {
+};
+function refreshGitCache(data, waitMs = 0, deadlineMs = REFRESH_GIT_DEADLINE_MS) {
   const CWD = data.workspace && data.workspace.current_dir || "";
+  if (!CWD)
+    return false;
+  const until = Date.now() + waitMs;
+  while (!claimLock(refreshLock(CWD), REFRESH_LOCK_STALE_MS)) {
+    if (Date.now() >= until)
+      return false;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
   const gitMemo = {};
+  const deadline = Date.now() + deadlineMs;
   const gc = (args) => {
     const key = args.join(" ");
     if (key in gitMemo)
       return gitMemo[key];
-    const v = gitOut(CWD, args);
-    gitMemo[key] = v;
-    return v;
+    const left = deadline - Date.now();
+    if (left <= 0)
+      throw new GitGaveUp();
+    const r = gitRun(CWD, args, Math.min(GIT_TIMEOUT_MS, left));
+    if (r.timedOut)
+      throw new GitGaveUp();
+    gitMemo[key] = r.out;
+    return r.out;
   };
   try {
     const sk = sessionKey(data);
@@ -1819,17 +2063,21 @@ function refreshGitCache(data) {
     const st2 = readState(sk);
     st2.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
     writeState(sk, st2);
+    return true;
   } catch {
+    return false;
+  } finally {
+    releaseLock(refreshLock(CWD));
   }
 }
 
 // src/build.ts
-var os8 = __toESM(require("os"));
-var import_child_process5 = require("child_process");
+var os9 = __toESM(require("os"));
+var import_child_process6 = require("child_process");
 
 // src/themes.ts
-var fs7 = __toESM(require("fs"));
-var os5 = __toESM(require("os"));
+var fs8 = __toESM(require("fs"));
+var os6 = __toESM(require("os"));
 
 // src/color.ts
 function hsv(h, s, v) {
@@ -2041,9 +2289,9 @@ function loadCustom() {
   } catch {
   }
   try {
-    const p = cfg.themeFile || `${os5.homedir()}/.claude/statusline-theme.json`;
-    if (fs7.existsSync(p)) {
-      const d = coerceThemeData(JSON.parse(fs7.readFileSync(p, "utf8")));
+    const p = cfg.themeFile || `${os6.homedir()}/.claude/statusline-theme.json`;
+    if (fs8.existsSync(p)) {
+      const d = coerceThemeData(JSON.parse(fs8.readFileSync(p, "utf8")));
       if (d)
         return buildTheme(d);
     }
@@ -2664,11 +2912,11 @@ function st(id, text, opts = {}) {
 }
 
 // src/io/settings.ts
-var fs8 = __toESM(require("fs"));
-var os6 = __toESM(require("os"));
+var fs9 = __toESM(require("fs"));
+var os7 = __toESM(require("os"));
 function readAccountName() {
   try {
-    const cj = JSON.parse(fs8.readFileSync(`${os6.homedir()}/.claude.json`, "utf8"));
+    const cj = JSON.parse(fs9.readFileSync(`${os7.homedir()}/.claude.json`, "utf8"));
     return cj.oauthAccount && (cj.oauthAccount.displayName || cj.oauthAccount.emailAddress) || "";
   } catch {
     return "";
@@ -2677,7 +2925,7 @@ function readAccountName() {
 function readAutocompact() {
   let pct = "", off = false;
   try {
-    const s = JSON.parse(fs8.readFileSync(`${os6.homedir()}/.claude/settings.json`, "utf8"));
+    const s = JSON.parse(fs9.readFileSync(`${os7.homedir()}/.claude/settings.json`, "utf8"));
     if (s.env && s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE)
       pct = String(s.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
     if (s.autoCompactEnabled === false || s.autoCompact === false)
@@ -2733,7 +2981,7 @@ function persistTick(data, CWD, PCT, COST, DURATION_MS) {
 }
 
 // src/segments/path.ts
-var os7 = __toESM(require("os"));
+var os8 = __toESM(require("os"));
 function displayPath(cwd) {
   if (!cwd)
     return cwd;
@@ -2752,7 +3000,7 @@ function displayPath(cwd) {
   }
   if (cfg.path === "full")
     return p;
-  const home = os7.homedir();
+  const home = os8.homedir();
   if (home && (p === home || p.startsWith(home + "/")))
     p = "~" + p.slice(home.length);
   const parts = p.split("/").filter(Boolean);
@@ -3078,14 +3326,14 @@ function buildGitSeg(G, ADDED, REMOVED, hideEmail) {
 }
 
 // src/segments/custom.ts
-var import_child_process4 = require("child_process");
+var import_child_process5 = require("child_process");
 var TIMEOUT_MS = 250;
 var MAX_LEN = 240;
 function buildCustom(data) {
   if (!cfg.customSegment)
     return "";
   try {
-    const out = (0, import_child_process4.execFileSync)(process.execPath, [cfg.customSegment], {
+    const out = (0, import_child_process5.execFileSync)(process.execPath, [cfg.customSegment], {
       input: JSON.stringify(data),
       encoding: "utf8",
       timeout: TIMEOUT_MS,
@@ -3101,13 +3349,13 @@ function buildCustom(data) {
 }
 
 // src/segments/lastfile.ts
-var fs9 = __toESM(require("fs"));
+var fs10 = __toESM(require("fs"));
 var TAIL_BYTES = 262144;
 var MAX_LINES = 80;
 function buildLastFile(TRANSCRIPT) {
   let LAST_FILE = "";
   try {
-    if (TRANSCRIPT && fs9.existsSync(TRANSCRIPT)) {
+    if (TRANSCRIPT && fs10.existsSync(TRANSCRIPT)) {
       const lines = readTail(TRANSCRIPT, TAIL_BYTES).split("\n").filter(Boolean).slice(-MAX_LINES);
       const re = /write|edit|read|str_replace|create/i;
       for (const line of lines) {
@@ -3152,11 +3400,11 @@ function buildWarning(PCT, COST, rl, limitCrit) {
 }
 
 // src/segments/activity.ts
-var fs10 = __toESM(require("fs"));
+var fs11 = __toESM(require("fs"));
 function buildActivity(TRANSCRIPT) {
   let tool = "", target = "";
   try {
-    if (TRANSCRIPT && fs10.existsSync(TRANSCRIPT)) {
+    if (TRANSCRIPT && fs11.existsSync(TRANSCRIPT)) {
       const lines = readTail(TRANSCRIPT, 262144).split("\n").filter(Boolean).slice(-80);
       for (const line of lines) {
         let ev;
@@ -3390,11 +3638,11 @@ function assembleLayout(p, sh, override) {
         const b = body.trim();
         return b ? `${MUT}[${lbl}${R}${b}${MUT}]${R}` : "";
       };
-      const join5 = (...xs) => xs.filter((x) => x).join(" ");
+      const join6 = (...xs) => xs.filter((x) => x).join(" ");
       return [
-        join5(sect("", p.LEAD), sect("model: ", p.MODEL_DISPLAY), sect("", p.CLOCK_SEG)),
-        join5(sect("ctx: ", `${p.BAR} ${p.PCT_SEG}`), sect("", p.USAGE_SEG)),
-        join5(sect("", p.DIR_SEG), sect("git: ", p.GIT_SEG), sect("", p.NAME), sect("cost: ", p.COST_SEG), sect("age: ", p.AGE_SEG))
+        join6(sect("", p.LEAD), sect("model: ", p.MODEL_DISPLAY), sect("", p.CLOCK_SEG)),
+        join6(sect("ctx: ", `${p.BAR} ${p.PCT_SEG}`), sect("", p.USAGE_SEG)),
+        join6(sect("", p.DIR_SEG), sect("git: ", p.GIT_SEG), sect("", p.NAME), sect("cost: ", p.COST_SEG), sect("age: ", p.AGE_SEG))
       ].filter((l) => l);
     }
     default:
@@ -3426,8 +3674,7 @@ function applyFrame(lines, mode) {
 }
 
 // src/build.ts
-function build() {
-  const data = readInput();
+function build(data) {
   if (resolveBranchTheme(data))
     rebuildTheme();
   const ws = data.workspace || {};
@@ -3477,7 +3724,7 @@ function build() {
   const SEP = cfg.separator ? ` ${st("separator", cfg.separator)} ` : "  ";
   let SYS_SEG = "";
   if (cfg.sysinfo) {
-    const la = os8.loadavg()[0];
+    const la = os9.loadavg()[0];
     if (la > 0)
       SYS_SEG = `${st("sysinfo", `\u21AF${la.toFixed(2)}`)} `;
   }
@@ -3575,22 +3822,22 @@ function build() {
     } catch {
     }
   }
-  if (kickRefresh) {
+  if (kickRefresh && !refreshInFlight(CWD)) {
+    const unnote = noteSpawn("git-refresh");
     try {
-      const child = (0, import_child_process5.spawn)(process.execPath, [__filename, "--git-refresh"], {
+      const arg = JSON.stringify({ session_id: data.session_id, transcript_path: data.transcript_path, workspace: { current_dir: CWD } });
+      const child = (0, import_child_process6.spawn)(process.execPath, [__filename, "--git-refresh", arg], {
         detached: true,
         windowsHide: true,
-        stdio: ["pipe", "ignore", "ignore"],
+        stdio: "ignore",
         env: process.env
       });
-      if (child.stdin) {
-        child.stdin.write(JSON.stringify(data));
-        child.stdin.end();
-      }
       child.on("error", () => {
+        unnote();
       });
       child.unref();
     } catch {
+      unnote();
     }
   }
   return BELL + [...runLines, ...lines].join("\n") + "\n";
@@ -3612,10 +3859,16 @@ else if (cliArg === "--run-clear")
   runRunClear(process.argv.slice(3));
 else if (cliArg === "--watch")
   runWatch(process.argv.slice(3));
-else if (cliArg === "--hook")
-  runHook();
-else if (cliArg === "--git-refresh") {
-  refreshGitCache(readInput());
+else if (cliArg === "--hook") {
+  exitAfter(RENDER_BUDGET_MS);
+  void runHook();
+} else if (cliArg === "--git-refresh") {
+  exitAfter(REFRESH_BUDGET_MS);
+  void (async () => {
+    const data = process.argv[3] ? parseInput(process.argv[3]) : await readInput();
+    refreshGitCache(data, REFRESH_WAIT_MS);
+    clearAndReapNotes("git-refresh", "--git-refresh");
+  })();
 } else if (cliArg && cliArg.startsWith("-")) {
   process.stdout.write(`claude-statusline \u2014 a statusline command for Claude Code.
 
@@ -3638,11 +3891,17 @@ Commands:
 Configure via ~/.claude/statusline.json (or $SL_CONFIG) \u2014 see the README.
 `);
 } else {
-  try {
-    const out = build();
-    process.stdout.write(cfg.tmuxPassthrough ? `\x1BPtmux;${out.replace(/\x1b/g, "\x1B\x1B")}\x1B\\` : out);
-  } catch (e) {
-    process.stdout.write(`${DIM}claude-statusline: ${e && e.message || "error"}${R}
-`);
-  }
+  exitAfter(RENDER_BUDGET_MS);
+  void (async () => {
+    let out;
+    try {
+      out = build(await readInput());
+      if (cfg.tmuxPassthrough)
+        out = `\x1BPtmux;${out.replace(/\x1b/g, "\x1B\x1B")}\x1B\\`;
+    } catch (e) {
+      out = `${DIM}claude-statusline: ${e && e.message || "error"}${R}
+`;
+    }
+    process.stdout.write(out);
+  })();
 }

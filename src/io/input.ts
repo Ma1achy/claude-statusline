@@ -2,12 +2,17 @@
 // huge/absent stdin or a multi-MB transcript is a safe "" rather than a slow tick.
 import * as fs from 'fs';
 import type { StatuslineInput } from '../types';
+import { readStdin, STDIN_TIMEOUT_MS } from './proc';
+
+export function parseInput(input: string): StatuslineInput {
+  try { return (JSON.parse(input) as StatuslineInput) || {}; } catch { return {}; }
+}
 
 // Parse the Claude Code JSON from stdin (shared by the renderer and the git refresher).
-export function readInput(): StatuslineInput {
-  let input = '';
-  try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
-  try { return (JSON.parse(input) as StatuslineInput) || {}; } catch { return {}; }
+// Never a blocking readFileSync(0): a pipe that is never closed would hang the
+// process for ever, so the read gives up after STDIN_TIMEOUT_MS.
+export async function readInput(timeoutMs: number = STDIN_TIMEOUT_MS): Promise<StatuslineInput> {
+  return parseInput(await readStdin(timeoutMs));
 }
 
 // Read only the last `maxBytes` of a file (the tail), as a bounded alternative to

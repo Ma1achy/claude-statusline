@@ -47,7 +47,7 @@ const now = (): number => cfg.nowMs;
 const fresh = (): SessionState => ({ v: 1, updated: 0, spark: [], compactions: 0 });
 
 // FNV-1a — a tiny stable hash so transcript paths key a state file without `crypto`.
-function hash(s: string): string {
+export function hash(s: string): string {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
   return h.toString(16);

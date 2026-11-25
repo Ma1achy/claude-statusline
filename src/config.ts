@@ -190,7 +190,7 @@ export function resolveBranchTheme(input: StatuslineInput): boolean {
   if (cfg.autoTheme !== 'branch') return false;
   try {
     const cwd = (input && input.workspace && input.workspace.current_dir) || '';
-    const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    const br = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'], 1000);   // render path: keep it short
     const bt = cfg.branchThemes || {};
     let name = '';
     if (/^(main|master)$/i.test(br)) name = bt.main || 'nord';

@@ -13,6 +13,7 @@ import { median } from './insight';
 import { parseRunArgs, mergeRun, pauseBook, slug, watchRead, type RunFile, type WatchSpec } from './runs';
 import { readRuns, readRunFile, writeJsonAtomic, pidAlive } from './io/runs';
 import { readTail } from './io/input';
+import { readStdin, lockFile, claimLock, touchLock } from './io/proc';
 
 const SAMPLE = JSON.stringify({
   session_id: 'preview',
@@ -28,7 +29,7 @@ const SAMPLE = JSON.stringify({
 function renderBar(env: Record<string, string>): string {
   try {
     const out = execFileSync(process.execPath, [process.argv[1]], {
-      input: SAMPLE, encoding: 'utf8',
+      input: SAMPLE, encoding: 'utf8', timeout: 10000, windowsHide: true,
       env: { ...process.env, COLUMNS: '120', SL_FRAME_MS: '1700000000123', SL_COLOR_MODE: 'truecolor', ...env },
     });
     return out.split('\n')[1] || '';
@@ -54,7 +55,7 @@ export function runDoctor(): void {
   const ct = (process.env.COLORTERM || '').toLowerCase();
   const truecolor = ct.includes('truecolor') || ct.includes('24bit');
   let gitVer = '';
-  try { gitVer = execFileSync('git', ['--version'], { encoding: 'utf8' }).trim(); } catch { /* no git */ }
+  try { gitVer = execFileSync('git', ['--version'], { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim(); } catch { /* no git */ }
   line('node', process.version);
   line('truecolor', `${ok(truecolor)} ${DIM}(COLORTERM=${process.env.COLORTERM || 'unset'})${R}`);
   line('resolved mode', cfg.colorMode);
@@ -175,7 +176,7 @@ const sleepMs = (ms: number): void => { Atomics.wait(new Int32Array(new SharedAr
 
 function writersOf(file: string): number[] {
   try {
-    return execFileSync('lsof', ['-t', '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 })
+    return execFileSync('lsof', ['-t', '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, windowsHide: true })
       .split(/\s+/).map(Number).filter((n) => n > 0 && n !== process.pid);
   } catch { return []; }
 }
@@ -206,10 +207,16 @@ export function runWatch(argv: string[]): void {
     else { process.stderr.write(`--watch: unknown flag ${k}\n`); process.exitCode = 2; return; }
   }
   pids = pids.filter((n) => Number.isFinite(n) && n > 0);
+  // One watcher per log: a second --watch on the same file (the hook firing twice,
+  // or a hand-started one) leaves it to the first. The lock goes stale only if the
+  // holder stops touching it, which a live watcher does every tick.
+  const lock = lockFile('watch', path.resolve(log));
+  if (!claimLock(lock, Math.max(600, 3 * every) * 1000)) return;
   if (!pids.length) for (let t = 0; t < 5 && !pids.length; t++) { pids = writersOf(log); if (!pids.length) sleepMs(1000); }
   const file = path.join(cfg.runs.dir, `${slug(spec.name)}.json`);
   const quietMs = (cfg.runs.staleAfter + cfg.runs.linger) * 1000;
   let gone = false;
+  const startedAt = Date.now();
   // what the run was before this watch: a paused run picked up again is a resume
   let prev: RunFile | null = readRunFile(file);
   for (;;) {
@@ -225,12 +232,15 @@ export function runWatch(argv: string[]): void {
     if (pids.length) {
       if (gone) { write('done'); return; }
       if (!pids.some(pidAlive)) { gone = true; continue; }
-    } else {
-      let mtime = 0;
-      try { mtime = fs.statSync(log).mtimeMs; } catch { /* not there yet */ }
-      if (mtime && now - mtime > quietMs) return;
     }
+    // A log quiet past staleAfter + linger ends the watch even while a pid looks
+    // alive (pids are reused; a wedged job is shown stale by then anyway). A log
+    // that never appears ends it too, once that long has passed.
+    let mtime = 0;
+    try { mtime = fs.statSync(log).mtimeMs; } catch { /* not there yet */ }
+    if (now - (mtime || startedAt) > quietMs) return;
     write('running');
+    touchLock(lock);
     sleepMs(every * 1000);
   }
 }
@@ -240,9 +250,9 @@ export function runWatch(argv: string[]): void {
 // command's description), so every background job gets a bar unasked. Silent, and
 // always exits 0: a hook must never get in the tool's way. SL_HOOK_DEBUG=<file>
 // keeps the last payload for inspection.
-export function runHook(): void {
+export async function runHook(): Promise<void> {
   try {
-    const raw = fs.readFileSync(0, 'utf8');
+    const raw = await readStdin();
     if (process.env.SL_HOOK_DEBUG) fs.writeFileSync(process.env.SL_HOOK_DEBUG, raw);
     const ev = JSON.parse(raw) as { tool_name?: string; tool_input?: Record<string, unknown>; tool_response?: unknown };
     const inp = ev.tool_input || {};
@@ -263,6 +273,8 @@ export function runHook(): void {
     const desc = typeof inp.description === 'string' && inp.description.trim() ? inp.description : String(inp.command || 'background job');
     const args = [process.argv[1], '--watch', out, '--name', desc.slice(0, 48)];
     if (pid) args.push('--pid', String(pid));
-    spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref();
+    const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', () => { /* no watcher, no harm */ });
+    child.unref();
   } catch { /* never block the tool */ }
 }

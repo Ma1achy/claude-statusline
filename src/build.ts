@@ -9,8 +9,9 @@ import { fmtK } from './format';
 import { cfg, resolveBranchTheme } from './config';
 import { rebuildTheme } from './themes';
 import { st, glyphFor } from './style';
-import { readInput } from './io/input';
-import { readGit } from './io/gitcache';
+import { readGit, refreshInFlight } from './io/gitcache';
+import { noteSpawn } from './io/proc';
+import type { StatuslineInput } from './types';
 import { readAccountName, readAutocompact } from './io/settings';
 import { persistTick } from './io/tick';
 import { displayPath } from './segments/path';
@@ -34,8 +35,7 @@ import { applyWashes } from './render/recolor';
 import { assembleLayout } from './render/layout';
 import { applyFrame } from './render/frame';
 
-export function build(): string {
-  const data = readInput();
+export function build(data: StatuslineInput): string {
 
   // Branch auto-theming resolves the theme from git at render time (not at import);
   // rebuild the theme only when it actually changed cfg.themeName.
@@ -187,15 +187,20 @@ export function build(): string {
   // next tick. Detached + unref'd so it outlives this (cancellable) render — the
   // mechanism that lets the cache populate at all when a render gets cancelled at
   // the refreshInterval boundary. Best-effort: any failure just means stale git.
-  if (kickRefresh) {
+  // Not while a refresher already holds this repo (one in flight per repo). What it
+  // needs travels in argv, not a stdin pipe, so nothing can leave it waiting on one;
+  // the spawn note lets a later refresher reap it if this render is killed between
+  // creating the child and starting it (Windows creates children suspended).
+  if (kickRefresh && !refreshInFlight(CWD)) {
+    const unnote = noteSpawn('git-refresh');
     try {
-      const child = spawn(process.execPath, [__filename, '--git-refresh'], {
-        detached: true, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'], env: process.env,
+      const arg = JSON.stringify({ session_id: data.session_id, transcript_path: data.transcript_path, workspace: { current_dir: CWD } });
+      const child = spawn(process.execPath, [__filename, '--git-refresh', arg], {
+        detached: true, windowsHide: true, stdio: 'ignore', env: process.env,
       });
-      if (child.stdin) { child.stdin.write(JSON.stringify(data)); child.stdin.end(); }
-      child.on('error', () => { /* spawn failed → git just stays stale */ });
+      child.on('error', () => { unnote(); /* spawn failed → git just stays stale */ });
       child.unref();
-    } catch { /* best-effort */ }
+    } catch { unnote(); /* best-effort */ }
   }
 
   return BELL + [...runLines, ...lines].join('\n') + '\n';
