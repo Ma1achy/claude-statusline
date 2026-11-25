@@ -1,6 +1,7 @@
 // ANSI attributes + width-aware layout. Accent colours live in themes.ts
 // (they're theme-dependent); these are the static attributes and helpers.
 import { execFileSync } from 'child_process';
+import { isatty } from 'tty';
 import { env } from './util';
 import { cfg } from './config';
 import type { RGB } from './types';
@@ -75,20 +76,25 @@ export const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '')
 export const printLen = (s: string): number =>
   Array.from(stripAnsi(s).replace(/[︀-️]/g, '')).length;
 
+let colsMemo = 0;
 export function termCols(): number {
   // `tput cols` first (reads the controlling terminal even when stdout is piped,
   // as Claude Code does); then a TTY stdout; then $COLUMNS; then a default.
-  // tput is absent on Windows PowerShell (throws) → we fall through.
+  // tput is absent on Windows PowerShell (throws) → we fall through. Asked once
+  // per process (a render calls this several times), and never waited on long.
+  // Its stdin is the terminal only when ours is one: handed a pipe Claude Code has
+  // not closed, Git for Windows' tput waits on it.
+  if (colsMemo) return colsMemo;
   let c = 0;
   try {
     c = parseInt(
-      execFileSync('tput', ['cols'], { encoding: 'utf8', stdio: ['inherit', 'pipe', 'ignore'], windowsHide: true }),
+      execFileSync('tput', ['cols'], { encoding: 'utf8', stdio: [isatty(0) ? 'inherit' : 'ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 1000 }),
       10,
     );
   } catch { /* no tput */ }
   if (!c) c = process.stdout.columns || parseInt(env('COLUMNS', ''), 10) || 120;
   if (!Number.isFinite(c) || c < 20) c = 120;
-  return c;
+  return (colsMemo = c);
 }
 
 /** "left … right" right-flushed to the terminal width (minus the gutter margin). */

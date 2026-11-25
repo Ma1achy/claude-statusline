@@ -4,7 +4,8 @@
 // the set of git commands (cache keys) can never drift between them.
 import * as fs from 'fs';
 import * as path from 'path';
-import { gitOut, countLines } from '../git';
+import { gitRun, countLines, GIT_TIMEOUT_MS } from '../git';
+import { lockFile, lockHeld, claimLock, releaseLock, REFRESH_LOCK_STALE_MS, REFRESH_GIT_DEADLINE_MS } from './proc';
 import { cfg } from '../config';
 import { idiv } from '../util';
 import { sessionKey, readState, writeState } from '../state';
@@ -65,15 +66,40 @@ export function readGit(CWD: string, gc: (args: string[]) => string): GitInfo {
   return g;
 }
 
+// The one lock a refresher holds for its repo: two refreshers never run git on the
+// same working dir at once, whichever sessions kicked them.
+export const refreshLock = (cwd: string): string => lockFile('git-refresh', cwd);
+
+/** Should a render kick a refresher for `cwd`? Not while one is already at work. */
+export function refreshInFlight(cwd: string): boolean {
+  return lockHeld(refreshLock(cwd), REFRESH_LOCK_STALE_MS);
+}
+
+class GitGaveUp extends Error {}
+
 // The detached `--git-refresh` child: exec git off the hot path and write the
 // cache for the next foreground tick. No output, no segment work — just git.
-export function refreshGitCache(data: StatuslineInput): void {
+// Returns false when it did nothing (another refresher held the repo for all of
+// `waitMs`, or git timed out — the previous cache is kept rather than overwritten
+// with blanks).
+export function refreshGitCache(data: StatuslineInput, waitMs = 0, deadlineMs: number = REFRESH_GIT_DEADLINE_MS): boolean {
   const CWD = (data.workspace && data.workspace.current_dir) || '';
+  if (!CWD) return false;
+  const until = Date.now() + waitMs;
+  while (!claimLock(refreshLock(CWD), REFRESH_LOCK_STALE_MS)) {
+    if (Date.now() >= until) return false;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);   // the holder is usually done in ms
+  }
   const gitMemo: Record<string, string> = {};
+  const deadline = Date.now() + deadlineMs;
   const gc = (args: string[]): string => {
     const key = args.join(' ');
     if (key in gitMemo) return gitMemo[key];
-    const v = gitOut(CWD, args); gitMemo[key] = v; return v;
+    const left = deadline - Date.now();
+    if (left <= 0) throw new GitGaveUp();
+    const r = gitRun(CWD, args, Math.min(GIT_TIMEOUT_MS, left));
+    if (r.timedOut) throw new GitGaveUp();
+    gitMemo[key] = r.out; return r.out;
   };
   try {
     const sk = sessionKey(data);
@@ -81,5 +107,7 @@ export function refreshGitCache(data: StatuslineInput): void {
     const st = readState(sk);                 // merge into the foreground's latest spark/eta
     st.git = { cwd: CWD, ts: cfg.nowMs, data: gitMemo };
     writeState(sk, st);
-  } catch { /* refresh is best-effort */ }
+    return true;
+  } catch { return false; /* refresh is best-effort; a hung git keeps the old cache */ }
+  finally { releaseLock(refreshLock(CWD)); }
 }
